@@ -1,0 +1,3839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Disable caching during dev — `python -m http.server` doesn't set
+     Cache-Control, so without this the browser holds onto stale JS
+     and CSS across edits, surfacing as "Failed to fetch" from
+     methods that no longer exist in the cached version. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Lumina — API Tester</title>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
+<style>
+/* ── Fonts ──────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+/* ── Design tokens ──────────────────────────────────────────────── */
+:root {
+  --bg:         #0a0b0f;
+  --bg2:        #111318;
+  --bg3:        #181c24;
+  --bg4:        #1e2330;
+  --border:     #252b38;
+  --border2:    #2e3547;
+  --text:       #e2e8f0;
+  --text2:      #8b97b0;
+  --text3:      #4a5568;
+  --accent:     #4fffb0;
+  --accent2:    #00d4ff;
+  --warn:       #ffb347;
+  --danger:     #ff5f6d;
+  --success:    #4fffb0;
+  --mono:       'Space Mono', monospace;
+  --sans:       'DM Sans', sans-serif;
+  --radius:     6px;
+  --radius2:    10px;
+}
+
+/* ── Reset ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 260px 1fr 340px;
+  grid-template-rows: 52px 1fr;
+  grid-template-areas:
+    "header header header"
+    "nav    main   log";
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+header {
+  grid-area: header;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 16px;
+  position: relative;
+}
+.logo {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: .08em;
+}
+.logo span { color: var(--text2); font-weight: 400; }
+.header-sep { flex: 1; }
+.api-url-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 4px 4px 4px 10px;
+}
+.api-url-label { font-size: 10px; color: var(--text3); font-family: var(--mono); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+#apiBaseUrl {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--accent2);
+  font-family: var(--mono);
+  font-size: 12px;
+  width: 280px;
+}
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text3);
+  transition: background .3s;
+}
+.status-dot.ok { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.status-dot.err { background: var(--danger); }
+.btn-ping {
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  letter-spacing: .04em;
+  transition: all .15s;
+}
+.btn-ping:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Local/Cloud env toggle ──────────────────────────────────────── */
+.env-toggle {
+  display: inline-flex;
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  overflow: hidden;
+  padding: 2px;
+  gap: 1px;
+}
+.env-toggle button {
+  background: transparent;
+  border: none;
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: .08em;
+  transition: all .15s;
+  position: relative;
+}
+.env-toggle button:hover { color: var(--text2); }
+.env-toggle button.active {
+  background: var(--bg2);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.env-toggle button.active.cloud { color: var(--accent2); }
+.env-toggle button .env-dot {
+  display: inline-block;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: 1px;
+  background: var(--text3);
+}
+.env-toggle button.active .env-dot { background: currentColor; box-shadow: 0 0 6px currentColor; }
+
+/* ── Nav ────────────────────────────────────────────────────────── */
+nav {
+  grid-area: nav;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 12px 0;
+}
+.nav-section { padding: 8px 16px 4px; font-size: 9px; text-transform: uppercase; letter-spacing: .1em; color: var(--text3); font-family: var(--mono); }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background .12s;
+  border-left: 2px solid transparent;
+  user-select: none;
+}
+.nav-item:hover { background: var(--bg3); }
+.nav-item.active { background: var(--bg3); border-left-color: var(--accent); }
+.nav-method {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+  min-width: 34px;
+  text-align: center;
+}
+.GET  { background: rgba(0, 212, 255, .12); color: var(--accent2); }
+.POST { background: rgba(79, 255, 176, .12); color: var(--accent); }
+.DEL  { background: rgba(255, 95, 109, .12); color: var(--danger); }
+.nav-path { font-family: var(--mono); font-size: 11px; color: var(--text); }
+.nav-label { font-size: 11px; color: var(--text2); margin-left: auto; }
+
+/* ── Main ───────────────────────────────────────────────────────── */
+main {
+  grid-area: main;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Panels ─────────────────────────────────────────────────────── */
+.panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius2);
+  /* `flex-shrink: 0` keeps each panel at its natural size so the
+     parent <main> can scroll. Without it, flex distributes the
+     panels into the viewport and clips their content. */
+  flex-shrink: 0;
+  /* Don't clip overflowing children — main's overflow-y: auto handles
+     scrolling. Previous `overflow: hidden` was hiding the bottom of
+     tall panels (Quick Login response box etc). */
+  overflow: visible;
+}
+.panel-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.panel-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.panel-desc { font-size: 11px; color: var(--text2); margin-left: auto; }
+.panel-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Active panel */
+.endpoint-panel { display: none; }
+.endpoint-panel.visible { display: flex; flex-direction: column; gap: 16px; }
+
+/* ── Config panel ───────────────────────────────────────────────── */
+.config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.config-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+/* ── Form elements ──────────────────────────────────────────────── */
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--text3); font-family: var(--mono); }
+.field input, .field select, .field textarea {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 8px 10px;
+  outline: none;
+  transition: border-color .15s;
+  width: 100%;
+}
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
+.field input::placeholder { color: var(--text3); }
+.field textarea { resize: vertical; min-height: 60px; font-size: 11px; line-height: 1.6; }
+.field select option { background: var(--bg3); }
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+.btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 9px 20px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all .15s;
+  letter-spacing: .04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-primary { background: var(--accent); color: #0a0b0f; border-color: var(--accent); }
+.btn-primary:hover { background: #3de89a; }
+.btn-secondary { background: transparent; color: var(--text2); border-color: var(--border2); }
+.btn-secondary:hover { border-color: var(--accent2); color: var(--accent2); }
+.btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+.btn-danger:hover { background: rgba(255,95,109,.1); }
+.btn-google {
+  background: #fff;
+  color: #1a1a1a;
+  border-color: #dadce0;
+  font-family: var(--sans);
+  font-weight: 500;
+}
+.btn-google:hover { background: #f8f8f8; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ── Response box ───────────────────────────────────────────────── */
+.response-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.7;
+  min-height: 60px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text2);
+  max-height: 280px;
+  overflow-y: auto;
+  position: relative;
+}
+.response-box.success { border-color: rgba(79,255,176,.3); }
+.response-box.error { border-color: rgba(255,95,109,.3); color: var(--danger); }
+.response-box.loading { color: var(--text3); }
+.response-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text3);
+  font-family: var(--mono);
+  margin-bottom: 6px;
+}
+.http-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 6px;
+}
+.http-2xx { background: rgba(79,255,176,.15); color: var(--accent); }
+.http-4xx { background: rgba(255,179,71,.15); color: var(--warn); }
+.http-5xx { background: rgba(255,95,109,.15); color: var(--danger); }
+
+/* ── Token store ────────────────────────────────────────────────── */
+.token-store {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.token-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.token-row:last-child { margin-bottom: 0; }
+.token-key { color: var(--text3); min-width: 80px; }
+.token-val { color: var(--accent2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; max-width: 260px; }
+.token-copy {
+  background: var(--bg4);
+  border: 1px solid var(--border);
+  color: var(--text3);
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--mono);
+}
+.token-copy:hover { color: var(--accent); border-color: var(--accent); }
+.token-empty { color: var(--text3); font-style: italic; }
+
+/* ── Log panel ──────────────────────────────────────────────────── */
+#logPanel {
+  grid-area: log;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.log-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg2);
+}
+.log-title { font-family: var(--mono); font-size: 11px; color: var(--text2); letter-spacing: .06em; text-transform: uppercase; flex: 1; }
+.log-clear { font-family: var(--mono); font-size: 9px; color: var(--text3); cursor: pointer; padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; background: transparent; }
+.log-clear:hover { color: var(--danger); border-color: var(--danger); }
+#logEntries { flex: 1; overflow-y: auto; padding: 8px; }
+.log-entry {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.log-time { color: var(--text3); }
+.log-method { font-weight: 700; margin: 0 4px; }
+.log-url { color: var(--accent2); word-break: break-all; }
+.log-status { font-weight: 700; padding: 0 4px; border-radius: 2px; }
+.log-ok { color: var(--accent); }
+.log-warn { color: var(--warn); }
+.log-err { color: var(--danger); }
+.log-body { color: var(--text2); margin-top: 4px; white-space: pre-wrap; word-break: break-all; max-height: 120px; overflow: hidden; }
+.log-expand { color: var(--text3); cursor: pointer; font-size: 9px; }
+.log-expand:hover { color: var(--accent); }
+
+/* ── Info badge ─────────────────────────────────────────────────── */
+.badge {
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.badge-green { background: rgba(79,255,176,.12); color: var(--accent); }
+.badge-blue  { background: rgba(0,212,255,.12); color: var(--accent2); }
+.badge-amber { background: rgba(255,179,71,.12); color: var(--warn); }
+.badge-red   { background: rgba(255,95,109,.12); color: var(--danger); }
+
+/* ── Divider ────────────────────────────────────────────────────── */
+.divider { border: none; border-top: 1px solid var(--border); }
+
+/* ── Firebase config ────────────────────────────────────────────── */
+.fb-config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ── Welcome state ──────────────────────────────────────────────── */
+#welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+}
+#welcome .big { font-size: 32px; }
+
+/* ── Scrollbar ──────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── Animations ─────────────────────────────────────────────────── */
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.loading-pulse { animation: pulse 1s infinite; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+.fade-in { animation: fadeIn .2s ease; }
+
+/* ── Service tab switcher (Auth / Observability) ────────────────── */
+.svc-tabs {
+  display: flex;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 3px;
+  gap: 2px;
+}
+.svc-tab {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text2);
+  border: none;
+  background: transparent;
+  transition: all .12s;
+}
+.svc-tab:hover { color: var(--text); }
+.svc-tab.active { background: var(--bg); color: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.svc-tab .svc-tab-sub { display: block; font-size: 8px; font-weight: 400; color: var(--text3); letter-spacing: .04em; margin-top: 1px; }
+.svc-tab.active .svc-tab-sub { color: var(--text2); }
+
+/* Service scoping — N-way. Any data-service that doesn't match the
+   body's active data-service is hidden. Lets us add USER (or future
+   services) without rewriting the rule each time. */
+body[data-service="auth"]       [data-service]:not([data-service="auth"]),
+body[data-service="obs"]        [data-service]:not([data-service="obs"]),
+body[data-service="user"]       [data-service]:not([data-service="user"]),
+body[data-service="instrument"] [data-service]:not([data-service="instrument"]) {
+  display: none !important;
+}
+
+/* INT badge for internal-only endpoints */
+.INT { background: rgba(255,179,71,.12); color: var(--warn); }
+/* USER badge — purple-ish to distinguish at a glance */
+.USR { background: rgba(180,140,255,.14); color: #b48cff; }
+/* INSTR badge — teal to distinguish instrument service */
+.INSTR { background: rgba(0,212,180,.12); color: #00d4b4; }
+
+/* Onboarding checkbox tile (user-api PATCH /me/onboarding) */
+.ob-chk {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 11px;
+  padding: 6px 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  cursor: pointer;
+  user-select: none;
+}
+.ob-chk:hover { border-color: var(--accent); }
+.ob-chk input[type=checkbox] { margin: 0; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">LUMINA <span>/ API TESTER</span></div>
+  <div style="font-family:var(--mono);font-size:10px;color:var(--text3);background:var(--bg3);padding:3px 8px;border-radius:3px;border:1px solid var(--border)">lumina-nyaas</div>
+
+  <!-- Service switcher: Auth ⇄ Observability ⇄ User API -->
+  <div class="svc-tabs" role="tablist">
+    <button class="svc-tab active" id="tab-auth" onclick="switchService('auth')" role="tab" aria-selected="true">
+      AUTH<span class="svc-tab-sub">/v1/auth/*</span>
+    </button>
+    <button class="svc-tab" id="tab-obs" onclick="switchService('obs')" role="tab" aria-selected="false">
+      OBSERVABILITY<span class="svc-tab-sub">/api/v1/*</span>
+    </button>
+    <button class="svc-tab" id="tab-user" onclick="switchService('user')" role="tab" aria-selected="false">
+      USER API<span class="svc-tab-sub">/api/v1/users/*</span>
+    </button>
+    <button class="svc-tab" id="tab-instrument" onclick="switchService('instrument')" role="tab" aria-selected="false">
+      INSTRUMENT<span class="svc-tab-sub">/api/v1/instrument/*</span>
+    </button>
+  </div>
+
+  <div class="header-sep"></div>
+  <div class="env-toggle" role="tablist" aria-label="Environment">
+    <button type="button" id="envBtnLocal" class="active" onclick="switchEnv('local')" title="Use the local base URL">
+      <span class="env-dot"></span>LOCAL
+    </button>
+    <button type="button" id="envBtnCloud" class="cloud" onclick="switchEnv('cloud')" title="Use the cloud base URL">
+      <span class="env-dot"></span>CLOUD
+    </button>
+  </div>
+  <div class="api-url-group">
+    <span class="api-url-label" id="apiUrlLabel">API</span>
+    <input id="apiBaseUrl" type="text" value="http://localhost:8001" placeholder="https://your-api.run.app" spellcheck="false">
+    <div class="status-dot" id="statusDot"></div>
+    <button class="btn-ping" onclick="pingHealth()">PING</button>
+  </div>
+</header>
+
+<!-- ── Nav ────────────────────────────────────────────────────── -->
+<nav>
+  <!-- ═══ AUTH SERVICE ═══ -->
+  <div class="nav-section" data-service="auth">⚙ Config</div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('config')">
+    <span class="nav-method" style="background:rgba(255,179,71,.12);color:var(--warn)">CFG</span>
+    <span class="nav-path">Firebase Setup</span>
+  </div>
+
+  <div class="nav-section" data-service="auth">◎ Health</div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('health')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('healthReady')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health/ready</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('jwks')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/.well-known/jwks</span>
+  </div>
+
+  <div class="nav-section" data-service="auth">📱 Phone OTP</div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('otpRequest')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/otp/request</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('otpVerify')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/otp/verify</span>
+  </div>
+
+  <div class="nav-section" data-service="auth">🔥 Firebase OAuth</div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('googleLogin')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">Google Login</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('fbExchange')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/firebase/exchange</span>
+  </div>
+
+  <div class="nav-section" data-service="auth">🔑 Token Mgmt</div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('tokenRefresh')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/token/refresh</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('logout')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/logout</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('me')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/me</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('sessions')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/sessions</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('revokeSession')">
+    <span class="nav-method DEL">DEL</span>
+    <span class="nav-path">/sessions/{id}</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('jwtInspector')">
+    <span class="nav-method" style="background:rgba(255,179,71,.12);color:var(--warn)">JWT</span>
+    <span class="nav-path">Inspect access token</span>
+  </div>
+
+  <div class="nav-section" data-service="auth">🔗 Account</div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('linkProvider')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/account/link</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('listProviders')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/account/providers</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('unlinkProvider')">
+    <span class="nav-method DEL">DEL</span>
+    <span class="nav-path">/account/unlink</span>
+  </div>
+
+  <div class="nav-section" data-service="auth">📤 Upload</div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('uploadRequest')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/upload/request</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('uploadConfirm')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/upload/confirm</span>
+  </div>
+  <div class="nav-item" data-service="auth" onclick="showPanel('uploadStatus')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/upload/{id}/status</span>
+  </div>
+
+  <!-- ═══ OBSERVABILITY SERVICE ═══ -->
+  <div class="nav-section" data-service="obs">🔐 Login</div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsQuickLogin')">
+    <span class="nav-method" style="background:rgba(0,212,255,.12);color:var(--accent2)">AUTH</span>
+    <span class="nav-path">Quick login</span>
+    <span class="nav-label" id="obs-token-indicator" style="font-family:var(--mono);font-size:9px"></span>
+  </div>
+
+  <div class="nav-section" data-service="obs">◎ Health</div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsHealth')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health</span>
+  </div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsHealthReady')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health/ready</span>
+  </div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsHealthLive')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health/live</span>
+  </div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsMetrics')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/metrics</span>
+  </div>
+
+  <div class="nav-section" data-service="obs">📥 Ingest</div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsEvents')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/events</span>
+  </div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsLogs')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/logs</span>
+  </div>
+
+  <div class="nav-section" data-service="obs">🔒 Internal (VPC)</div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsInternalConfig')">
+    <span class="nav-method INT">INT</span>
+    <span class="nav-path">Internal JWT</span>
+  </div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsReplay')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/events/replay</span>
+  </div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsBackfill')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/events/backfill</span>
+  </div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsAudit')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/scoring/audit/{id}</span>
+  </div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsAttention')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/content/attention/{id}</span>
+  </div>
+  <div class="nav-item" data-service="obs" onclick="showPanel('obsLogsQuery')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/logs/query</span>
+    <span class="nav-label" style="font-family:var(--mono);font-size:9px;color:var(--accent)">read GCP</span>
+  </div>
+
+  <!-- ═══ USER API SERVICE ═══ -->
+  <div class="nav-section" data-service="user">◎ Health</div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userHealth')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userHealthReady')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health/ready</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userHealthLive')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health/live</span>
+  </div>
+
+  <div class="nav-section" data-service="user">👤 Profile</div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userProfileComplete')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/profile/complete</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userMe')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/me</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userMePatch')">
+    <span class="nav-method" style="background:rgba(255,179,71,.14);color:var(--warn)">PATCH</span>
+    <span class="nav-path">/me</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userMeDelete')">
+    <span class="nav-method DEL">DEL</span>
+    <span class="nav-path">/me</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userMeReactivate')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/me/reactivate</span>
+    <span class="nav-label" style="font-family:var(--mono);font-size:9px;color:var(--text3)">stub</span>
+  </div>
+
+  <div class="nav-section" data-service="user">🚦 Onboarding</div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userOnboardingGet')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/me/onboarding</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userOnboardingPatch')">
+    <span class="nav-method" style="background:rgba(255,179,71,.14);color:var(--warn)">PATCH</span>
+    <span class="nav-path">/me/onboarding</span>
+  </div>
+
+  <div class="nav-section" data-service="user">⏳ Stubs</div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userPreferences')">
+    <span class="nav-method" style="background:rgba(255,179,71,.14);color:var(--warn)">PATCH</span>
+    <span class="nav-path">/me/preferences</span>
+    <span class="nav-label" style="font-family:var(--mono);font-size:9px;color:var(--text3)">501</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userMood')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/me/mood</span>
+    <span class="nav-label" style="font-family:var(--mono);font-size:9px;color:var(--text3)">501</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userWallet')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/me/wallet</span>
+    <span class="nav-label" style="font-family:var(--mono);font-size:9px;color:var(--text3)">501</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userPhoto')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/me/photo</span>
+    <span class="nav-label" style="font-family:var(--mono);font-size:9px;color:var(--text3)">501</span>
+  </div>
+
+  <div class="nav-section" data-service="user">🔒 Internal (VPC)</div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userInternalConfig')">
+    <span class="nav-method INT">INT</span>
+    <span class="nav-path">Internal JWT</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userIntProfile')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/users/{id}/profile</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userIntSegment')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/users/{id}/segment</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userIntTraits')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/users/{id}/traits</span>
+  </div>
+  <div class="nav-item" data-service="user" onclick="showPanel('userIntWalletCredit')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/users/{id}/wallet/credit</span>
+  </div>
+
+  <!-- ═══ INSTRUMENT SERVICE ═══ -->
+  <div class="nav-section" data-service="instrument">◎ Health</div>
+  <div class="nav-item" data-service="instrument" onclick="showPanel('instHealth')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health</span>
+  </div>
+  <div class="nav-item" data-service="instrument" onclick="showPanel('instHealthReady')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health/ready</span>
+  </div>
+  <div class="nav-item" data-service="instrument" onclick="showPanel('instHealthLive')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/health/live</span>
+  </div>
+
+  <div class="nav-section" data-service="instrument">🎯 Questions</div>
+  <div class="nav-item" data-service="instrument" onclick="showPanel('instNext')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/instrument/next</span>
+  </div>
+  <div class="nav-item" data-service="instrument" onclick="showPanel('instRespond')">
+    <span class="nav-method POST">POST</span>
+    <span class="nav-path">/instrument/respond</span>
+  </div>
+  <div class="nav-item" data-service="instrument" onclick="showPanel('instProgress')">
+    <span class="nav-method GET">GET</span>
+    <span class="nav-path">/instrument/progress</span>
+  </div>
+</nav>
+
+<!-- ── Main ───────────────────────────────────────────────────── -->
+<main id="mainArea">
+
+  <!-- Token Store (always visible at top) -->
+  <div class="panel">
+    <div class="panel-head">
+      <span class="badge badge-green">LIVE</span>
+      <span class="panel-title">Token Store</span>
+      <span class="panel-desc">Auto-populated from successful auth responses</span>
+      <button class="btn btn-danger" style="padding:4px 10px;font-size:10px;margin-left:8px" onclick="clearTokens()">CLEAR</button>
+    </div>
+    <div class="panel-body" style="padding:12px 16px">
+      <div class="token-store">
+        <div class="token-row">
+          <span class="token-key">access_token</span>
+          <span class="token-val" id="ts-access"><em class="token-empty">— not set —</em></span>
+          <button class="token-copy" onclick="copyToken('access')">copy</button>
+        </div>
+        <div class="token-row">
+          <span class="token-key">refresh_token</span>
+          <span class="token-val" id="ts-refresh"><em class="token-empty">— not set —</em></span>
+          <button class="token-copy" onclick="copyToken('refresh')">copy</button>
+        </div>
+        <div class="token-row">
+          <span class="token-key">user_id</span>
+          <span class="token-val" id="ts-userid"><em class="token-empty">— not set —</em></span>
+          <button class="token-copy" onclick="copyToken('userid')">copy</button>
+        </div>
+        <div class="token-row">
+          <span class="token-key">firebase_token</span>
+          <span class="token-val" id="ts-firebase"><em class="token-empty">— not set —</em></span>
+          <button class="token-copy" onclick="copyToken('firebase')">copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Welcome (auth service) -->
+  <div id="welcome" data-service="auth">
+    <div class="big">⬅</div>
+    <div>Select an endpoint from the sidebar</div>
+    <div style="color:var(--text3);font-size:10px">Start with Firebase Setup if using Google OAuth</div>
+  </div>
+
+  <!-- Welcome (observability service) -->
+  <div id="welcome-obs" data-service="obs" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:14px;color:var(--text3);font-family:var(--mono);font-size:12px;text-align:center">
+    <div style="font-size:32px">⬅</div>
+    <div>Observability endpoints</div>
+    <div style="color:var(--text3);font-size:10px;max-width:420px;line-height:1.6">
+      Public ingest (events, logs) needs a Lumina JWT.<br>
+      Internal endpoints need a separate token with <code style="color:var(--accent2)">aud=lumina-internal</code>.
+    </div>
+    <button class="btn btn-primary" style="margin-top:4px" onclick="showPanel('obsQuickLogin')">
+      🔐 GET AUTH TOKEN
+    </button>
+    <div style="color:var(--text3);font-size:10px">— or pick an endpoint from the sidebar —</div>
+  </div>
+
+  <!-- ── Firebase Config ──────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-config">
+    <div class="panel-head">
+      <span class="badge badge-amber">CONFIG</span>
+      <span class="panel-title">Firebase Configuration</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.7;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        ✓ Firebase config for <strong style="color:var(--accent)">lumina-nyaas</strong> is baked in and auto-initialised. Fields below are pre-filled. Click INIT only if switching to a different project.
+      </div>
+      <div class="fb-config-grid">
+        <div class="field"><label>API Key</label><input id="fb-apiKey" placeholder="AIzaSy..." spellcheck="false"></div>
+        <div class="field"><label>Auth Domain</label><input id="fb-authDomain" placeholder="your-project.firebaseapp.com" spellcheck="false"></div>
+        <div class="field"><label>Project ID</label><input id="fb-projectId" placeholder="your-project-id" spellcheck="false"></div>
+        <div class="field"><label>Storage Bucket</label><input id="fb-storageBucket" placeholder="your-project.appspot.com" spellcheck="false"></div>
+        <div class="field"><label>Messaging Sender ID</label><input id="fb-messagingSenderId" placeholder="123456789" spellcheck="false"></div>
+        <div class="field"><label>App ID</label><input id="fb-appId" placeholder="1:123:web:abc" spellcheck="false"></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="initFirebase()">INIT FIREBASE</button>
+        <button class="btn btn-secondary" onclick="loadSavedConfig()">LOAD SAVED</button>
+        <span id="fb-status" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
+      </div>
+      <hr class="divider">
+      <div style="font-size:11px;color:var(--text2)">
+        <strong style="color:var(--warn)">CORS note:</strong> Add <code style="color:var(--accent2)">http://localhost</code> or <code style="color:var(--accent2)">file://</code> to Firebase Console → Authentication → Settings → Authorized domains, and your Cloud Run domain to CORS_ORIGINS_STR.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Health ────────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-health">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/health — Liveness</span>
+      <span class="panel-desc">No auth required</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('health')">SEND</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-health">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="auth" id="panel-healthReady">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/health/ready — Readiness</span>
+      <span class="panel-desc">Checks database connectivity</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('healthReady')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-healthReady">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="auth" id="panel-jwks">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/.well-known/jwks.json</span>
+      <span class="panel-desc">RS256 public key for API Gateway</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('jwks')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-jwks">—</div>
+    </div>
+  </div>
+
+  <!-- ── OTP Request ───────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-otpRequest">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/v1/auth/otp/request</span>
+      <span class="panel-desc">Rate limit: 5/hr per number</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-grid">
+        <div class="field"><label>Phone Number (E.164)</label><input id="otp-phone" placeholder="+94719332272" value="+94719332272"></div>
+        <div class="field"><label>Platform</label>
+          <select id="otp-platform"><option>ios</option><option>android</option><option>web</option></select>
+        </div>
+        <div class="field"><label>Device ID</label><input id="otp-deviceId" placeholder="auto-generated" value="" spellcheck="false"></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('otpRequest')">SEND</button></div>
+
+      <!-- Dev-only OTP banner. Hidden unless the server returns `dev_otp` -->
+      <div id="dev-otp-banner" style="display:none;background:rgba(255,179,71,.12);border:1px solid var(--warn);border-radius:var(--radius);padding:12px 14px">
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--warn);font-family:var(--mono);margin-bottom:6px">⚠ DEV MODE — plaintext OTP from server</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span id="dev-otp-value" style="font-family:var(--mono);font-size:24px;font-weight:700;color:var(--accent);letter-spacing:.12em">——————</span>
+          <button class="btn btn-primary" style="padding:6px 14px;font-size:11px" onclick="useDevOtp()">USE THIS OTP → VERIFY PANEL</button>
+        </div>
+        <div style="font-size:10px;color:var(--text2);margin-top:6px">Production never returns this field. Gated on <code>ENVIRONMENT=development</code> in the auth service.</div>
+      </div>
+
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-otpRequest">—</div>
+    </div>
+  </div>
+
+  <!-- ── OTP Verify ────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-otpVerify">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/v1/auth/otp/verify</span>
+      <span class="panel-desc">Max 3 attempts. Issues Lumina JWT on success.</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-grid">
+        <div class="field"><label>Phone Number</label><input id="verify-phone" placeholder="+94719332272" value="+94719332272"></div>
+        <div class="field"><label>OTP (6 digits)</label><input id="verify-otp" placeholder="123456" maxlength="6"></div>
+        <div class="field"><label>Platform</label>
+          <select id="verify-platform"><option>ios</option><option>android</option><option>web</option></select>
+        </div>
+        <div class="field"><label>Device ID</label><input id="verify-deviceId" placeholder="same as request step" spellcheck="false"></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('otpVerify')">SEND →  SETS TOKENS</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-otpVerify">—</div>
+    </div>
+  </div>
+
+  <!-- ── Google Login ──────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-googleLogin">
+    <div class="panel-head">
+      <span class="badge badge-blue">FIREBASE</span>
+      <span class="panel-title">Google OAuth Login</span>
+      <span class="panel-desc">Firebase popup → Firebase token stored in Token Store</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.7;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Step 1: Click "Sign in with Google" — gets Firebase ID token.<br>
+        Step 2: Go to <strong style="color:var(--accent)">/firebase/exchange</strong> to convert it to a Lumina JWT.
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-google" onclick="signInWithGoogle()">
+          <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+          Sign in with Google
+        </button>
+        <button class="btn btn-secondary" onclick="signOut()">SIGN OUT</button>
+      </div>
+      <div class="response-label">FIREBASE RESPONSE</div>
+      <div class="response-box" id="res-googleLogin">—</div>
+    </div>
+  </div>
+
+  <!-- ── Firebase Exchange ─────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-fbExchange">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/v1/auth/firebase/exchange</span>
+      <span class="panel-desc">Firebase token → Lumina JWT</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-grid">
+        <div class="field" style="grid-column:1/-1">
+          <label>Firebase ID Token (auto-filled from Google Login)</label>
+          <textarea id="exchange-token" placeholder="Paste Firebase ID token, or use Google Login above to auto-fill" rows="3"></textarea>
+        </div>
+        <div class="field"><label>Platform</label>
+          <select id="exchange-platform"><option>ios</option><option>android</option><option>web</option></select>
+        </div>
+        <div class="field"><label>Device ID</label><input id="exchange-deviceId" placeholder="auto-generated" spellcheck="false"></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('fbExchange')">EXCHANGE →  SETS TOKENS</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-fbExchange">—</div>
+    </div>
+  </div>
+
+  <!-- ── Token Refresh ─────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-tokenRefresh">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/v1/auth/token/refresh</span>
+      <span class="panel-desc">Rotates refresh token. Old token immediately invalid.</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-grid">
+        <div class="field" style="grid-column:1/-1">
+          <label>Refresh Token (auto-filled from Token Store)</label>
+          <input id="refresh-token" placeholder="auto-filled from login response" spellcheck="false">
+        </div>
+        <div class="field"><label>Device ID</label><input id="refresh-deviceId" placeholder="same device ID used at login" spellcheck="false"></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="fillRefreshToken()">AUTO-FILL FROM STORE</button>
+        <button class="btn btn-primary" onclick="call('tokenRefresh')">REFRESH →  UPDATES TOKENS</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-tokenRefresh">—</div>
+    </div>
+  </div>
+
+  <!-- ── Logout ────────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-logout">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/v1/auth/logout</span>
+    </div>
+    <div class="panel-body">
+      <div class="field" style="max-width:200px">
+        <label>Logout All Devices?</label>
+        <select id="logout-all"><option value="false">No — current device only</option><option value="true">Yes — all devices</option></select>
+      </div>
+      <div class="btn-row"><button class="btn btn-danger" onclick="call('logout')">SEND LOGOUT</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-logout">—</div>
+    </div>
+  </div>
+
+  <!-- ── Me ───────────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-me">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/v1/auth/me</span>
+      <span class="panel-desc">Requires access token</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('me')">SEND (uses stored access_token)</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-me">—</div>
+    </div>
+  </div>
+
+  <!-- ── Sessions ─────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-sessions">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/v1/auth/sessions</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('sessions')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-sessions">—</div>
+    </div>
+  </div>
+
+  <!-- ── Revoke Session ────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-revokeSession">
+    <div class="panel-head">
+      <span class="badge badge-red">DEL</span>
+      <span class="panel-title">/v1/auth/sessions/{id}</span>
+    </div>
+    <div class="panel-body">
+      <div class="field">
+        <label>Session ID</label>
+        <input id="revoke-sessionId" placeholder="ses_01J..." spellcheck="false">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="fillCurrentSessionId()">USE CURRENT SESSION (from JWT)</button>
+        <button class="btn btn-danger" onclick="call('revokeSession')">REVOKE SESSION</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-revokeSession">—</div>
+    </div>
+  </div>
+
+  <!-- ── JWT Inspector ─────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-jwtInspector">
+    <div class="panel-head">
+      <span class="badge badge-amber">CLIENT</span>
+      <span class="panel-title">JWT Inspector</span>
+      <span class="panel-desc">Decodes header + payload client-side. No signature check, no API call.</span>
+    </div>
+    <div class="panel-body">
+      <div class="field">
+        <label>Access Token (auto-filled from Token Store)</label>
+        <textarea id="jwt-input" placeholder="paste JWT, or use stored access_token" rows="3" spellcheck="false"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="fillJwtFromStore()">USE STORED ACCESS TOKEN</button>
+        <button class="btn btn-primary" onclick="decodeJWT()">DECODE</button>
+      </div>
+      <div class="response-label">HEADER</div>
+      <div class="response-box" id="res-jwt-header">—</div>
+      <div class="response-label">PAYLOAD</div>
+      <div class="response-box" id="res-jwt-payload">—</div>
+      <div class="response-label">EXPIRY</div>
+      <div class="response-box" id="res-jwt-expiry">—</div>
+    </div>
+  </div>
+
+  <!-- ── Link Provider ─────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-linkProvider">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/v1/auth/account/link/{provider}</span>
+      <span class="panel-desc">Link Google/Apple to an existing account</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-grid">
+        <div class="field"><label>Provider</label>
+          <select id="link-provider"><option>google</option><option>apple</option></select>
+        </div>
+        <div class="field"><label>Authorization Code</label><input id="link-code" placeholder="OAuth authorization code"></div>
+        <div class="field"><label>Code Verifier (PKCE)</label><input id="link-verifier" placeholder="PKCE verifier string"></div>
+        <div class="field"><label>Redirect URI</label><input id="link-redirect" placeholder="lumina://oauth" value="lumina://oauth"></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('linkProvider')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-linkProvider">—</div>
+    </div>
+  </div>
+
+  <!-- ── List Providers ────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-listProviders">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/v1/auth/account/providers</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('listProviders')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-listProviders">—</div>
+    </div>
+  </div>
+
+  <!-- ── Unlink Provider ───────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-unlinkProvider">
+    <div class="panel-head">
+      <span class="badge badge-red">DEL</span>
+      <span class="panel-title">/v1/auth/account/link/{provider}</span>
+      <span class="panel-desc">Cannot remove last provider</span>
+    </div>
+    <div class="panel-body">
+      <div class="field" style="max-width:200px">
+        <label>Provider</label>
+        <select id="unlink-provider"><option>google</option><option>apple</option><option>otp_phone</option></select>
+      </div>
+      <div class="btn-row"><button class="btn btn-danger" onclick="call('unlinkProvider')">UNLINK</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-unlinkProvider">—</div>
+    </div>
+  </div>
+
+  <!-- ── Upload Request ────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-uploadRequest">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/v1/upload/request</span>
+      <span class="panel-desc">Get signed GCS URL for direct upload</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-grid">
+        <div class="field"><label>Question ID</label><input id="upload-questionId" placeholder="Q33" value="Q33"></div>
+        <div class="field"><label>Session ID</label><input id="upload-sessionId" placeholder="ses_01J..." spellcheck="false"></div>
+        <div class="field"><label>Content Type</label>
+          <select id="upload-contentType">
+            <option>video/mp4</option><option>video/webm</option>
+            <option>audio/webm</option><option>audio/mp4</option>
+          </select>
+        </div>
+        <div class="field"><label>File Size (bytes)</label><input id="upload-fileSize" placeholder="52428800" value="52428800" type="number"></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('uploadRequest')">GET SIGNED URL</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-uploadRequest">—</div>
+    </div>
+  </div>
+
+  <!-- ── Upload Confirm ────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-uploadConfirm">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/v1/upload/confirm</span>
+    </div>
+    <div class="panel-body">
+      <div class="field"><label>Upload ID</label><input id="confirm-uploadId" placeholder="upl_01J..." spellcheck="false"></div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('uploadConfirm')">CONFIRM</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-uploadConfirm">—</div>
+    </div>
+  </div>
+
+  <!-- ── Upload Status ─────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="auth" id="panel-uploadStatus">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/v1/upload/{id}/status</span>
+    </div>
+    <div class="panel-body">
+      <div class="field"><label>Upload ID</label><input id="status-uploadId" placeholder="upl_01J..." spellcheck="false"></div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('uploadStatus')">GET STATUS</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-uploadStatus">—</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       OBSERVABILITY SERVICE PANELS
+       ═══════════════════════════════════════════════════════════════ -->
+
+  <!-- ── Obs Quick Login ────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsQuickLogin">
+    <div class="panel-head">
+      <span class="badge badge-blue">AUTH</span>
+      <span class="panel-title">Quick login — get an access_token without leaving this tab</span>
+      <span class="panel-desc">Calls AUTH service (not observability)</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Observability's <code style="color:var(--accent2)">/api/v1/events</code> and <code style="color:var(--accent2)">/api/v1/logs</code> need a Lumina JWT. Use one of the methods below — the token lands in the Token Store at the top and is auto-attached to subsequent calls on this tab.
+      </div>
+
+      <div class="field">
+        <label>AUTH service URL (independent of obs URL)</label>
+        <input id="obs-auth-url" placeholder="http://localhost:8001" spellcheck="false">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="obsTestAuthConn()">⚡ TEST CONNECTION</button>
+        <span id="obs-auth-conn-status" style="font-family:var(--mono);font-size:11px;color:var(--text3)">— not tested —</span>
+      </div>
+
+      <hr class="divider">
+
+      <!-- ── Phone OTP sub-flow ─────────────────────────────── -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge badge-green">PHONE OTP</span>
+        <span style="font-size:11px;color:var(--text2)">Dev mode returns the OTP inline — no SMS needed</span>
+      </div>
+
+      <div class="config-grid">
+        <div class="field"><label>Phone (E.164)</label><input id="obs-login-phone" value="+94719332272" placeholder="+94719332272"></div>
+        <div class="field"><label>Platform</label>
+          <select id="obs-login-platform"><option>web</option><option>ios</option><option>android</option></select>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="obsQuickOtpRequest()">SEND OTP</button>
+        <span id="obs-login-step1-status" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
+      </div>
+
+      <!-- Dev OTP banner — surfaced when /otp/request returns dev_otp -->
+      <div id="obs-login-dev-banner" style="display:none;background:rgba(255,179,71,.12);border:1px solid var(--warn);border-radius:var(--radius);padding:10px 12px">
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--warn);font-family:var(--mono);margin-bottom:5px">⚠ DEV — plaintext OTP from server</div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span id="obs-login-dev-value" style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--accent);letter-spacing:.12em">——————</span>
+          <button class="btn btn-secondary" style="padding:6px 12px;font-size:10px" onclick="obsUseDevOtp()">USE THIS OTP →</button>
+        </div>
+      </div>
+
+      <div class="config-grid">
+        <div class="field"><label>OTP Code</label><input id="obs-login-otp" placeholder="6 digits" maxlength="6"></div>
+        <div class="field" style="display:flex;align-items:flex-end">
+          <button class="btn btn-primary" style="width:100%" onclick="obsQuickOtpVerify()">VERIFY &amp; GET TOKEN</button>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- ── Google OAuth sub-flow ──────────────────────────── -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge badge-amber">GOOGLE</span>
+        <span style="font-size:11px;color:var(--text2)">Firebase popup → exchange → Lumina JWT (one click)</span>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-google" onclick="obsQuickGoogle()">
+          <svg width="14" height="14" viewBox="0 0 18 18" style="margin-right:6px"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.79 2.72v2.26h2.9c1.7-1.57 2.69-3.88 2.69-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7a5.41 5.41 0 0 1 0-3.4V4.97H.96a9 9 0 0 0 0 8.06l2.99-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58A9 9 0 0 0 9 0a9 9 0 0 0-8.04 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+          SIGN IN WITH GOOGLE
+        </button>
+        <button class="btn btn-secondary" onclick="obsQuickLogout()">CLEAR / LOGOUT</button>
+      </div>
+
+      <div class="response-label">RESULT</div>
+      <div class="response-box" id="res-obsQuickLogin">—</div>
+    </div>
+  </div>
+
+  <!-- ── Obs Health ────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsHealth">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/v1/health — Full health</span>
+      <span class="panel-desc">DB + Redis + Pub/Sub + Cloud Logging</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Cloud SQL failure → 503. Cloud Logging failure → 200 with <code style="color:var(--accent2)">degraded=true</code> (events still accepted). Redis / Pub/Sub disabled → reported as <code style="color:var(--accent2)">"disabled"</code>, not unhealthy.
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('obsHealth')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-obsHealth">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsHealthReady">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/v1/health/ready — Readiness</span>
+      <span class="panel-desc">200 iff DB pool initialised</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('obsHealthReady')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-obsHealthReady">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsHealthLive">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/v1/health/live — Liveness</span>
+      <span class="panel-desc">Always 200 if process is alive</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('obsHealthLive')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-obsHealthLive">—</div>
+    </div>
+  </div>
+
+  <!-- ── Obs Metrics (Prometheus text) ─────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsMetrics">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/v1/metrics — Prometheus</span>
+      <span class="panel-desc">VPC-only in prod; here for local inspection</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('obsMetrics')">SCRAPE</button></div>
+      <div class="response-label">PROMETHEUS TEXT (lumina_* metrics)</div>
+      <div class="response-box" id="res-obsMetrics" style="max-height:400px">—</div>
+    </div>
+  </div>
+
+  <!-- ── Obs POST /events ──────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsEvents">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/api/v1/events</span>
+      <span class="panel-desc">1–50 events per batch · auth token reused from store</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Uses access_token from the auth tab. Sends <code style="color:var(--accent2)">X-Platform</code> and <code style="color:var(--accent2)">X-App-Version</code> headers — observability reads them when the JWT doesn't carry platform/app_version (which auth's token doesn't).
+      </div>
+
+      <div class="config-grid">
+        <div class="field">
+          <label>X-Platform Header</label>
+          <select id="obs-platform"><option>web</option><option>ios</option><option>android</option></select>
+        </div>
+        <div class="field">
+          <label>X-App-Version Header</label>
+          <input id="obs-appVersion" placeholder="1.2.3" value="1.0.0">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Event Batch (JSON)</label>
+        <textarea id="obs-events-body" style="min-height:280px;font-size:11px" spellcheck="false"></textarea>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('obsEvents')">SEND BATCH</button>
+        <button class="btn btn-secondary" onclick="prefillObsEvents('viewed')">PREFILL: question_viewed</button>
+        <button class="btn btn-secondary" onclick="prefillObsEvents('block0')">PREFILL: block0.skin_selected</button>
+        <button class="btn btn-secondary" onclick="prefillObsEvents('rejected')">PREFILL: forbidden (scoring.*)</button>
+        <button class="btn btn-secondary" onclick="prefillObsEvents('pii')">PREFILL: with PII</button>
+      </div>
+
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-obsEvents">—</div>
+    </div>
+  </div>
+
+  <!-- ── Obs POST /logs ────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsLogs">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/api/v1/logs</span>
+      <span class="panel-desc">error/warn persisted to error_logs · debug dropped in prod</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-grid">
+        <div class="field">
+          <label>Level</label>
+          <select id="obs-log-level"><option>info</option><option>warn</option><option>error</option><option>debug</option></select>
+        </div>
+        <div class="field">
+          <label>Service (caller)</label>
+          <input id="obs-log-service" placeholder="lumina-instrument" value="lumina-api-tester">
+        </div>
+      </div>
+      <div class="field">
+        <label>Message</label>
+        <input id="obs-log-message" placeholder="something happened" value="Hello from the API tester">
+      </div>
+      <div class="field">
+        <label>Data (JSON, optional)</label>
+        <textarea id="obs-log-data" style="min-height:80px" spellcheck="false">{"trace_id": "trc_demo", "user_action": "click"}</textarea>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('obsLogs')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-obsLogs">—</div>
+    </div>
+  </div>
+
+  <!-- ── Obs Internal: JWT config ──────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsInternalConfig">
+    <div class="panel-head">
+      <span class="badge badge-amber">INT</span>
+      <span class="panel-title">Internal JWT</span>
+      <span class="panel-desc">Required for /api/internal/v1/* endpoints</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:rgba(255,179,71,.08);border-radius:var(--radius);border:1px solid var(--warn)">
+        ⚠ Per <strong>decision A15</strong>, internal endpoints require an RS256 JWT with <code style="color:var(--accent2)">aud="lumina-internal"</code>. In production the signing key lives in Secret Manager. <strong>For local dev</strong>, obs auto-generates an ephemeral keypair and exposes <code style="color:var(--accent2)">GET /api/v1/dev/internal-jwt</code> — use <strong>🪄 GET DEV TOKEN</strong> below to mint one.
+      </div>
+      <div class="field">
+        <label>Internal JWT (aud=lumina-internal)</label>
+        <textarea id="obs-internal-jwt" style="min-height:80px;font-size:10px" spellcheck="false" placeholder="eyJhbGc..."></textarea>
+      </div>
+
+      <!-- One-click dev-mint -->
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="max-width:160px">
+          <label>svc claim</label>
+          <input id="obs-dev-jwt-svc" value="dev-tester" spellcheck="false">
+        </div>
+        <div class="field" style="max-width:140px">
+          <label>brand_id (optional)</label>
+          <input id="obs-dev-jwt-brand" placeholder="brand_acme" spellcheck="false">
+        </div>
+        <div class="field" style="max-width:120px">
+          <label>TTL (sec)</label>
+          <input id="obs-dev-jwt-ttl" type="number" value="3600" min="60" max="86400">
+        </div>
+        <button class="btn btn-primary" onclick="obsGetDevInternalJwt()">🪄 GET DEV TOKEN</button>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="saveInternalJwt()">SAVE</button>
+        <button class="btn btn-secondary" onclick="clearInternalJwt()">CLEAR</button>
+        <span id="obs-internal-status" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Obs Internal: replay ──────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsReplay">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/internal/v1/events/replay</span>
+      <span class="panel-desc">Publishes to Pub/Sub lumina-replay</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-grid-3">
+        <div class="field"><label>Start Date (ISO UTC)</label><input id="obs-replay-start" placeholder="2026-05-22T00:00:00Z" value=""></div>
+        <div class="field"><label>End Date (ISO UTC)</label><input id="obs-replay-end" placeholder="2026-05-23T00:00:00Z" value=""></div>
+        <div class="field"><label>Event Type (optional)</label><input id="obs-replay-type" placeholder="session.question_viewed"></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('obsReplay')">SCHEDULE REPLAY</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-obsReplay">—</div>
+    </div>
+  </div>
+
+  <!-- ── Obs Internal: backfill ────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsBackfill">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/api/internal/v1/events/backfill</span>
+      <span class="panel-desc">NDJSON body, chunked to Pub/Sub lumina-backfill</span>
+    </div>
+    <div class="panel-body">
+      <div class="field">
+        <label>NDJSON Body (one event per line)</label>
+        <textarea id="obs-backfill-body" style="min-height:160px;font-size:11px" spellcheck="false" placeholder='{"event_id":"...","user_id":"usr_...","timestamp":"2026-05-22T00:00:00Z","schema_version":"1.0","event_type":"session.completed","properties":{},"context":{}}'></textarea>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('obsBackfill')">SCHEDULE BACKFILL</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-obsBackfill">—</div>
+    </div>
+  </div>
+
+  <!-- ── Obs Internal: scoring audit ───────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsAudit">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/internal/v1/scoring/audit/{user_id}</span>
+      <span class="panel-desc">A15: scores table doesn't exist yet — returns []</span>
+    </div>
+    <div class="panel-body">
+      <div class="field"><label>User ID</label><input id="obs-audit-userId" placeholder="usr_01H..." spellcheck="false"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('obsAudit')">FETCH AUDIT</button>
+        <button class="btn btn-secondary" onclick="fillObsAuditFromStore()">USE STORE USER_ID</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-obsAudit">—</div>
+    </div>
+  </div>
+
+  <!-- ── Obs Internal: brand attention ─────────────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsAttention">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/internal/v1/content/attention/{brand_id}</span>
+      <span class="panel-desc">B2B aggregates · segment_id only · brand_id must match JWT</span>
+    </div>
+    <div class="panel-body">
+      <div class="field"><label>Brand ID</label><input id="obs-attn-brandId" placeholder="brand_acme" value="brand_acme"></div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('obsAttention')">FETCH ATTENTION</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-obsAttention">—</div>
+    </div>
+  </div>
+
+  <!-- ── Obs Internal: GCP Cloud Logging reader ────────────── -->
+  <div class="endpoint-panel panel" data-service="obs" id="panel-obsLogsQuery">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/internal/v1/logs/query — read GCP Cloud Logging</span>
+      <span class="panel-desc">Internal JWT · for dashboards / audit / debug</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Reads back entries this service wrote to <code style="color:var(--accent2)">projects/{PROJECT}/logs/lumina-*</code>.
+        Payloads are already sanitised at write time — raw answers, layer scores, and PII are never present here.
+        For time-series charts, prefer Cloud Monitoring metrics instead (cheaper).
+      </div>
+
+      <div class="config-grid-3">
+        <div class="field">
+          <label>Log Kind</label>
+          <select id="obs-lq-kind">
+            <option value="events">events</option>
+            <option value="application">application</option>
+            <option value="errors">errors</option>
+            <option value="scoring">scoring</option>
+            <option value="b2b">b2b</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Severity (min)</label>
+          <select id="obs-lq-severity">
+            <option value="">— any —</option>
+            <option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Since</label>
+          <select id="obs-lq-since">
+            <option value="5m">last 5 min</option>
+            <option value="30m">last 30 min</option>
+            <option value="1h" selected>last 1 hour</option>
+            <option value="6h">last 6 hours</option>
+            <option value="24h">last 24 hours</option>
+            <option value="7d">last 7 days</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="config-grid">
+        <div class="field">
+          <label>Event Type (optional)</label>
+          <input id="obs-lq-eventType" placeholder="session.question_viewed" spellcheck="false">
+        </div>
+        <div class="field">
+          <label>User ID (optional)</label>
+          <input id="obs-lq-userId" placeholder="usr_01H..." spellcheck="false">
+        </div>
+      </div>
+
+      <div class="config-grid">
+        <div class="field">
+          <label>Limit (1–1000)</label>
+          <input id="obs-lq-limit" type="number" value="50" min="1" max="1000">
+        </div>
+        <div class="field">
+          <label>Page Token (paste from previous response)</label>
+          <input id="obs-lq-pageToken" placeholder="auto-filled by NEXT PAGE" spellcheck="false">
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('obsLogsQuery')">FETCH LOGS</button>
+        <button class="btn btn-secondary" onclick="obsLogsQueryNextPage()" id="obs-lq-next-btn" disabled>NEXT PAGE →</button>
+        <button class="btn btn-secondary" onclick="obsLogsQueryReset()">RESET FILTERS</button>
+        <span id="obs-lq-summary" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
+      </div>
+
+      <div class="response-label">FILTER STRING (server-built)</div>
+      <div class="response-box" id="res-obsLogsQuery-filter" style="min-height:36px;max-height:80px;font-size:10px">—</div>
+
+      <div class="response-label">ENTRIES</div>
+      <div class="response-box" id="res-obsLogsQuery" style="max-height:500px">—</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       USER API SERVICE PANELS
+       ═══════════════════════════════════════════════════════════════ -->
+
+  <!-- Welcome (user-api) -->
+  <div id="welcome-user" data-service="user" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:14px;color:var(--text3);font-family:var(--mono);font-size:12px;text-align:center">
+    <div style="font-size:32px">⬅</div>
+    <div>User API endpoints</div>
+    <div style="color:var(--text3);font-size:10px;max-width:440px;line-height:1.6">
+      Public endpoints (<code style="color:var(--accent2)">/profile/complete</code>, <code style="color:var(--accent2)">/me</code>, <code style="color:var(--accent2)">/me/onboarding</code>) reuse the access_token from the AUTH tab.<br>
+      Internal endpoints need a JWT with <code style="color:var(--accent2)">aud=lumina-internal</code> signed by user-api's INTERNAL_JWT key — paste one into the Internal JWT panel.
+    </div>
+  </div>
+
+  <!-- ── User Health ────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userHealth">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/health — Full health (DB ping)</span>
+      <span class="panel-desc">No auth required</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('userHealth')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userHealth">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="user" id="panel-userHealthReady">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/health/ready — Cloud Run readiness probe</span>
+      <span class="panel-desc">200 iff DB reachable</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('userHealthReady')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userHealthReady">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="user" id="panel-userHealthLive">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/health/live — Liveness</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('userHealthLive')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userHealthLive">—</div>
+    </div>
+  </div>
+
+  <!-- ── POST /profile/complete ─────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userProfileComplete">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/api/v1/users/profile/complete</span>
+      <span class="panel-desc">First-login atomic insert across 4 tables</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Creates rows in <code style="color:var(--accent2)">user_profiles</code> + <code style="color:var(--accent2)">user_preferences</code> + <code style="color:var(--accent2)">user_onboarding</code> + <code style="color:var(--accent2)">user_wallets</code> in one transaction. Returns <strong>201</strong> first time, <strong>409</strong> if profile already exists. Uses the access_token from the Token Store.
+      </div>
+
+      <div class="config-grid">
+        <div class="field"><label>Display Name *</label><input id="user-pc-displayName" value="Madhav" placeholder="1–100 chars"></div>
+        <div class="field"><label>Date of Birth * (YYYY-MM-DD, past)</label><input id="user-pc-dob" value="1990-03-15" placeholder="1990-03-15"></div>
+      </div>
+      <div class="config-grid-3">
+        <div class="field"><label>Sex *</label>
+          <select id="user-pc-sex">
+            <option>male</option><option>female</option><option>other</option><option>prefer_not_to_say</option>
+          </select>
+        </div>
+        <div class="field"><label>Nickname (optional)</label><input id="user-pc-nickname" value="madhav_sri" placeholder="madhav_sri"></div>
+        <div class="field"><label>City (optional)</label><input id="user-pc-city" value="Colombo" placeholder="Colombo"></div>
+      </div>
+      <div class="config-grid">
+        <div class="field"><label>Country (2-char ISO)</label><input id="user-pc-country" value="LK" maxlength="2"></div>
+        <div class="field"><label>Language (2-char ISO)</label><input id="user-pc-language" value="en" maxlength="2"></div>
+      </div>
+
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('userProfileComplete')">COMPLETE PROFILE</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userProfileComplete">—</div>
+    </div>
+  </div>
+
+  <!-- ── GET /me ────────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userMe">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/v1/users/me</span>
+      <span class="panel-desc">profile + preferences + onboarding + wallet</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Single round trip for app launch. <code style="color:var(--accent2)">wallet.tier</code> + <code style="color:var(--accent2)">onboarding.tier</code> are derived from <code style="color:var(--accent2)">wallet.lifetime_earned</code> per A16. Returns <strong>404</strong> if profile not yet complete, <strong>410</strong> if soft-deleted.
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('userMe')">FETCH</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userMe" style="max-height:480px">—</div>
+    </div>
+  </div>
+
+  <!-- ── PATCH /me ──────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userMePatch">
+    <div class="panel-head">
+      <span class="badge" style="background:rgba(255,179,71,.14);color:var(--warn)">PATCH</span>
+      <span class="panel-title">/api/v1/users/me — Partial profile update</span>
+      <span class="panel-desc">Only fields present in body are applied</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Leave a field blank to skip it. <code style="color:var(--accent2)">user_id</code> / <code style="color:var(--accent2)">created_at</code> / <code style="color:var(--accent2)">profile_complete</code> can't be changed via this endpoint.
+      </div>
+
+      <div class="config-grid">
+        <div class="field"><label>display_name (1–100)</label><input id="user-up-displayName" placeholder="leave blank to skip"></div>
+        <div class="field"><label>nickname (≤50)</label><input id="user-up-nickname" placeholder="leave blank to skip"></div>
+      </div>
+      <div class="config-grid-3">
+        <div class="field"><label>family_status</label>
+          <select id="user-up-familyStatus">
+            <option value=""></option><option>single</option><option>married</option><option>partnered</option><option>divorced</option><option>widowed</option><option>prefer_not_to_say</option>
+          </select>
+        </div>
+        <div class="field"><label>education</label>
+          <select id="user-up-education">
+            <option value=""></option><option>primary</option><option>secondary</option><option>undergraduate</option><option>postgraduate</option><option>doctorate</option><option>other</option><option>prefer_not_to_say</option>
+          </select>
+        </div>
+        <div class="field"><label>occupation (≤100)</label><input id="user-up-occupation" placeholder="leave blank to skip"></div>
+      </div>
+      <div class="field"><label>bio (≤300)</label>
+        <textarea id="user-up-bio" placeholder="leave blank to skip" style="min-height:60px"></textarea>
+      </div>
+      <div class="config-grid-3">
+        <div class="field"><label>city (≤100)</label><input id="user-up-city" placeholder="leave blank to skip"></div>
+        <div class="field"><label>country (2-char ISO)</label><input id="user-up-country" maxlength="2" placeholder="LK"></div>
+        <div class="field"><label>language (2-char ISO)</label><input id="user-up-language" maxlength="2" placeholder="en"></div>
+      </div>
+
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('userMePatch')">UPDATE</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userMePatch">—</div>
+    </div>
+  </div>
+
+  <!-- ── DELETE /me ─────────────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userMeDelete">
+    <div class="panel-head">
+      <span class="badge badge-red">DEL</span>
+      <span class="panel-title">/api/v1/users/me — Soft delete</span>
+      <span class="panel-desc">30-day reactivation window</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:rgba(255,95,109,.08);border-radius:var(--radius);border:1px solid var(--danger)">
+        Sets <code style="color:var(--accent2)">deleted_at = now()</code>. The row stays in the DB. Subsequent <code style="color:var(--accent2)">GET /me</code> returns <strong>410</strong>. Second <code style="color:var(--accent2)">DELETE</code> also returns <strong>410</strong>.
+      </div>
+      <div class="btn-row"><button class="btn btn-danger" onclick="call('userMeDelete')">DELETE MY ACCOUNT</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userMeDelete">—</div>
+    </div>
+  </div>
+
+  <!-- ── POST /me/reactivate (stub) ─────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userMeReactivate">
+    <div class="panel-head">
+      <span class="badge" style="background:rgba(255,179,71,.12);color:var(--warn)">501</span>
+      <span class="panel-title">/api/v1/users/me/reactivate</span>
+      <span class="panel-desc">STUB — query layer ready, endpoint wires up later</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-secondary" onclick="call('userMeReactivate')">CALL (will 501)</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userMeReactivate">—</div>
+    </div>
+  </div>
+
+  <!-- ── GET /me/onboarding ────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userOnboardingGet">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/v1/users/me/onboarding</span>
+      <span class="panel-desc">FE reads this on launch to pick the next screen</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('userOnboardingGet')">FETCH</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userOnboardingGet">—</div>
+    </div>
+  </div>
+
+  <!-- ── PATCH /me/onboarding ──────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userOnboardingPatch">
+    <div class="panel-head">
+      <span class="badge" style="background:rgba(255,179,71,.14);color:var(--warn)">PATCH</span>
+      <span class="panel-title">/api/v1/users/me/onboarding</span>
+      <span class="panel-desc">Any subset. No-rollback: once true, can't go false</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Tick boxes for fields you want to set TRUE. Boxes are <strong>tri-state</strong> — leave alone to skip. Once a flag is true on the server it stays true regardless of what you send. <code style="color:var(--accent2)">wave1_session_id</code> updates freely whenever <code style="color:var(--accent2)">wave1_started</code> is true.
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+        <label class="ob-chk"><input type="checkbox" id="user-ob-block0_skin"> <span>block0_skin</span></label>
+        <label class="ob-chk"><input type="checkbox" id="user-ob-block0_music"> <span>block0_music</span></label>
+        <label class="ob-chk"><input type="checkbox" id="user-ob-block0_voice"> <span>block0_voice</span></label>
+        <label class="ob-chk"><input type="checkbox" id="user-ob-block0_complete"> <span>block0_complete</span></label>
+        <label class="ob-chk"><input type="checkbox" id="user-ob-profile_complete"> <span>profile_complete</span></label>
+        <label class="ob-chk"><input type="checkbox" id="user-ob-wave1_started"> <span>wave1_started</span></label>
+        <label class="ob-chk"><input type="checkbox" id="user-ob-wave1_complete"> <span>wave1_complete</span></label>
+      </div>
+      <div class="field"><label>wave1_session_id (optional)</label>
+        <input id="user-ob-sessionId" placeholder="ses_01J... (leave blank to skip)">
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('userOnboardingPatch')">APPLY</button>
+        <button class="btn btn-secondary" onclick="userOnboardingReset()">RESET CHECKBOXES</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userOnboardingPatch">—</div>
+    </div>
+  </div>
+
+  <!-- ── Stub panels — preferences / mood / wallet / photo ──── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userPreferences">
+    <div class="panel-head">
+      <span class="badge" style="background:rgba(255,179,71,.12);color:var(--warn)">501</span>
+      <span class="panel-title">/api/v1/users/me/preferences</span>
+      <span class="panel-desc">STUB — implements when home picker connects</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="call('userPreferencesGet')">GET (will 501)</button>
+        <button class="btn btn-secondary" onclick="call('userPreferencesPatch')">PATCH (will 501)</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userPreferences">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="user" id="panel-userMood">
+    <div class="panel-head">
+      <span class="badge" style="background:rgba(255,179,71,.12);color:var(--warn)">501</span>
+      <span class="panel-title">/api/v1/users/me/mood</span>
+      <span class="panel-desc">STUB</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-secondary" onclick="call('userMood')">POST (will 501)</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userMood">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="user" id="panel-userWallet">
+    <div class="panel-head">
+      <span class="badge" style="background:rgba(255,179,71,.12);color:var(--warn)">501</span>
+      <span class="panel-title">/api/v1/users/me/wallet</span>
+      <span class="panel-desc">STUB</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-secondary" onclick="call('userWallet')">GET (will 501)</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userWallet">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="user" id="panel-userPhoto">
+    <div class="panel-head">
+      <span class="badge" style="background:rgba(255,179,71,.12);color:var(--warn)">501</span>
+      <span class="panel-title">/api/v1/users/me/photo</span>
+      <span class="panel-desc">STUB — Pillow + GCS deferred</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-secondary" onclick="call('userPhoto')">POST (will 501)</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userPhoto">—</div>
+    </div>
+  </div>
+
+  <!-- ── Internal JWT (user-api) ────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userInternalConfig">
+    <div class="panel-head">
+      <span class="badge badge-amber">INT</span>
+      <span class="panel-title">Internal JWT (user-api)</span>
+      <span class="panel-desc">Required for /api/internal/v1/* below</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.6;padding:8px 10px;background:rgba(255,179,71,.08);border-radius:var(--radius);border:1px solid var(--warn)">
+        user-api verifies internal JWTs against its own <code style="color:var(--accent2)">LUMINA_INTERNAL_JWT_PUBLIC_KEY_B64</code>. If you only have obs's dev signer running, that token won't verify here (different keypair). Mint a token signed with user-api's matching private key OR set both services to share the same internal-JWT keypair via Secret Manager.
+      </div>
+      <div class="field">
+        <label>Internal JWT (aud=lumina-internal)</label>
+        <textarea id="user-internal-jwt" style="min-height:80px;font-size:10px" spellcheck="false" placeholder="eyJhbGc..."></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="saveUserInternalJwt()">SAVE</button>
+        <button class="btn btn-secondary" onclick="clearUserInternalJwt()">CLEAR</button>
+        <span id="user-internal-status" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Internal endpoints (stubs) ─────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="user" id="panel-userIntProfile">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/internal/v1/users/{user_id}/profile</span>
+      <span class="panel-desc">STUB · internal JWT required</span>
+    </div>
+    <div class="panel-body">
+      <div class="field"><label>User ID</label><input id="user-int-prof-id" placeholder="usr_01H..." spellcheck="false"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('userIntProfile')">FETCH</button>
+        <button class="btn btn-secondary" onclick="fillUserIntIdFromStore('user-int-prof-id')">USE STORE USER_ID</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userIntProfile">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="user" id="panel-userIntSegment">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/internal/v1/users/{user_id}/segment</span>
+      <span class="panel-desc">STUB · B2B aggregates · segment_id only · NO PII</span>
+    </div>
+    <div class="panel-body">
+      <div class="field"><label>User ID</label><input id="user-int-seg-id" placeholder="usr_01H..." spellcheck="false"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('userIntSegment')">FETCH</button>
+        <button class="btn btn-secondary" onclick="fillUserIntIdFromStore('user-int-seg-id')">USE STORE USER_ID</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userIntSegment">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="user" id="panel-userIntTraits">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/internal/v1/users/{user_id}/traits</span>
+      <span class="panel-desc">STUB · scope=traits_read required</span>
+    </div>
+    <div class="panel-body">
+      <div class="field"><label>User ID</label><input id="user-int-tr-id" placeholder="usr_01H..." spellcheck="false"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('userIntTraits')">FETCH</button>
+        <button class="btn btn-secondary" onclick="fillUserIntIdFromStore('user-int-tr-id')">USE STORE USER_ID</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userIntTraits">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="user" id="panel-userIntWalletCredit">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/api/internal/v1/users/{user_id}/wallet/credit</span>
+      <span class="panel-desc">STUB · scope=wallet_write · idempotent on transaction_id</span>
+    </div>
+    <div class="panel-body">
+      <div class="config-grid">
+        <div class="field"><label>User ID</label><input id="user-int-wc-id" placeholder="usr_01H..." spellcheck="false"></div>
+        <div class="field"><label>transaction_id (idempotency key)</label><input id="user-int-wc-txn" placeholder="txn_..." spellcheck="false"></div>
+      </div>
+      <div class="config-grid">
+        <div class="field"><label>Amount (AP)</label><input id="user-int-wc-amount" type="number" value="50"></div>
+        <div class="field"><label>Reason</label>
+          <select id="user-int-wc-reason">
+            <option>session_completed</option><option>challenge_done</option><option>video_watched</option>
+            <option>civic_memo</option><option>community_joined</option><option>referral_bonus</option>
+            <option>streak_bonus</option><option>manual_credit</option><option>manual_debit</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('userIntWalletCredit')">CREDIT</button>
+        <button class="btn btn-secondary" onclick="fillUserIntIdFromStore('user-int-wc-id')">USE STORE USER_ID</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-userIntWalletCredit">—</div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       INSTRUMENT SERVICE PANELS
+       ═══════════════════════════════════════════════════════════════ -->
+
+  <!-- Welcome (instrument) -->
+  <div id="welcome-instrument" data-service="instrument" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:14px;color:var(--text3);font-family:var(--mono);font-size:12px;text-align:center">
+    <div style="font-size:32px">⬅</div>
+    <div>Instrument endpoints</div>
+    <div style="color:var(--text3);font-size:10px;max-width:460px;line-height:1.6">
+      All endpoints require a Lumina Bearer token from the AUTH tab.<br>
+      Call <code style="color:var(--accent2)">/next</code> first — it auto-fills the Respond panel with the returned session_id, question_id, and question type.
+    </div>
+    <button class="btn btn-primary" style="margin-top:4px" onclick="showPanel('instNext')">
+      🎯 GET NEXT QUESTION
+    </button>
+    <div style="color:var(--text3);font-size:10px">— or pick an endpoint from the sidebar —</div>
+  </div>
+
+  <!-- ── Instrument Health ──────────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="instrument" id="panel-instHealth">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/health — Liveness</span>
+      <span class="panel-desc">No auth required</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('instHealth')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-instHealth">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="instrument" id="panel-instHealthReady">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/health/ready — Readiness (DB ping)</span>
+      <span class="panel-desc">No auth required</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('instHealthReady')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-instHealthReady">—</div>
+    </div>
+  </div>
+
+  <div class="endpoint-panel panel" data-service="instrument" id="panel-instHealthLive">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/health/live — Liveness probe</span>
+      <span class="panel-desc">No auth required</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('instHealthLive')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-instHealthLive">—</div>
+    </div>
+  </div>
+
+  <!-- ── GET /instrument/next ───────────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="instrument" id="panel-instNext">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/v1/instrument/next</span>
+      <span class="panel-desc">Returns next unanswered foundation question + session_id. Auto-fills Respond panel.</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.7;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Requires <code style="color:var(--accent2)">Authorization: Bearer &lt;access_token&gt;</code>.<br>
+        Returns <code style="color:var(--accent2)">{ session_id, question: {...} }</code> or <code style="color:var(--accent)">{ session_id, question: null }</code> when all questions answered.<br>
+        On success, <strong style="color:var(--accent)">session_id + question fields are auto-saved</strong> and the Respond panel is pre-filled.
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('instNext')">SEND</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-instNext">—</div>
+    </div>
+  </div>
+
+  <!-- ── POST /instrument/respond ──────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="instrument" id="panel-instRespond">
+    <div class="panel-head">
+      <span class="badge badge-green">POST</span>
+      <span class="panel-title">/api/v1/instrument/respond</span>
+      <span class="panel-desc">Submit an answer. Call /next first to auto-fill session_id + question_id.</span>
+    </div>
+    <div class="panel-body">
+      <div style="font-size:11px;color:var(--text2);line-height:1.7;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2)">
+        Idempotent: re-submitting the same question_id <strong>updates</strong> the existing row — never duplicates.
+      </div>
+
+      <!-- Auto-fill status banner -->
+      <div id="inst-respond-autofill-banner" style="display:none;margin-top:8px;padding:8px 10px;font-size:11px;background:rgba(0,212,180,.08);border:1px solid rgba(0,212,180,.3);border-radius:var(--radius);color:#00d4b4;font-family:var(--mono)">
+        ✓ Auto-filled from last /next response
+        <span id="inst-respond-qtype" style="margin-left:8px;opacity:.7"></span>
+      </div>
+
+      <div class="field" style="margin-top:10px">
+        <label>session_id</label>
+        <input id="inst-session-id" placeholder="ses_… (auto-filled from /next)" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>question_id</label>
+        <input id="inst-question-id" placeholder="Q01 … Q10 (auto-filled from /next)" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>response_type</label>
+        <select id="inst-response-type" onchange="instUpdateAnswerFields()">
+          <option value="selection">selection</option>
+          <option value="numeric_scale">numeric_scale</option>
+          <option value="multi_select">multi_select</option>
+          <option value="numeric_distribution">numeric_distribution</option>
+          <option value="text">text</option>
+        </select>
+      </div>
+
+      <!-- Dynamic answer fields — swapped by instUpdateAnswerFields() -->
+      <div id="inst-ans-selection" class="inst-ans-block">
+        <div class="field">
+          <label>selection_value</label>
+          <select id="inst-selection-value">
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+            <option value="D">D</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="inst-ans-numeric_scale" class="inst-ans-block" style="display:none">
+        <div class="field">
+          <label>numeric_value (1–7)</label>
+          <input id="inst-numeric-value" type="number" min="1" max="7" value="4" placeholder="1–7">
+        </div>
+      </div>
+
+      <div id="inst-ans-multi_select" class="inst-ans-block" style="display:none">
+        <div class="field">
+          <label>multi_select_values (comma-separated, e.g. A,C,E)</label>
+          <input id="inst-multi-values" placeholder="A,B" spellcheck="false">
+        </div>
+      </div>
+
+      <div id="inst-ans-numeric_distribution" class="inst-ans-block" style="display:none">
+        <div class="field">
+          <label>distribution_values (JSON — must sum to 10)</label>
+          <textarea id="inst-dist-values" rows="4" spellcheck="false" style="font-family:var(--mono);font-size:11px">{"arts":2,"sport":2,"stillness":2,"friends":2,"building":1,"wandering":1}</textarea>
+        </div>
+      </div>
+
+      <div id="inst-ans-text" class="inst-ans-block" style="display:none">
+        <div class="field">
+          <label>text_value</label>
+          <textarea id="inst-text-value" rows="3" placeholder="Free text answer…" spellcheck="false" style="font-family:var(--mono);font-size:11px"></textarea>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>response_time_ms (optional)</label>
+        <input id="inst-response-time" type="number" min="0" placeholder="e.g. 4200" value="">
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="call('instRespond')">SEND</button>
+        <button class="btn btn-secondary" onclick="instClearRespond()">CLEAR</button>
+      </div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-instRespond">—</div>
+    </div>
+  </div>
+
+  <!-- ── GET /instrument/progress ──────────────────────────── -->
+  <div class="endpoint-panel panel" data-service="instrument" id="panel-instProgress">
+    <div class="panel-head">
+      <span class="badge badge-blue">GET</span>
+      <span class="panel-title">/api/v1/instrument/progress</span>
+      <span class="panel-desc">How many foundation questions answered vs total.</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row"><button class="btn btn-primary" onclick="call('instProgress')">SEND</button></div>
+      <div class="response-label">RESPONSE</div>
+      <div class="response-box" id="res-instProgress">—</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── Log ────────────────────────────────────────────────── -->
+<div id="logPanel">
+  <div class="log-header">
+    <span class="log-title">REQUEST LOG</span>
+    <button class="log-clear" onclick="clearLog()">CLEAR</button>
+  </div>
+  <div id="logEntries"></div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────
+const store = {
+  accessToken: '',
+  refreshToken: '',
+  userId: '',
+  firebaseToken: '',
+  internalJwt: localStorage.getItem('lumina_internal_jwt') || '',
+  userInternalJwt: localStorage.getItem('lumina_user_internal_jwt') || '',
+  deviceId: localStorage.getItem('lumina_device_id') || (() => {
+    const id = 'dev-' + Math.random().toString(36).slice(2,10);
+    localStorage.setItem('lumina_device_id', id);
+    return id;
+  })(),
+};
+
+let firebaseApp = null;
+
+// ── Helpers ───────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const baseUrl = () => $('apiBaseUrl').value.replace(/\/$/, '');
+
+// Active service — "auth" or "obs". Determines which API URL is shown
+// and which nav/panels are visible (CSS does the show/hide via the
+// body[data-service] selector).
+const activeService = () => document.body.getAttribute('data-service') || 'auth';
+
+// Default URLs per service, per environment.
+// LOCAL: dev ports the services run on with `uvicorn --reload`.
+// CLOUD: blank by default — fill in via the URL input (auto-persisted),
+//        typically `https://lumina-<svc>-<hash>-<region>.run.app`.
+//
+// Each (service × env) pair is persisted independently in localStorage so
+// switching tabs/env preserves whatever the user last typed.
+const SERVICE_DEFAULTS = {
+  auth:       { local: 'http://localhost:8001', cloud: '' },
+  obs:        { local: 'http://localhost:8081', cloud: '' },
+  user:       { local: 'http://localhost:8082', cloud: '' },
+  instrument: { local: 'http://localhost:8083', cloud: '' },
+};
+
+// Active environment — "local" or "cloud". Persisted globally (one toggle
+// shared across all services; switching service preserves the chosen env).
+function activeEnv() {
+  return localStorage.getItem('lumina_api_env') || 'local';
+}
+
+// Storage key for the URL of a (service, env) pair.
+function urlKey(service, env) {
+  return `lumina_api_url_${service}_${env}`;
+}
+
+// Read the currently-active URL: stored value, falling back to default.
+function currentUrl(service, env) {
+  return localStorage.getItem(urlKey(service, env)) || SERVICE_DEFAULTS[service][env] || '';
+}
+
+// Persist whatever's in the URL input under the active (service, env) slot.
+function persistCurrentUrl() {
+  const svc = activeService();
+  const env = activeEnv();
+  const val = $('apiBaseUrl').value.trim();
+  localStorage.setItem(urlKey(svc, env), val);
+}
+
+// Live-save as the user types. Wired in init().
+function onApiUrlInput() {
+  persistCurrentUrl();
+}
+
+// Switch local ↔ cloud. Saves the current input under the outgoing env
+// first so nothing is lost.
+function switchEnv(env) {
+  if (env !== 'local' && env !== 'cloud') return;
+  const prevEnv = activeEnv();
+  if (prevEnv === env) return;
+  persistCurrentUrl();
+  localStorage.setItem('lumina_api_env', env);
+
+  // Toggle pill state
+  $('envBtnLocal').classList.toggle('active', env === 'local');
+  $('envBtnCloud').classList.toggle('active', env === 'cloud');
+
+  // Swap the URL for the current service to the new env's value
+  const svc = activeService();
+  const url = currentUrl(svc, env);
+  $('apiBaseUrl').value = url;
+  $('apiBaseUrl').placeholder = env === 'cloud'
+    ? 'https://lumina-' + svc + '-xxx.run.app'
+    : 'http://localhost:8001';
+
+  // Re-ping against the new URL
+  $('statusDot').className = 'status-dot';
+  pingHealth();
+  logInfo('Tester', `Env → ${env.toUpperCase()} · ${svc} → ${url || '(not set)'}`);
+}
+
+// Last /next response — used to auto-fill the Respond panel.
+let lastInstQuestion = null;
+
+function switchService(name) {
+  if (!(name in SERVICE_DEFAULTS)) return;
+  const prev = activeService();
+  if (prev === name) return;
+
+  // Persist the URL the user had typed for the outgoing (service, env)
+  persistCurrentUrl();
+
+  // Apply the new service
+  document.body.setAttribute('data-service', name);
+  for (const svc of Object.keys(SERVICE_DEFAULTS)) {
+    const tab = $('tab-' + svc);
+    if (!tab) continue;
+    tab.classList.toggle('active', svc === name);
+    tab.setAttribute('aria-selected', svc === name);
+  }
+
+  // Swap in the URL for the new (service, current env)
+  const env = activeEnv();
+  $('apiBaseUrl').value = currentUrl(name, env);
+  $('apiBaseUrl').placeholder = env === 'cloud'
+    ? 'https://lumina-' + name + '-xxx.run.app'
+    : 'http://localhost:8001';
+  const labelMap = { auth: 'API', obs: 'OBS', user: 'USER', instrument: 'INSTR' };
+  $('apiUrlLabel').textContent = labelMap[name] || 'API';
+
+  // Clear any open panel — the user picks fresh from the new service
+  document.querySelectorAll('.endpoint-panel').forEach(p => p.classList.remove('visible'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+  // Reset status dot and re-ping
+  $('statusDot').className = 'status-dot';
+  pingHealth();
+  const nameMap = { auth: 'AUTH', obs: 'OBSERVABILITY', user: 'USER API', instrument: 'INSTRUMENT' };
+  logInfo('Tester', `Switched to ${nameMap[name]} service (${env}) — ${$('apiBaseUrl').value || '(not set)'}`);
+}
+
+function setToken(key, val) {
+  store[key] = val;
+  const el = $('ts-' + { accessToken:'access', refreshToken:'refresh', userId:'userid', firebaseToken:'firebase' }[key]);
+  if (!el) return;
+  if (val) {
+    el.textContent = val.length > 48 ? val.slice(0,48) + '…' : val;
+    el.closest('.token-row').querySelector('.token-copy').style.opacity = '1';
+  } else {
+    el.innerHTML = '<em class="token-empty">— not set —</em>';
+  }
+  // Refresh the obs sidebar indicator any time a token mutates
+  if (typeof updateObsTokenIndicator === 'function') updateObsTokenIndicator();
+}
+
+function clearTokens() {
+  ['accessToken','refreshToken','userId','firebaseToken'].forEach(k => setToken(k, ''));
+}
+
+function copyToken(type) {
+  const map = { access:'accessToken', refresh:'refreshToken', userid:'userId', firebase:'firebaseToken' };
+  const val = store[map[type]];
+  if (!val) return;
+  navigator.clipboard.writeText(val).then(() => {
+    const btn = document.querySelector(`.token-copy[onclick="copyToken('${type}')"]`);
+    if (btn) { btn.textContent = 'done!'; setTimeout(() => btn.textContent = 'copy', 1200); }
+  });
+}
+
+function getDeviceId(inputId) {
+  const el = $(inputId);
+  if (el && el.value.trim()) return el.value.trim();
+  return store.deviceId;
+}
+
+function fillRefreshToken() {
+  $('refresh-token').value = store.refreshToken;
+  $('refresh-deviceId').value = store.deviceId;
+}
+
+// Jump from the dev-OTP banner straight to the verify panel with OTP pre-filled.
+function useDevOtp() {
+  const otp = $('dev-otp-value').textContent.trim();
+  if (!otp || otp.startsWith('—')) return;
+  $('verify-otp').value = otp;
+  // Switch to the verify panel
+  document.querySelectorAll('.endpoint-panel').forEach(p => p.classList.remove('visible'));
+  $('panel-otpVerify').classList.add('visible');
+  $('welcome').style.display = 'none';
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  // Highlight the verify nav item
+  const verifyNav = Array.from(document.querySelectorAll('.nav-item'))
+    .find(n => n.getAttribute('onclick') === "showPanel('otpVerify')");
+  if (verifyNav) verifyNav.classList.add('active');
+}
+
+// ── JWT decode (client-side, no signature verification) ─────────
+function _b64urlDecode(part) {
+  let s = part.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return decodeURIComponent(
+    atob(s).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+  );
+}
+
+function parseJWT(token) {
+  const parts = (token || '').split('.');
+  if (parts.length !== 3) throw new Error('Not a 3-segment JWT');
+  return {
+    header: JSON.parse(_b64urlDecode(parts[0])),
+    payload: JSON.parse(_b64urlDecode(parts[1])),
+  };
+}
+
+function fillJwtFromStore() {
+  if (!store.accessToken) {
+    $('res-jwt-payload').className = 'response-box error fade-in';
+    $('res-jwt-payload').textContent = 'No access_token in store — login first.';
+    return;
+  }
+  $('jwt-input').value = store.accessToken;
+  decodeJWT();
+}
+
+function decodeJWT() {
+  const tok = $('jwt-input').value.trim() || store.accessToken;
+  const hdr = $('res-jwt-header');
+  const pld = $('res-jwt-payload');
+  const exp = $('res-jwt-expiry');
+  if (!tok) {
+    hdr.textContent = pld.textContent = exp.textContent = '— no token —';
+    return;
+  }
+  try {
+    const { header, payload } = parseJWT(tok);
+    hdr.className = 'response-box success fade-in';
+    hdr.textContent = JSON.stringify(header, null, 2);
+    pld.className = 'response-box success fade-in';
+    pld.textContent = JSON.stringify(payload, null, 2);
+
+    const now = Math.floor(Date.now() / 1000);
+    if (typeof payload.exp === 'number') {
+      const dt = new Date(payload.exp * 1000);
+      const delta = payload.exp - now;
+      const expired = delta <= 0;
+      exp.className = 'response-box ' + (expired ? 'error' : 'success') + ' fade-in';
+      exp.textContent = expired
+        ? `EXPIRED ${Math.abs(delta)}s ago (${dt.toISOString()})`
+        : `valid for ${delta}s — expires ${dt.toISOString()}`;
+    } else {
+      exp.className = 'response-box';
+      exp.textContent = '— no exp claim —';
+    }
+  } catch (e) {
+    hdr.className = pld.className = exp.className = 'response-box error fade-in';
+    hdr.textContent = pld.textContent = exp.textContent = '✗ ' + e.message;
+  }
+}
+
+function fillCurrentSessionId() {
+  if (!store.accessToken) {
+    $('res-revokeSession').className = 'response-box error fade-in';
+    $('res-revokeSession').textContent = 'No access_token in store — login first.';
+    return;
+  }
+  try {
+    const { payload } = parseJWT(store.accessToken);
+    if (!payload.sid) throw new Error('No sid claim in token');
+    $('revoke-sessionId').value = payload.sid;
+  } catch (e) {
+    $('res-revokeSession').className = 'response-box error fade-in';
+    $('res-revokeSession').textContent = '✗ ' + e.message;
+  }
+}
+
+function prefillDeviceIds() {
+  ['otp-deviceId','verify-deviceId','exchange-deviceId','refresh-deviceId'].forEach(id => {
+    const el = $(id);
+    if (el && !el.value) el.placeholder = store.deviceId + ' (auto)';
+  });
+}
+
+// ── API caller ────────────────────────────────────────────────────
+// `opts` is optional: { extraHeaders?, raw?, rawBody? }
+//   extraHeaders — merged into the request (e.g. X-Platform)
+//   raw         — true ⇒ don't parse response as JSON, return text
+//   rawBody     — string body sent verbatim (NDJSON backfill); body is ignored
+async function apiCall(method, path, body, token, opts = {}) {
+  const url = baseUrl() + path;
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  if (opts.extraHeaders) Object.assign(headers, opts.extraHeaders);
+
+  logRequest(method, url, body || opts.rawBody);
+
+  try {
+    const fetchBody = opts.rawBody !== undefined
+      ? opts.rawBody
+      : (body !== undefined && body !== null ? JSON.stringify(body) : undefined);
+
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: fetchBody,
+    });
+    let data;
+    if (opts.raw) {
+      data = await res.text();
+    } else {
+      data = await res.json().catch(() => ({}));
+    }
+    logResponse(method, url, res.status, typeof data === 'string' ? { _raw: data.slice(0, 200) + (data.length > 200 ? '…' : '') } : data);
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    logError(method, url, err.message);
+    return { ok: false, status: 0, data: { error: 'network_error', message: err.message } };
+  }
+}
+
+function showResult(id, result) {
+  const el = $(id);
+  if (!el) return;
+  const badge = `<span class="http-badge ${result.status >= 500 ? 'http-5xx' : result.status >= 400 ? 'http-4xx' : 'http-2xx'}">${result.status}</span>`;
+  el.innerHTML = badge + JSON.stringify(result.data, null, 2);
+  el.className = 'response-box fade-in ' + (result.ok ? 'success' : 'error');
+}
+
+function loading(id) {
+  const el = $(id);
+  if (el) { el.className = 'response-box loading loading-pulse'; el.textContent = 'Sending…'; }
+}
+
+// ── Health check ──────────────────────────────────────────────────
+async function pingHealth() {
+  $('statusDot').className = 'status-dot';
+  // auth uses /health, obs uses /api/v1/health/live, user-api uses /health/live.
+  const svc = activeService();
+  const path = (svc === 'obs') ? '/api/v1/health/live'
+             : (svc === 'user') ? '/health/live'
+             : '/health';
+  const r = await apiCall('GET', path, null, null);
+  $('statusDot').className = 'status-dot ' + (r.ok ? 'ok' : 'err');
+}
+
+// ── Show panel ────────────────────────────────────────────────────
+function showPanel(name) {
+  document.querySelectorAll('.endpoint-panel').forEach(p => p.classList.remove('visible'));
+  const panel = $('panel-' + name);
+  if (panel) {
+    panel.classList.add('visible');
+    const w  = $('welcome');            if (w)  w.style.display  = 'none';
+    const wo = $('welcome-obs');        if (wo) wo.style.display = 'none';
+    const wu = $('welcome-user');       if (wu) wu.style.display = 'none';
+    const wi = $('welcome-instrument'); if (wi) wi.style.display = 'none';
+  }
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if (typeof event !== 'undefined' && event.currentTarget) {
+    event.currentTarget.classList.add('active');
+  }
+  prefillDeviceIds();
+  if (name === 'tokenRefresh') fillRefreshToken();
+  if (name === 'jwtInspector' && store.accessToken) fillJwtFromStore();
+  if (name === 'obsInternalConfig') $('obs-internal-jwt').value = store.internalJwt;
+  if (name === 'userInternalConfig') $('user-internal-jwt').value = store.userInternalJwt;
+  if (name === 'instRespond') instUpdateAnswerFields();
+  if (name === 'obsEvents' && !$('obs-events-body').value) prefillObsEvents('viewed');
+  if (name === 'obsReplay') prefillObsReplayDates();
+  if (name === 'obsLogsQuery' && store.userId && !$('obs-lq-userId').value) {
+    // Convenience: if just logged in, offer the current user_id as the filter
+    $('obs-lq-userId').placeholder = `${store.userId}  (click to fill)`;
+    $('obs-lq-userId').onclick = () => {
+      if (!$('obs-lq-userId').value) $('obs-lq-userId').value = store.userId;
+    };
+  }
+  if (name === 'obsQuickLogin') {
+    // Pre-fill the auth URL: panel input > localStorage > default
+    const el = $('obs-auth-url');
+    if (!el.value) {
+      el.value = localStorage.getItem('lumina_api_url_auth') || SERVICE_DEFAULTS.auth;
+    }
+    updateObsTokenIndicator();
+  }
+}
+
+// ── Firebase ──────────────────────────────────────────────────────
+function initFirebase() {
+  // Use baked-in config as defaults; fields in the UI override them
+  const config = {
+    apiKey:            $('fb-apiKey').value.trim()            || BAKED_FB_CONFIG.apiKey,
+    authDomain:        $('fb-authDomain').value.trim()        || BAKED_FB_CONFIG.authDomain,
+    projectId:         $('fb-projectId').value.trim()         || BAKED_FB_CONFIG.projectId,
+    storageBucket:     $('fb-storageBucket').value.trim()     || BAKED_FB_CONFIG.storageBucket,
+    messagingSenderId: $('fb-messagingSenderId').value.trim() || BAKED_FB_CONFIG.messagingSenderId,
+    appId:             $('fb-appId').value.trim()             || BAKED_FB_CONFIG.appId,
+  };
+  try {
+    const doInit = () => {
+      firebaseApp = firebase.initializeApp(config);
+      $('fb-status').textContent = '✓ Initialised — ' + config.projectId;
+      $('fb-status').style.color = 'var(--accent)';
+      logInfo('Firebase', 'Re-initialised — project: ' + config.projectId);
+    };
+    if (firebase.apps.length) { firebase.app().delete().then(doInit); }
+    else { doInit(); }
+  } catch (e) {
+    $('fb-status').textContent = '✗ ' + e.message;
+    $('fb-status').style.color = 'var(--danger)';
+  }
+}
+
+function loadSavedConfig() {
+  // Restore baked-in defaults
+  Object.keys(BAKED_FB_CONFIG).forEach(k => {
+    const el = $('fb-' + k);
+    if (el) el.value = BAKED_FB_CONFIG[k];
+  });
+  $('fb-status').textContent = 'Defaults restored — click INIT to re-apply';
+  $('fb-status').style.color = 'var(--warn)';
+}
+
+async function signInWithGoogle() {
+  // Firebase auto-initialised from baked config on load
+  $('res-googleLogin').className = 'response-box loading loading-pulse';
+  $('res-googleLogin').textContent = 'Opening Google popup…';
+  try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    const result = await firebase.auth().signInWithPopup(provider);
+    const token = await result.user.getIdToken();
+    setToken('firebaseToken', token);
+    $('exchange-token').value = token;
+    $('res-googleLogin').className = 'response-box success fade-in';
+    $('res-googleLogin').textContent = `✓ Signed in as ${result.user.displayName} (${result.user.email})\n\nFirebase token stored — go to /firebase/exchange to get Lumina JWT`;
+    logInfo('Firebase', `Google sign-in OK — ${result.user.email}`);
+  } catch (e) {
+    $('res-googleLogin').className = 'response-box error fade-in';
+    $('res-googleLogin').textContent = '✗ ' + e.message;
+    logError('Firebase', 'Sign-in failed: ' + e.message);
+  }
+}
+
+async function signOut() {
+  if (!firebase.apps.length) return;
+  await firebase.auth().signOut();
+  setToken('firebaseToken', '');
+  $('exchange-token').value = '';
+  $('res-googleLogin').className = 'response-box';
+  $('res-googleLogin').textContent = '— signed out —';
+  logInfo('Firebase', 'Signed out');
+}
+
+// ── Endpoint calls ────────────────────────────────────────────────
+async function call(name) {
+  const token = store.accessToken;
+
+  if (name === 'health') {
+    loading('res-health');
+    showResult('res-health', await apiCall('GET', '/health'));
+
+  } else if (name === 'healthReady') {
+    loading('res-healthReady');
+    showResult('res-healthReady', await apiCall('GET', '/health/ready'));
+
+  } else if (name === 'jwks') {
+    loading('res-jwks');
+    showResult('res-jwks', await apiCall('GET', '/.well-known/jwks.json'));
+
+  } else if (name === 'otpRequest') {
+    loading('res-otpRequest');
+    const phone = $('otp-phone').value.trim();
+    const deviceId = getDeviceId('otp-deviceId');
+    const r = await apiCall('POST', '/v1/auth/otp/request', {
+      phone_number: phone,
+      device_id: deviceId,
+      platform: $('otp-platform').value,
+    });
+    $('verify-phone').value = phone;
+    $('verify-deviceId').value = deviceId;
+
+    // Dev-mode convenience: if the server returns dev_otp, show it and
+    // auto-fill the verify panel's OTP field.
+    const banner = $('dev-otp-banner');
+    if (r.ok && r.data && r.data.dev_otp) {
+      $('dev-otp-value').textContent = r.data.dev_otp;
+      banner.style.display = 'block';
+      $('verify-otp').value = r.data.dev_otp;
+      logInfo('Tester', `Dev OTP auto-filled into verify panel: ${r.data.dev_otp}`);
+    } else {
+      banner.style.display = 'none';
+    }
+    showResult('res-otpRequest', r);
+
+  } else if (name === 'otpVerify') {
+    loading('res-otpVerify');
+    const r = await apiCall('POST', '/v1/auth/otp/verify', {
+      phone_number: $('verify-phone').value.trim(),
+      otp: $('verify-otp').value.trim(),
+      device_id: getDeviceId('verify-deviceId'),
+      platform: $('verify-platform').value,
+    });
+    if (r.ok) {
+      setToken('accessToken', r.data.access_token);
+      setToken('refreshToken', r.data.refresh_token);
+      setToken('userId', r.data.user?.id);
+    }
+    showResult('res-otpVerify', r);
+
+  } else if (name === 'fbExchange') {
+    loading('res-fbExchange');
+    const fbToken = $('exchange-token').value.trim() || store.firebaseToken;
+    if (!fbToken) {
+      showResult('res-fbExchange', { ok:false, status:0, data:{error:'No Firebase token — use Google Login first'} });
+      return;
+    }
+    const r = await apiCall('POST', '/v1/auth/firebase/exchange', {
+      firebase_id_token: fbToken,
+      device_id: getDeviceId('exchange-deviceId'),
+      platform: $('exchange-platform').value,
+    });
+    if (r.ok) {
+      setToken('accessToken', r.data.access_token);
+      setToken('refreshToken', r.data.refresh_token);
+      setToken('userId', r.data.user?.id);
+    }
+    showResult('res-fbExchange', r);
+
+  } else if (name === 'tokenRefresh') {
+    loading('res-tokenRefresh');
+    const rt = $('refresh-token').value.trim() || store.refreshToken;
+    const deviceId = getDeviceId('refresh-deviceId');
+    if (!rt) { showResult('res-tokenRefresh', {ok:false,status:0,data:{error:'No refresh token stored — login first'}}); return; }
+    const r = await apiCall('POST', '/v1/auth/token/refresh', { refresh_token: rt, device_id: deviceId });
+    if (r.ok) {
+      setToken('accessToken', r.data.access_token);
+      setToken('refreshToken', r.data.refresh_token);
+    }
+    showResult('res-tokenRefresh', r);
+
+  } else if (name === 'logout') {
+    loading('res-logout');
+    const r = await apiCall('POST', '/v1/auth/logout',
+      { logout_all_devices: $('logout-all').value === 'true' }, token);
+    if (r.ok) clearTokens();
+    showResult('res-logout', r);
+
+  } else if (name === 'me') {
+    loading('res-me');
+    if (!token) { showResult('res-me', {ok:false,status:401,data:{error:'No access token — login first'}}); return; }
+    showResult('res-me', await apiCall('GET', '/v1/auth/me', null, token));
+
+  } else if (name === 'sessions') {
+    loading('res-sessions');
+    showResult('res-sessions', await apiCall('GET', '/v1/auth/sessions', null, token));
+
+  } else if (name === 'revokeSession') {
+    loading('res-revokeSession');
+    const sid = $('revoke-sessionId').value.trim();
+    if (!sid) { showResult('res-revokeSession', {ok:false,status:0,data:{error:'Session ID required'}}); return; }
+    showResult('res-revokeSession', await apiCall('DELETE', `/v1/auth/sessions/${sid}`, null, token));
+
+  } else if (name === 'linkProvider') {
+    loading('res-linkProvider');
+    const provider = $('link-provider').value;
+    showResult('res-linkProvider', await apiCall('POST', `/v1/auth/account/link/${provider}`, {
+      authorization_code: $('link-code').value.trim(),
+      code_verifier: $('link-verifier').value.trim(),
+      redirect_uri: $('link-redirect').value.trim(),
+      provider,
+    }, token));
+
+  } else if (name === 'listProviders') {
+    loading('res-listProviders');
+    showResult('res-listProviders', await apiCall('GET', '/v1/auth/account/providers', null, token));
+
+  } else if (name === 'unlinkProvider') {
+    loading('res-unlinkProvider');
+    const provider = $('unlink-provider').value;
+    showResult('res-unlinkProvider', await apiCall('DELETE', `/v1/auth/account/link/${provider}`, null, token));
+
+  } else if (name === 'uploadRequest') {
+    loading('res-uploadRequest');
+    showResult('res-uploadRequest', await apiCall('POST', '/v1/upload/request', {
+      question_id: $('upload-questionId').value.trim(),
+      session_id: $('upload-sessionId').value.trim() || 'ses_test_session',
+      content_type: $('upload-contentType').value,
+      file_size_bytes: parseInt($('upload-fileSize').value) || 52428800,
+    }, token));
+
+  } else if (name === 'uploadConfirm') {
+    loading('res-uploadConfirm');
+    showResult('res-uploadConfirm', await apiCall('POST', '/v1/upload/confirm',
+      { upload_id: $('confirm-uploadId').value.trim() }, token));
+
+  } else if (name === 'uploadStatus') {
+    loading('res-uploadStatus');
+    const uid = $('status-uploadId').value.trim();
+    showResult('res-uploadStatus', await apiCall('GET', `/v1/upload/${uid}/status`, null, token));
+
+  // ═══════════════════════════════════════════════════════════════
+  // OBSERVABILITY SERVICE
+  // ═══════════════════════════════════════════════════════════════
+  } else if (name === 'obsHealth') {
+    loading('res-obsHealth');
+    showResult('res-obsHealth', await apiCall('GET', '/api/v1/health'));
+
+  } else if (name === 'obsHealthReady') {
+    loading('res-obsHealthReady');
+    showResult('res-obsHealthReady', await apiCall('GET', '/api/v1/health/ready'));
+
+  } else if (name === 'obsHealthLive') {
+    loading('res-obsHealthLive');
+    showResult('res-obsHealthLive', await apiCall('GET', '/api/v1/health/live'));
+
+  } else if (name === 'obsMetrics') {
+    loading('res-obsMetrics');
+    const r = await apiCall('GET', '/api/v1/metrics', null, null, { raw: true });
+    const el = $('res-obsMetrics');
+    const badge = `<span class="http-badge ${r.status >= 500 ? 'http-5xx' : r.status >= 400 ? 'http-4xx' : 'http-2xx'}">${r.status}</span>`;
+    if (typeof r.data === 'string') {
+      el.innerHTML = badge + escapeHtml(r.data);
+    } else {
+      el.innerHTML = badge + JSON.stringify(r.data, null, 2);
+    }
+    el.className = 'response-box fade-in ' + (r.ok ? 'success' : 'error');
+
+  } else if (name === 'obsEvents') {
+    loading('res-obsEvents');
+    let parsed;
+    try {
+      parsed = JSON.parse($('obs-events-body').value);
+    } catch (e) {
+      showResult('res-obsEvents', { ok:false, status:0, data:{ error:'invalid_json', message: e.message }});
+      return;
+    }
+    const headers = {
+      'X-Platform': $('obs-platform').value,
+      'X-App-Version': $('obs-appVersion').value.trim() || '1.0.0',
+    };
+    showResult('res-obsEvents', await apiCall('POST', '/api/v1/events', parsed, token, { extraHeaders: headers }));
+
+  } else if (name === 'obsLogs') {
+    loading('res-obsLogs');
+    let data = {};
+    const raw = $('obs-log-data').value.trim();
+    if (raw) {
+      try { data = JSON.parse(raw); }
+      catch (e) {
+        showResult('res-obsLogs', { ok:false, status:0, data:{ error:'invalid_json', message: 'data must be JSON: ' + e.message }});
+        return;
+      }
+    }
+    const body = {
+      level: $('obs-log-level').value,
+      service: $('obs-log-service').value.trim() || 'unknown',
+      message: $('obs-log-message').value.trim() || '(no message)',
+      data,
+    };
+    showResult('res-obsLogs', await apiCall('POST', '/api/v1/logs', body, token));
+
+  } else if (name === 'obsReplay') {
+    loading('res-obsReplay');
+    if (!store.internalJwt) {
+      showResult('res-obsReplay', { ok:false, status:0, data:{ error:'no_internal_jwt', message:'Configure an internal JWT first (Internal JWT panel).' }});
+      return;
+    }
+    const params = new URLSearchParams({
+      start_date: $('obs-replay-start').value.trim(),
+      end_date:   $('obs-replay-end').value.trim(),
+    });
+    const t = $('obs-replay-type').value.trim();
+    if (t) params.set('event_type', t);
+    showResult('res-obsReplay', await apiCall('GET', `/api/internal/v1/events/replay?${params}`, null, store.internalJwt));
+
+  } else if (name === 'obsBackfill') {
+    loading('res-obsBackfill');
+    if (!store.internalJwt) {
+      showResult('res-obsBackfill', { ok:false, status:0, data:{ error:'no_internal_jwt', message:'Configure an internal JWT first (Internal JWT panel).' }});
+      return;
+    }
+    const ndjson = $('obs-backfill-body').value.trim();
+    if (!ndjson) {
+      showResult('res-obsBackfill', { ok:false, status:0, data:{ error:'empty_body', message:'Paste at least one JSON object (one per line).' }});
+      return;
+    }
+    showResult('res-obsBackfill', await apiCall('POST', '/api/internal/v1/events/backfill', null, store.internalJwt,
+      { rawBody: ndjson, extraHeaders: { 'Content-Type': 'application/x-ndjson' } }));
+
+  } else if (name === 'obsAudit') {
+    loading('res-obsAudit');
+    if (!store.internalJwt) {
+      showResult('res-obsAudit', { ok:false, status:0, data:{ error:'no_internal_jwt', message:'Configure an internal JWT first (Internal JWT panel).' }});
+      return;
+    }
+    const uid = $('obs-audit-userId').value.trim();
+    if (!uid) {
+      showResult('res-obsAudit', { ok:false, status:0, data:{ error:'no_user_id' }});
+      return;
+    }
+    showResult('res-obsAudit', await apiCall('GET', `/api/internal/v1/scoring/audit/${encodeURIComponent(uid)}`, null, store.internalJwt));
+
+  } else if (name === 'obsAttention') {
+    loading('res-obsAttention');
+    if (!store.internalJwt) {
+      showResult('res-obsAttention', { ok:false, status:0, data:{ error:'no_internal_jwt', message:'Configure an internal JWT first (Internal JWT panel).' }});
+      return;
+    }
+    const bid = $('obs-attn-brandId').value.trim();
+    showResult('res-obsAttention', await apiCall('GET', `/api/internal/v1/content/attention/${encodeURIComponent(bid)}`, null, store.internalJwt));
+
+  } else if (name === 'obsLogsQuery') {
+    loading('res-obsLogsQuery');
+    if (!store.internalJwt) {
+      showResult('res-obsLogsQuery', { ok:false, status:0, data:{ error:'no_internal_jwt', message:'Configure an internal JWT first (Internal JWT panel).' }});
+      return;
+    }
+    const params = new URLSearchParams({ log_kind: $('obs-lq-kind').value });
+    const sev = $('obs-lq-severity').value.trim();         if (sev) params.set('severity', sev);
+    const evt = $('obs-lq-eventType').value.trim();        if (evt) params.set('event_type', evt);
+    const uid = $('obs-lq-userId').value.trim();           if (uid) params.set('user_id', uid);
+    const since = $('obs-lq-since').value.trim();          if (since) params.set('since', since);
+    const limit = $('obs-lq-limit').value.trim() || '50';  params.set('limit', limit);
+    const pt = $('obs-lq-pageToken').value.trim();         if (pt) params.set('page_token', pt);
+
+    const r = await apiCall('GET', `/api/internal/v1/logs/query?${params}`, null, store.internalJwt);
+    renderObsLogsQuery(r);
+
+  // ═══════════════════════════════════════════════════════════════
+  // USER API
+  // ═══════════════════════════════════════════════════════════════
+  } else if (name === 'userHealth') {
+    loading('res-userHealth');
+    showResult('res-userHealth', await apiCall('GET', '/health'));
+
+  } else if (name === 'userHealthReady') {
+    loading('res-userHealthReady');
+    showResult('res-userHealthReady', await apiCall('GET', '/health/ready'));
+
+  } else if (name === 'userHealthLive') {
+    loading('res-userHealthLive');
+    showResult('res-userHealthLive', await apiCall('GET', '/health/live'));
+
+  } else if (name === 'userProfileComplete') {
+    loading('res-userProfileComplete');
+    const body = {
+      display_name: $('user-pc-displayName').value.trim(),
+      date_of_birth: $('user-pc-dob').value.trim(),
+      sex: $('user-pc-sex').value,
+    };
+    const nickname = $('user-pc-nickname').value.trim(); if (nickname) body.nickname = nickname;
+    const city = $('user-pc-city').value.trim();         if (city)     body.city = city;
+    const country = $('user-pc-country').value.trim();   if (country)  body.country = country;
+    const lang = $('user-pc-language').value.trim();     if (lang)     body.language = lang;
+    const r = await apiCall('POST', '/api/v1/users/profile/complete', body, store.accessToken);
+    // If the response carries user_id, refresh the store so subsequent calls use it
+    if (r.ok && r.data?.user_id) setToken('userId', r.data.user_id);
+    showResult('res-userProfileComplete', r);
+
+  } else if (name === 'userMe') {
+    loading('res-userMe');
+    showResult('res-userMe', await apiCall('GET', '/api/v1/users/me', null, store.accessToken));
+
+  } else if (name === 'userMePatch') {
+    loading('res-userMePatch');
+    // Build a minimal body — skip fields the user left blank
+    const body = {};
+    const pick = (id, key) => {
+      const v = $(id).value.trim();
+      if (v !== '') body[key] = v;
+    };
+    pick('user-up-displayName', 'display_name');
+    pick('user-up-nickname',    'nickname');
+    pick('user-up-familyStatus','family_status');
+    pick('user-up-education',   'education');
+    pick('user-up-occupation',  'occupation');
+    pick('user-up-bio',         'bio');
+    pick('user-up-city',        'city');
+    pick('user-up-country',     'country');
+    pick('user-up-language',    'language');
+    if (Object.keys(body).length === 0) {
+      showResult('res-userMePatch', { ok:false, status:0, data:{ detail:'No fields to update — fill at least one' }});
+      return;
+    }
+    showResult('res-userMePatch', await apiCall('PATCH', '/api/v1/users/me', body, store.accessToken));
+
+  } else if (name === 'userMeDelete') {
+    loading('res-userMeDelete');
+    showResult('res-userMeDelete', await apiCall('DELETE', '/api/v1/users/me', null, store.accessToken));
+
+  } else if (name === 'userMeReactivate') {
+    loading('res-userMeReactivate');
+    showResult('res-userMeReactivate', await apiCall('POST', '/api/v1/users/me/reactivate', {}, store.accessToken));
+
+  } else if (name === 'userOnboardingGet') {
+    loading('res-userOnboardingGet');
+    showResult('res-userOnboardingGet', await apiCall('GET', '/api/v1/users/me/onboarding', null, store.accessToken));
+
+  } else if (name === 'userOnboardingPatch') {
+    loading('res-userOnboardingPatch');
+    const body = {};
+    for (const f of ['block0_skin','block0_music','block0_voice','block0_complete',
+                     'profile_complete','wave1_started','wave1_complete']) {
+      if ($('user-ob-' + f).checked) body[f] = true;
+    }
+    const sid = $('user-ob-sessionId').value.trim();
+    if (sid) body.wave1_session_id = sid;
+    if (Object.keys(body).length === 0) {
+      showResult('res-userOnboardingPatch', { ok:false, status:0, data:{ detail:'Nothing selected — tick at least one box' }});
+      return;
+    }
+    showResult('res-userOnboardingPatch', await apiCall('PATCH', '/api/v1/users/me/onboarding', body, store.accessToken));
+
+  // Stubs — these will 501 from user-api; we still wire the calls so the
+  // panels are usable the moment those endpoints are implemented.
+  } else if (name === 'userPreferencesGet') {
+    loading('res-userPreferences');
+    showResult('res-userPreferences', await apiCall('GET', '/api/v1/users/me/preferences', null, store.accessToken));
+
+  } else if (name === 'userPreferencesPatch') {
+    loading('res-userPreferences');
+    showResult('res-userPreferences', await apiCall('PATCH', '/api/v1/users/me/preferences', {}, store.accessToken));
+
+  } else if (name === 'userMood') {
+    loading('res-userMood');
+    showResult('res-userMood', await apiCall('POST', '/api/v1/users/me/mood',
+      { mood_key: 'calm', score: 6.0 }, store.accessToken));
+
+  } else if (name === 'userWallet') {
+    loading('res-userWallet');
+    showResult('res-userWallet', await apiCall('GET', '/api/v1/users/me/wallet', null, store.accessToken));
+
+  } else if (name === 'userPhoto') {
+    loading('res-userPhoto');
+    showResult('res-userPhoto', await apiCall('POST', '/api/v1/users/me/photo', {}, store.accessToken));
+
+  // Internal endpoints — use the user-api internal JWT slot
+  } else if (name === 'userIntProfile') {
+    loading('res-userIntProfile');
+    if (!store.userInternalJwt) {
+      showResult('res-userIntProfile', { ok:false, status:0, data:{ detail:'No user-api internal JWT — paste one in the Internal JWT panel' }});
+      return;
+    }
+    const uid = $('user-int-prof-id').value.trim();
+    if (!uid) { showResult('res-userIntProfile', { ok:false, status:0, data:{ detail:'user_id required' }}); return; }
+    showResult('res-userIntProfile', await apiCall('GET', `/api/internal/v1/users/${encodeURIComponent(uid)}/profile`, null, store.userInternalJwt));
+
+  } else if (name === 'userIntSegment') {
+    loading('res-userIntSegment');
+    if (!store.userInternalJwt) {
+      showResult('res-userIntSegment', { ok:false, status:0, data:{ detail:'No user-api internal JWT' }});
+      return;
+    }
+    const uid = $('user-int-seg-id').value.trim();
+    if (!uid) { showResult('res-userIntSegment', { ok:false, status:0, data:{ detail:'user_id required' }}); return; }
+    showResult('res-userIntSegment', await apiCall('GET', `/api/internal/v1/users/${encodeURIComponent(uid)}/segment`, null, store.userInternalJwt));
+
+  } else if (name === 'userIntTraits') {
+    loading('res-userIntTraits');
+    if (!store.userInternalJwt) {
+      showResult('res-userIntTraits', { ok:false, status:0, data:{ detail:'No user-api internal JWT' }});
+      return;
+    }
+    const uid = $('user-int-tr-id').value.trim();
+    if (!uid) { showResult('res-userIntTraits', { ok:false, status:0, data:{ detail:'user_id required' }}); return; }
+    showResult('res-userIntTraits', await apiCall('GET', `/api/internal/v1/users/${encodeURIComponent(uid)}/traits`, null, store.userInternalJwt));
+
+  } else if (name === 'userIntWalletCredit') {
+    loading('res-userIntWalletCredit');
+    if (!store.userInternalJwt) {
+      showResult('res-userIntWalletCredit', { ok:false, status:0, data:{ detail:'No user-api internal JWT' }});
+      return;
+    }
+    const uid = $('user-int-wc-id').value.trim();
+    const txn = $('user-int-wc-txn').value.trim();
+    if (!uid || !txn) { showResult('res-userIntWalletCredit', { ok:false, status:0, data:{ detail:'user_id and transaction_id required' }}); return; }
+    const body = {
+      transaction_id: txn,
+      amount: parseInt($('user-int-wc-amount').value) || 0,
+      reason: $('user-int-wc-reason').value,
+    };
+    showResult('res-userIntWalletCredit', await apiCall('POST', `/api/internal/v1/users/${encodeURIComponent(uid)}/wallet/credit`, body, store.userInternalJwt));
+
+  // ── INSTRUMENT SERVICE ─────────────────────────────────────
+  } else if (name === 'instHealth') {
+    loading('res-instHealth');
+    showResult('res-instHealth', await apiCall('GET', '/health'));
+
+  } else if (name === 'instHealthReady') {
+    loading('res-instHealthReady');
+    showResult('res-instHealthReady', await apiCall('GET', '/health/ready'));
+
+  } else if (name === 'instHealthLive') {
+    loading('res-instHealthLive');
+    showResult('res-instHealthLive', await apiCall('GET', '/health/live'));
+
+  } else if (name === 'instNext') {
+    if (!store.accessToken) {
+      showResult('res-instNext', { ok:false, status:0, data:{ detail:'No access_token — auth first in the AUTH tab' }});
+      return;
+    }
+    loading('res-instNext');
+    const r = await apiCall('GET', '/api/v1/instrument/next', null, store.accessToken);
+    showResult('res-instNext', r);
+    if (r.ok && r.data) {
+      lastInstQuestion = r.data;
+      // Auto-fill respond panel
+      const sid = r.data.session_id || '';
+      const q   = r.data.question;
+      if (sid) $('inst-session-id').value = sid;
+      if (q) {
+        $('inst-question-id').value = q.id || '';
+        $('inst-response-type').value = q.type || 'selection';
+        instUpdateAnswerFields();
+        // Show auto-fill banner
+        const banner = $('inst-respond-autofill-banner');
+        banner.style.display = 'block';
+        $('inst-respond-qtype').textContent = `type: ${q.type}  id: ${q.id}`;
+        logInfo('Instrument', `Auto-filled Respond panel — question ${q.id} (${q.type})`);
+      } else {
+        logInfo('Instrument', 'All questions answered — question is null');
+      }
+    }
+
+  } else if (name === 'instRespond') {
+    if (!store.accessToken) {
+      showResult('res-instRespond', { ok:false, status:0, data:{ detail:'No access_token — auth first in the AUTH tab' }});
+      return;
+    }
+    const sid = $('inst-session-id').value.trim();
+    const qid = $('inst-question-id').value.trim();
+    const rtype = $('inst-response-type').value;
+    if (!sid || !qid) {
+      showResult('res-instRespond', { ok:false, status:0, data:{ detail:'session_id and question_id required — call /next first' }});
+      return;
+    }
+    const body = { session_id: sid, question_id: qid, response_type: rtype };
+    if (rtype === 'selection') {
+      body.selection_value = $('inst-selection-value').value;
+    } else if (rtype === 'numeric_scale') {
+      const n = parseInt($('inst-numeric-value').value);
+      if (isNaN(n) || n < 1 || n > 7) {
+        showResult('res-instRespond', { ok:false, status:0, data:{ detail:'numeric_value must be 1–7' }});
+        return;
+      }
+      body.numeric_value = n;
+    } else if (rtype === 'multi_select') {
+      const raw = $('inst-multi-values').value.trim();
+      body.multi_select_values = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+    } else if (rtype === 'numeric_distribution') {
+      try {
+        body.distribution_values = JSON.parse($('inst-dist-values').value);
+      } catch {
+        showResult('res-instRespond', { ok:false, status:0, data:{ detail:'distribution_values must be valid JSON' }});
+        return;
+      }
+    } else if (rtype === 'text') {
+      body.text_value = $('inst-text-value').value.trim();
+    }
+    const ms = $('inst-response-time').value;
+    if (ms) body.response_time_ms = parseInt(ms) || 0;
+    loading('res-instRespond');
+    showResult('res-instRespond', await apiCall('POST', '/api/v1/instrument/respond', body, store.accessToken));
+
+  } else if (name === 'instProgress') {
+    if (!store.accessToken) {
+      showResult('res-instProgress', { ok:false, status:0, data:{ detail:'No access_token — auth first in the AUTH tab' }});
+      return;
+    }
+    loading('res-instProgress');
+    showResult('res-instProgress', await apiCall('GET', '/api/v1/instrument/progress', null, store.accessToken));
+  }
+}
+
+// ── User API helpers ──────────────────────────────────────────────
+function saveUserInternalJwt() {
+  const t = $('user-internal-jwt').value.trim();
+  store.userInternalJwt = t;
+  localStorage.setItem('lumina_user_internal_jwt', t);
+  $('user-internal-status').textContent = t ? '✓ saved (persisted)' : '— cleared —';
+  $('user-internal-status').style.color = t ? 'var(--accent)' : 'var(--text3)';
+}
+function clearUserInternalJwt() {
+  $('user-internal-jwt').value = '';
+  store.userInternalJwt = '';
+  localStorage.removeItem('lumina_user_internal_jwt');
+  $('user-internal-status').textContent = '— cleared —';
+  $('user-internal-status').style.color = 'var(--text3)';
+}
+function fillUserIntIdFromStore(inputId) {
+  if (store.userId) $(inputId).value = store.userId;
+}
+function userOnboardingReset() {
+  for (const f of ['block0_skin','block0_music','block0_voice','block0_complete',
+                   'profile_complete','wave1_started','wave1_complete']) {
+    $('user-ob-' + f).checked = false;
+  }
+  $('user-ob-sessionId').value = '';
+}
+
+// ── Observability /logs/query helpers ─────────────────────────────
+function renderObsLogsQuery(r) {
+  const filterEl  = $('res-obsLogsQuery-filter');
+  const entriesEl = $('res-obsLogsQuery');
+  const sumEl     = $('obs-lq-summary');
+  const nextBtn   = $('obs-lq-next-btn');
+
+  const badge = `<span class="http-badge ${r.status >= 500 ? 'http-5xx' : r.status >= 400 ? 'http-4xx' : 'http-2xx'}">${r.status}</span>`;
+
+  if (!r.ok) {
+    filterEl.innerHTML = badge;
+    filterEl.className = 'response-box error fade-in';
+    entriesEl.innerHTML = badge + JSON.stringify(r.data, null, 2);
+    entriesEl.className = 'response-box error fade-in';
+    sumEl.textContent = '';
+    nextBtn.disabled = true;
+    return;
+  }
+
+  const data = r.data || {};
+  filterEl.textContent = data.filter || '(no filter)';
+  filterEl.className = 'response-box success fade-in';
+
+  const entries = data.entries || [];
+  if (entries.length === 0) {
+    entriesEl.innerHTML = badge + '<em style="color:var(--text3)">No entries matched.</em>';
+  } else {
+    const rendered = entries.map((e, i) => {
+      const ts = e.timestamp || '?';
+      const sev = e.severity || 'INFO';
+      const sevColor = sev === 'ERROR' || sev === 'CRITICAL' ? 'var(--danger)'
+                    : sev === 'WARNING' ? 'var(--warn)'
+                    : 'var(--accent2)';
+      const payload = e.payload != null ? JSON.stringify(e.payload, null, 2) : 'null';
+      return `<div style="border-bottom:1px dashed var(--border);padding:8px 0;margin-bottom:6px">`
+           + `<div><span style="color:var(--text3)">#${i + 1}</span> `
+           + `<span style="color:${sevColor};font-weight:700">${sev}</span> `
+           + `<span style="color:var(--text2)">${ts}</span>`
+           + `${e.insert_id ? `  <span style="color:var(--text3);font-size:9px">id=${e.insert_id.slice(0, 24)}…</span>` : ''}</div>`
+           + `<pre style="color:var(--text);margin-top:4px;white-space:pre-wrap;word-break:break-all;font-size:10px">${escapeHtml(payload)}</pre>`
+           + `</div>`;
+    }).join('');
+    entriesEl.innerHTML = badge + rendered;
+  }
+  entriesEl.className = 'response-box success fade-in';
+
+  // Pagination state
+  if (data.next_page_token) {
+    nextBtn.disabled = false;
+    nextBtn.setAttribute('data-token', data.next_page_token);
+    sumEl.textContent = `${entries.length} entries · more available →`;
+    sumEl.style.color = 'var(--accent)';
+  } else {
+    nextBtn.disabled = true;
+    nextBtn.removeAttribute('data-token');
+    sumEl.textContent = `${entries.length} entries · end of results`;
+    sumEl.style.color = 'var(--text2)';
+  }
+}
+
+async function obsLogsQueryNextPage() {
+  const token = $('obs-lq-next-btn').getAttribute('data-token');
+  if (!token) return;
+  $('obs-lq-pageToken').value = token;
+  await call('obsLogsQuery');
+}
+
+function obsLogsQueryReset() {
+  $('obs-lq-kind').value = 'events';
+  $('obs-lq-severity').value = '';
+  $('obs-lq-eventType').value = '';
+  $('obs-lq-userId').value = '';
+  $('obs-lq-since').value = '1h';
+  $('obs-lq-limit').value = '50';
+  $('obs-lq-pageToken').value = '';
+  $('obs-lq-summary').textContent = '';
+  $('obs-lq-next-btn').disabled = true;
+  $('res-obsLogsQuery-filter').textContent = '—';
+  $('res-obsLogsQuery-filter').className = 'response-box';
+  $('res-obsLogsQuery').textContent = '—';
+  $('res-obsLogsQuery').className = 'response-box';
+}
+
+// ── Instrument helpers ────────────────────────────────────────────
+function instUpdateAnswerFields() {
+  const rtype = $('inst-response-type').value;
+  const blocks = ['selection','numeric_scale','multi_select','numeric_distribution','text'];
+  blocks.forEach(t => {
+    const el = $('inst-ans-' + t);
+    if (el) el.style.display = (t === rtype) ? '' : 'none';
+  });
+}
+
+function instClearRespond() {
+  $('inst-session-id').value = '';
+  $('inst-question-id').value = '';
+  $('inst-response-type').value = 'selection';
+  $('inst-selection-value').value = 'A';
+  $('inst-numeric-value').value = '4';
+  $('inst-multi-values').value = '';
+  $('inst-dist-values').value = '{"arts":2,"sport":2,"stillness":2,"friends":2,"building":1,"wandering":1}';
+  $('inst-text-value').value = '';
+  $('inst-response-time').value = '';
+  $('inst-respond-autofill-banner').style.display = 'none';
+  $('inst-respond-qtype').textContent = '';
+  instUpdateAnswerFields();
+  lastInstQuestion = null;
+}
+
+// ── Observability helpers ─────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Generate a Crockford-base32 ULID (26 chars). Same alphabet the server uses.
+function newUlid() {
+  const ALPHA = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  let now = Date.now();
+  const ts = [];
+  for (let i = 9; i >= 0; i--) { ts.push(ALPHA[now & 0x1f]); now = Math.floor(now / 32); }
+  const tsStr = ts.reverse().join('');
+  let rand = '';
+  for (let i = 0; i < 16; i++) rand += ALPHA[Math.floor(Math.random() * 32)];
+  return tsStr + rand;
+}
+
+function prefillObsEvents(kind) {
+  const userId = store.userId || 'usr_' + newUlid();
+  const sessionId = 'ses_' + newUlid();
+  const now = new Date().toISOString();
+
+  const ev = (overrides) => ({
+    event_id: newUlid(),
+    user_id: userId,
+    session_id: sessionId,
+    timestamp: now,
+    schema_version: '1.0',
+    event_type: 'session.question_viewed',
+    properties: { question_id: 'Q12', response_ms: 1450 },
+    context: { platform: $('obs-platform').value, app_version: $('obs-appVersion').value || '1.0.0' },
+    ...overrides,
+  });
+
+  let events;
+  if (kind === 'viewed') {
+    events = [ev({}), ev({ event_type: 'session.completed', properties: { duration_ms: 25000 } })];
+  } else if (kind === 'block0') {
+    events = [
+      ev({ event_type: 'block0.skin_selected', session_id: null, properties: { skin: 'midnight' } }),
+      ev({ event_type: 'block0.music_selected', session_id: null, properties: { music: 'silence' } }),
+    ];
+  } else if (kind === 'rejected') {
+    events = [ev({ event_type: 'scoring.layer_computed', session_id: null, properties: { layer_score: 0.42 } })];
+  } else if (kind === 'pii') {
+    events = [ev({
+      properties: {
+        question_id: 'Q12',
+        response_ms: 1450,
+        answer_key: 'always',
+        user: { phone: '+9477SECRET123', email: 'test@example.com' },
+      },
+    })];
+  }
+  $('obs-events-body').value = JSON.stringify({ events }, null, 2);
+}
+
+function prefillObsReplayDates() {
+  if (!$('obs-replay-start').value) {
+    const end = new Date();
+    const start = new Date(end.getTime() - 24 * 3600 * 1000);
+    $('obs-replay-start').value = start.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    $('obs-replay-end').value   = end.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  }
+}
+
+function fillObsAuditFromStore() {
+  if (store.userId) $('obs-audit-userId').value = store.userId;
+}
+
+function saveInternalJwt() {
+  const t = $('obs-internal-jwt').value.trim();
+  store.internalJwt = t;
+  localStorage.setItem('lumina_internal_jwt', t);
+  $('obs-internal-status').textContent = t ? '✓ Saved (persisted)' : '— cleared —';
+  $('obs-internal-status').style.color = t ? 'var(--accent)' : 'var(--text3)';
+}
+
+function clearInternalJwt() {
+  $('obs-internal-jwt').value = '';
+  store.internalJwt = '';
+  localStorage.removeItem('lumina_internal_jwt');
+  $('obs-internal-status').textContent = '— cleared —';
+  $('obs-internal-status').style.color = 'var(--text3)';
+}
+
+// Mint an internal JWT from obs's dev signer. Only works when the
+// observability service was started with ENVIRONMENT=development AND
+// no operator-supplied INTERNAL_JWT_PUBLIC_KEY.
+async function obsGetDevInternalJwt() {
+  const params = new URLSearchParams({
+    svc: $('obs-dev-jwt-svc').value.trim() || 'dev-tester',
+    ttl_seconds: $('obs-dev-jwt-ttl').value.trim() || '3600',
+  });
+  const brand = $('obs-dev-jwt-brand').value.trim();
+  if (brand) params.set('brand_id', brand);
+
+  $('obs-internal-status').textContent = '… minting from obs /api/v1/dev/internal-jwt';
+  $('obs-internal-status').style.color = 'var(--text3)';
+
+  const r = await apiCall('GET', `/api/v1/dev/internal-jwt?${params}`, null, null);
+  if (!r.ok || !r.data?.token) {
+    $('obs-internal-status').textContent = '✗ ' + (r.data?.message || `HTTP ${r.status}`)
+      + '. Make sure obs is running with ENVIRONMENT=development and no INTERNAL_JWT_PUBLIC_KEY set.';
+    $('obs-internal-status').style.color = 'var(--danger)';
+    return;
+  }
+  $('obs-internal-jwt').value = r.data.token;
+  store.internalJwt = r.data.token;
+  localStorage.setItem('lumina_internal_jwt', r.data.token);
+  const expiresAt = new Date(r.data.expires_at * 1000).toLocaleTimeString();
+  $('obs-internal-status').textContent = `✓ minted + saved · expires ${expiresAt} · svc=${r.data.claims.svc}`;
+  $('obs-internal-status').style.color = 'var(--accent)';
+}
+
+// ── Obs Quick Login ───────────────────────────────────────────────
+// Always hits the AUTH service URL, regardless of the active tab's
+// API URL field. Pulls the saved auth URL from localStorage (or the
+// default) — and from whatever the user typed into the quick-login
+// auth-url field if they overrode it.
+function obsAuthUrl() {
+  const fromPanel = $('obs-auth-url').value.trim();
+  if (fromPanel) return fromPanel.replace(/\/$/, '');
+  const stored = localStorage.getItem('lumina_api_url_auth');
+  return (stored || SERVICE_DEFAULTS.auth).replace(/\/$/, '');
+}
+
+// Pings the configured auth URL's /health and reports back. Helps the
+// user catch the most common Quick-Login problems (wrong URL, auth
+// service not running, CORS blocking the browser) before they spend
+// time on the form fields.
+async function obsTestAuthConn() {
+  const url = obsAuthUrl() + '/health';
+  const el = $('obs-auth-conn-status');
+  el.textContent = `… ${url}`;
+  el.style.color = 'var(--text3)';
+  try {
+    const t0 = performance.now();
+    const r = await fetch(url, { method: 'GET' });
+    const dt = Math.round(performance.now() - t0);
+    if (r.ok) {
+      el.textContent = `✓ ${url} → 200 (${dt}ms)`;
+      el.style.color = 'var(--accent)';
+      logInfo('QuickLogin', `auth /health OK — ${url} (${dt}ms)`);
+    } else {
+      el.textContent = `✗ ${url} → ${r.status}`;
+      el.style.color = 'var(--danger)';
+    }
+  } catch (e) {
+    el.textContent = `✗ ${url} — ${e.message}. Auth not running? CORS blocked? Check browser console.`;
+    el.style.color = 'var(--danger)';
+    logError('QuickLogin', `auth /health fetch failed: ${e.message}`);
+  }
+}
+
+// Like apiCall() but pinned to the AUTH service URL.
+async function authCall(method, path, body, token) {
+  const url = obsAuthUrl() + path;
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  logRequest(method, url, body);
+  try {
+    const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const data = await res.json().catch(() => ({}));
+    logResponse(method, url, res.status, data);
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    logError(method, url, err.message);
+    return { ok: false, status: 0, data: { error: 'network_error', message: err.message } };
+  }
+}
+
+function _setObsLoginStatus(msg, ok) {
+  const el = $('obs-login-step1-status');
+  el.textContent = msg;
+  el.style.color = ok ? 'var(--accent)' : (ok === false ? 'var(--danger)' : 'var(--text3)');
+}
+
+function _renderQuickLoginResult(r) {
+  showResult('res-obsQuickLogin', r);
+  updateObsTokenIndicator();
+}
+
+async function obsQuickOtpRequest() {
+  loading('res-obsQuickLogin');
+  _setObsLoginStatus('Sending OTP…');
+  const phone = $('obs-login-phone').value.trim();
+  if (!phone) {
+    _renderQuickLoginResult({ ok:false, status:0, data:{ error:'no_phone', message:'Enter a phone number first.' }});
+    _setObsLoginStatus('', false);
+    return;
+  }
+  const r = await authCall('POST', '/v1/auth/otp/request', {
+    phone_number: phone,
+    device_id: store.deviceId,
+    platform: $('obs-login-platform').value,
+  });
+
+  // Dev mode: surface the OTP inline so the user can verify without leaving the panel.
+  const banner = $('obs-login-dev-banner');
+  if (r.ok && r.data && r.data.dev_otp) {
+    $('obs-login-dev-value').textContent = r.data.dev_otp;
+    banner.style.display = 'block';
+    $('obs-login-otp').value = r.data.dev_otp;
+    _setObsLoginStatus('✓ OTP sent — auto-filled below', true);
+  } else if (r.ok) {
+    banner.style.display = 'none';
+    _setObsLoginStatus('✓ OTP sent — check the auth service logs', true);
+  } else {
+    banner.style.display = 'none';
+    _setObsLoginStatus('✗ ' + (r.data?.message || `${r.status}`), false);
+  }
+  _renderQuickLoginResult(r);
+}
+
+function obsUseDevOtp() {
+  const otp = $('obs-login-dev-value').textContent.trim();
+  if (!otp || otp.startsWith('—')) return;
+  $('obs-login-otp').value = otp;
+}
+
+async function obsQuickOtpVerify() {
+  loading('res-obsQuickLogin');
+  const phone = $('obs-login-phone').value.trim();
+  const otp = $('obs-login-otp').value.trim();
+  if (!phone || !otp) {
+    _renderQuickLoginResult({ ok:false, status:0, data:{ error:'missing', message:'Phone + OTP required.' }});
+    return;
+  }
+  const r = await authCall('POST', '/v1/auth/otp/verify', {
+    phone_number: phone,
+    otp,
+    device_id: store.deviceId,
+    platform: $('obs-login-platform').value,
+  });
+  if (r.ok && r.data?.access_token) {
+    setToken('accessToken', r.data.access_token);
+    setToken('refreshToken', r.data.refresh_token || '');
+    setToken('userId', r.data.user?.id || '');
+    _setObsLoginStatus('✓ Logged in as ' + (r.data.user?.id || 'usr_?'), true);
+    // Hide the dev banner — token is locked in
+    $('obs-login-dev-banner').style.display = 'none';
+  } else {
+    _setObsLoginStatus('✗ ' + (r.data?.message || `verify failed (${r.status})`), false);
+  }
+  _renderQuickLoginResult(r);
+}
+
+async function obsQuickGoogle() {
+  loading('res-obsQuickLogin');
+  if (!firebase.apps.length) {
+    _renderQuickLoginResult({ ok:false, status:0, data:{
+      error:'firebase_not_initialised',
+      message:'Firebase SDK not loaded. Switch to the AUTH tab → Firebase Setup → INIT FIREBASE, then come back.',
+    }});
+    return;
+  }
+  let fbToken, fbUser;
+  try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    const result = await firebase.auth().signInWithPopup(provider);
+    fbUser = result.user;
+    fbToken = await fbUser.getIdToken();
+    setToken('firebaseToken', fbToken);
+    logInfo('Firebase', `Google sign-in OK — ${fbUser.email}`);
+  } catch (e) {
+    // Common Firebase errors → actionable hints
+    const code = e.code || '';
+    let hint = '';
+    if (code === 'auth/popup-blocked' || /popup/i.test(e.message)) {
+      hint = ' Browser blocked the popup. Allow popups for this page and retry.';
+    } else if (code === 'auth/unauthorized-domain') {
+      hint = ' Firebase Console → Authentication → Settings → Authorized domains → add "localhost" and "127.0.0.1".';
+    } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      hint = ' Popup was closed before completing sign-in.';
+    } else if (code === 'auth/operation-not-allowed') {
+      hint = ' Google provider is disabled in this Firebase project. Console → Authentication → Sign-in method → enable Google.';
+    } else if (code === 'auth/configuration-not-found' || code === 'auth/invalid-api-key') {
+      hint = ' Firebase config is wrong. Switch to AUTH tab → Firebase Setup → verify the API key + project ID, then INIT.';
+    }
+    _renderQuickLoginResult({ ok:false, status:0, data:{
+      error: code || 'google_popup_failed',
+      message: e.message + hint,
+    }});
+    return;
+  }
+  // Exchange Firebase token for Lumina JWT
+  const r = await authCall('POST', '/v1/auth/firebase/exchange', {
+    firebase_id_token: fbToken,
+    device_id: store.deviceId,
+    platform: $('obs-login-platform').value,
+  });
+  if (r.ok && r.data?.access_token) {
+    setToken('accessToken', r.data.access_token);
+    setToken('refreshToken', r.data.refresh_token || '');
+    setToken('userId', r.data.user?.id || '');
+    _setObsLoginStatus(`✓ Logged in (Google) as ${fbUser.email}`, true);
+  } else {
+    // The Firebase popup worked but the backend exchange failed — most
+    // likely an auth-side bug (Firebase Admin not initialised, etc.).
+    _setObsLoginStatus(`✗ Exchange failed (HTTP ${r.status}). Firebase popup worked — check auth service logs.`, false);
+  }
+  _renderQuickLoginResult(r);
+}
+
+async function obsQuickLogout() {
+  if (store.accessToken) {
+    // Best-effort revoke on the auth side — ignore failures
+    await authCall('POST', '/v1/auth/logout', { logout_all_devices: false }, store.accessToken);
+  }
+  if (firebase.apps.length) {
+    try { await firebase.auth().signOut(); } catch (_) {}
+  }
+  clearTokens();
+  _setObsLoginStatus('— cleared —', null);
+  _renderQuickLoginResult({ ok:true, status:200, data:{ message:'Token cleared' }});
+}
+
+// Sidebar indicator: shows a small dot next to the Quick Login nav item
+// reflecting whether we currently have an access_token.
+function updateObsTokenIndicator() {
+  const el = $('obs-token-indicator');
+  if (!el) return;
+  if (store.accessToken) {
+    el.textContent = '● token';
+    el.style.color = 'var(--accent)';
+  } else {
+    el.textContent = '○ none';
+    el.style.color = 'var(--text3)';
+  }
+}
+
+// ── Logging ───────────────────────────────────────────────────────
+function logRequest(method, url, body) {
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  const time = new Date().toLocaleTimeString('en', {hour12:false});
+  el.innerHTML = `<span class="log-time">${time}</span>
+<span class="log-method ${method}">${method}</span>
+<span class="log-url">${url}</span>
+${body ? `<div class="log-body">${JSON.stringify(body, null, 1)}</div>` : ''}`;
+  $('logEntries').prepend(el);
+}
+
+function logResponse(method, url, status, data) {
+  const entries = $('logEntries').querySelectorAll('.log-entry');
+  if (!entries.length) return;
+  const first = entries[0];
+  const cls = status >= 500 ? 'log-err' : status >= 400 ? 'log-warn' : 'log-ok';
+  const badge = `<span class="log-status ${cls}"> → ${status}</span>`;
+  first.innerHTML += badge;
+  if (data) {
+    const body = JSON.stringify(data, null, 1);
+    const short = body.length > 300 ? body.slice(0,300) + '…' : body;
+    first.innerHTML += `<div class="log-body">${short}</div>`;
+    if (body.length > 300) {
+      first.innerHTML += `<span class="log-expand" onclick="this.previousSibling.textContent = \`${body.replace(/`/g,'\\`').replace(/\\/g,'\\\\')}\`; this.remove()">▼ show more</span>`;
+    }
+  }
+}
+
+function logInfo(source, msg) {
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-time">${new Date().toLocaleTimeString('en',{hour12:false})}</span> <span style="color:var(--warn)">[${source}]</span> <span style="color:var(--text2)">${msg}</span>`;
+  $('logEntries').prepend(el);
+}
+
+function logError(source, msg) {
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `<span class="log-time">${new Date().toLocaleTimeString('en',{hour12:false})}</span> <span class="log-err">[${source}] ${msg}</span>`;
+  $('logEntries').prepend(el);
+}
+
+function clearLog() { $('logEntries').innerHTML = ''; }
+
+// ── Baked-in Firebase config (lumina-nyaas) ───────────────────────
+const BAKED_FB_CONFIG = {
+  apiKey:            "AIzaSyDxkGHhwIjJbeBzFyR3ST02tWX391fyYKk",
+  authDomain:        "lumina-nyaas.firebaseapp.com",
+  projectId:         "lumina-nyaas",
+  storageBucket:     "lumina-nyaas.firebasestorage.app",
+  messagingSenderId: "869979854646",
+  appId:             "1:869979854646:web:57b816e741b62f195f0597",
+};
+
+// ── Init ──────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  prefillDeviceIds();
+
+  // Default to AUTH tab on load. The body[data-service] attribute
+  // drives the show/hide rules in CSS.
+  document.body.setAttribute('data-service', 'auth');
+
+  // Per-(service × env) URL storage. Restore the env that was active
+  // last time so a reload keeps the user where they left off.
+  const env = activeEnv();
+  $('envBtnLocal').classList.toggle('active', env === 'local');
+  $('envBtnCloud').classList.toggle('active', env === 'cloud');
+
+  // Migrate any legacy single-key values (per-service, env-agnostic)
+  // into the new (service, env=local) slots so existing setups don't
+  // lose their saved URLs.
+  for (const svc of Object.keys(SERVICE_DEFAULTS)) {
+    const legacyKey = 'lumina_api_url_' + svc;          // pre-env key
+    const newLocalKey = urlKey(svc, 'local');
+    if (localStorage.getItem(legacyKey) && !localStorage.getItem(newLocalKey)) {
+      localStorage.setItem(newLocalKey, localStorage.getItem(legacyKey));
+    }
+  }
+  // Pre-env-pre-service legacy fallback
+  const veryOld = localStorage.getItem('lumina_api_url');
+  if (veryOld && !localStorage.getItem(urlKey('auth', 'local'))) {
+    localStorage.setItem(urlKey('auth', 'local'), veryOld);
+  }
+
+  // Initial fill from the active (auth, env) slot.
+  $('apiBaseUrl').value = currentUrl('auth', env);
+  $('apiBaseUrl').placeholder = env === 'cloud'
+    ? 'https://lumina-auth-xxx.run.app'
+    : 'http://localhost:8001';
+
+  // Persist whatever the user types under the active (service, env).
+  $('apiBaseUrl').addEventListener('input', onApiUrlInput);
+
+  // Fill Firebase config fields from baked-in config
+  Object.keys(BAKED_FB_CONFIG).forEach(k => {
+    const el = $('fb-' + k);
+    if (el) el.value = BAKED_FB_CONFIG[k];
+  });
+
+  // Auto-initialise Firebase immediately — no manual step needed
+  try {
+    firebaseApp = firebase.initializeApp(BAKED_FB_CONFIG);
+    $('fb-status').textContent = '✓ Auto-initialised — lumina-nyaas';
+    $('fb-status').style.color = 'var(--accent)';
+    logInfo('Firebase', 'Auto-initialised — project: lumina-nyaas');
+  } catch (e) {
+    // Already initialised (page reload) — get existing app
+    try {
+      firebaseApp = firebase.app();
+      $('fb-status').textContent = '✓ Connected — lumina-nyaas';
+      $('fb-status').style.color = 'var(--accent)';
+      logInfo('Firebase', 'Connected to existing app — lumina-nyaas');
+    } catch (e2) {
+      $('fb-status').textContent = '✗ Init failed: ' + e2.message;
+      $('fb-status').style.color = 'var(--danger)';
+      logError('Firebase', e2.message);
+    }
+  }
+
+  // Pre-fill the obs Quick Login auth-URL field so it's visible
+  // immediately (not only when the panel is opened). Uses the
+  // auth-service URL for the active env.
+  const obsAuthUrlEl = $('obs-auth-url');
+  if (obsAuthUrlEl) {
+    obsAuthUrlEl.value = currentUrl('auth', env);
+  }
+
+  logInfo('Tester', `Lumina API Tester ready — env: ${env.toUpperCase()} · auth: ${currentUrl('auth', env) || '(not set)'} · Firebase: lumina-nyaas`);
+  updateObsTokenIndicator();
+  pingHealth();
+});
+</script>
+</body>
+</html>

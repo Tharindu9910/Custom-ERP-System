@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Saniro ERP — API Tester</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg:      #0a0b0f;
+  --bg2:     #111318;
+  --bg3:     #181c24;
+  --bg4:     #1e2330;
+  --border:  #252b38;
+  --border2: #2e3547;
+  --text:    #e2e8f0;
+  --text2:   #8b97b0;
+  --text3:   #4a5568;
+  --accent:  #4fffb0;
+  --accent2: #00d4ff;
+  --warn:    #ffb347;
+  --danger:  #ff5f6d;
+  --mono:    'Space Mono', monospace;
+  --sans:    'DM Sans', sans-serif;
+  --r:       6px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  height: 100vh;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 240px 1fr 320px;
+  grid-template-rows: 50px 1fr;
+  grid-template-areas: "header header header" "nav main log";
+}
+
+/* ── Header ─────────────────────────────────────────── */
+header {
+  grid-area: header;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 14px;
+}
+.logo { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: .06em; }
+.logo span { color: var(--text2); font-weight: 400; }
+.divider { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
+.header-label { font-size: 9px; color: var(--text3); font-family: var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.sep { flex: 1; }
+
+.env-toggle {
+  display: inline-flex;
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 2px;
+  gap: 1px;
+}
+.env-toggle button {
+  background: transparent;
+  border: none;
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: .08em;
+  transition: all .15s;
+}
+.env-toggle button.active        { background: var(--bg2); color: var(--accent);  box-shadow: inset 0 0 0 1px var(--border); }
+.env-toggle button.active.cloud  { color: var(--accent2); }
+
+.url-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 4px 4px 4px 10px;
+}
+.url-label { font-size: 9px; color: var(--text3); font-family: var(--mono); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+#apiBaseUrl {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--accent2);
+  font-family: var(--mono);
+  font-size: 11px;
+  width: 220px;
+}
+.dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text3);
+  transition: background .3s;
+  flex-shrink: 0;
+}
+.dot.ok  { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.dot.err { background: var(--danger); }
+
+/* ── Buttons ─────────────────────────────────────────── */
+.btn {
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 5px 12px;
+  border-radius: var(--r);
+  cursor: pointer;
+  letter-spacing: .04em;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn:hover            { border-color: var(--accent);  color: var(--accent); }
+.btn.primary          { border-color: var(--accent);  color: var(--accent);  background: rgba(79,255,176,.08); }
+.btn.primary:hover    { background: rgba(79,255,176,.15); }
+.btn.danger           { border-color: var(--danger);  color: var(--danger);  background: rgba(255,95,109,.08); }
+.btn.danger:hover     { background: rgba(255,95,109,.15); }
+.btn.sm               { font-size: 9px; padding: 3px 8px; }
+
+/* ── Nav ─────────────────────────────────────────────── */
+nav {
+  grid-area: nav;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 10px 0 20px;
+}
+.nav-section {
+  padding: 12px 14px 4px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--text3);
+  font-family: var(--mono);
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background .12s;
+  user-select: none;
+}
+.nav-item:hover  { background: var(--bg3); }
+.nav-item.active { background: var(--bg3); border-left-color: var(--accent); }
+.nav-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+  min-width: 32px;
+  text-align: center;
+}
+.GET  { background: rgba(0,212,255,.12);  color: var(--accent2); }
+.POST { background: rgba(79,255,176,.12); color: var(--accent); }
+.JWT  { background: rgba(255,179,71,.12); color: var(--warn); }
+.nav-path  { font-family: var(--mono); font-size: 11px; color: var(--text); }
+.nav-sub   { font-size: 10px; color: var(--text3); margin-left: auto; }
+
+/* ── Main ─────────────────────────────────────────────── */
+main {
+  grid-area: main;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Token Store */
+.token-store {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  flex-shrink: 0;
+}
+.ts-title {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text3);
+  margin-bottom: 8px;
+}
+.ts-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.ts-key {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  width: 88px;
+  flex-shrink: 0;
+}
+.ts-val {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent2);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ts-val.empty { color: var(--text3); font-style: italic; }
+.ts-actions { display: flex; gap: 5px; flex-shrink: 0; }
+
+/* Panel */
+.panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: visible;
+  flex-shrink: 0;
+  display: none;
+}
+.panel.active { display: block; animation: fadeIn .15s ease; }
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg3);
+}
+.panel-method {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 3px;
+}
+.panel-path { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.panel-desc { font-size: 11px; color: var(--text2); margin-left: auto; }
+.panel-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Fields */
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 10px; color: var(--text2); font-family: var(--mono); letter-spacing: .04em; }
+.field input, .field textarea {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: var(--r);
+  outline: none;
+  width: 100%;
+  transition: border-color .15s;
+}
+.field input[type="password"] { letter-spacing: .1em; }
+.field input:focus, .field textarea:focus { border-color: var(--accent2); }
+.field textarea { resize: vertical; min-height: 72px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* Quick-fill chips */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.chips-label { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+.chip {
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  font-family: var(--mono);
+  font-size: 9px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.chip:hover { border-color: var(--accent2); color: var(--accent2); }
+
+/* Info banner */
+.info-banner {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 9px 12px;
+  font-size: 11px;
+  color: var(--text2);
+  line-height: 1.5;
+}
+.info-banner code { font-family: var(--mono); color: var(--accent); font-size: 10px; }
+
+/* Response */
+.resp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.resp-label { font-size: 9px; color: var(--text3); font-family: var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.resp-box {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text2);
+  min-height: 56px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+.s2xx { background: rgba(79,255,176,.15);  color: var(--accent); }
+.s4xx { background: rgba(255,179,71,.15);  color: var(--warn); }
+.s5xx { background: rgba(255,95,109,.15);  color: var(--danger); }
+
+/* JWT sections */
+.jwt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.jwt-sec-title { font-size: 9px; color: var(--text3); font-family: var(--mono); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+
+/* Welcome */
+.welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text3);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: center;
+  padding-bottom: 40px;
+}
+.welcome-logo { font-size: 20px; color: var(--accent); font-weight: 700; margin-bottom: 4px; letter-spacing: .06em; }
+
+/* ── Log Panel ───────────────────────────────────────── */
+#log {
+  grid-area: log;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.log-head {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.log-title { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .12em; color: var(--text3); flex: 1; }
+.log-body  { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.log-empty { color: var(--text3); font-family: var(--mono); font-size: 10px; text-align: center; padding: 24px 0; }
+.log-entry {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  transition: border-color .12s;
+}
+.log-entry:hover { border-color: var(--border2); }
+.log-top { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+.log-time { color: var(--text3); font-size: 9px; flex-shrink: 0; }
+.log-m    { font-size: 9px; font-weight: 700; }
+.log-url  { color: var(--text2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.log-prev { color: var(--text3); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-info { padding: 3px 8px; font-family: var(--mono); font-size: 9px; color: var(--text3); }
+.log-err  { padding: 3px 8px; font-family: var(--mono); font-size: 9px; color: var(--danger); }
+
+/* ── Scrollbars ──────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
+@keyframes pulse  { 0%,100% { opacity:1; } 50% { opacity:.4; } }
+.loading { animation: pulse 1s infinite; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">SANIRO<span>·ERP</span></div>
+  <div class="divider"></div>
+  <span class="header-label">API Tester</span>
+  <div class="sep"></div>
+
+  <div class="env-toggle">
+    <button id="btn-local" class="active" onclick="switchEnv('local')">
+      <span id="dot-local" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;margin-right:5px;vertical-align:1px"></span>LOCAL
+    </button>
+    <button id="btn-cloud" class="cloud" onclick="switchEnv('cloud')">
+      <span id="dot-cloud" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--text3);margin-right:5px;vertical-align:1px"></span>CLOUD
+    </button>
+  </div>
+
+  <div class="url-group">
+    <span class="url-label">API</span>
+    <input id="apiBaseUrl" type="text" value="http://localhost:3000" onchange="saveUrl()" onblur="saveUrl()">
+    <div class="dot" id="statusDot"></div>
+    <button class="btn" style="border-radius:4px" onclick="pingHealth()">PING</button>
+  </div>
+</header>
+
+<!-- ── Sidebar Nav ─────────────────────────────────────────────────────── -->
+<nav>
+  <div class="nav-section">Health</div>
+  <div class="nav-item" id="nav-health" onclick="show('health')">
+    <span class="nav-badge GET">GET</span>
+    <span class="nav-path">/health</span>
+  </div>
+  <div class="nav-item" id="nav-health-db" onclick="show('health-db')">
+    <span class="nav-badge GET">GET</span>
+    <span class="nav-path">/health/run</span>
+    <span class="nav-sub">db check</span>
+  </div>
+
+  <div class="nav-section">Auth</div>
+  <div class="nav-item" id="nav-login" onclick="show('login')">
+    <span class="nav-badge POST">POST</span>
+    <span class="nav-path">/auth/login</span>
+  </div>
+  <div class="nav-item" id="nav-refresh" onclick="show('refresh')">
+    <span class="nav-badge POST">POST</span>
+    <span class="nav-path">/auth/refresh</span>
+  </div>
+  <div class="nav-item" id="nav-logout" onclick="show('logout')">
+    <span class="nav-badge POST">POST</span>
+    <span class="nav-path">/auth/logout</span>
+  </div>
+  <div class="nav-item" id="nav-me" onclick="show('me')">
+    <span class="nav-badge GET">GET</span>
+    <span class="nav-path">/auth/me</span>
+  </div>
+
+  <div class="nav-section">Utils</div>
+  <div class="nav-item" id="nav-jwt" onclick="show('jwt')">
+    <span class="nav-badge JWT">JWT</span>
+    <span class="nav-path">Inspector</span>
+  </div>
+</nav>
+
+<!-- ── Main ───────────────────────────────────────────────────────────── -->
+<main id="main">
+
+  <!-- Token Store (always visible) -->
+  <div class="token-store">
+    <div class="ts-title">Token Store</div>
+    <div class="ts-row">
+      <span class="ts-key">accessToken</span>
+      <span class="ts-val empty" id="ts-access">— empty —</span>
+      <div class="ts-actions">
+        <button class="btn sm" onclick="copyToken('access')">copy</button>
+        <button class="btn sm danger" onclick="clearAllTokens()">clear all</button>
+      </div>
+    </div>
+    <div class="ts-row">
+      <span class="ts-key">refreshToken</span>
+      <span class="ts-val empty" id="ts-refresh">— empty —</span>
+      <div class="ts-actions">
+        <button class="btn sm" onclick="copyToken('refresh')">copy</button>
+      </div>
+    </div>
+    <div class="ts-row">
+      <span class="ts-key">userId</span>
+      <span class="ts-val empty" id="ts-userid">— empty —</span>
+      <div class="ts-actions">
+        <button class="btn sm" onclick="copyToken('userid')">copy</button>
+      </div>
+    </div>
+    <div class="ts-row">
+      <span class="ts-key">role</span>
+      <span class="ts-val empty" id="ts-role">— empty —</span>
+    </div>
+    <div class="ts-row">
+      <span class="ts-key">branchId</span>
+      <span class="ts-val empty" id="ts-branch">— empty —</span>
+    </div>
+  </div>
+
+  <!-- Welcome -->
+  <div class="welcome" id="p-welcome">
+    <div class="welcome-logo">SANIRO ERP</div>
+    <div>Select an endpoint from the sidebar to begin</div>
+    <div style="font-size:10px;margin-top:4px">
+      API → <span id="welcome-url" style="color:var(--accent2)">http://localhost:3000</span>
+    </div>
+  </div>
+
+  <!-- ── GET /health ─────────────────────────────────── -->
+  <div class="panel" id="p-health">
+    <div class="panel-head">
+      <span class="panel-method GET">GET</span>
+      <span class="panel-path">/health</span>
+      <span class="panel-desc">Basic health check · public</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row">
+        <button class="btn primary" onclick="doHealth()">Send</button>
+      </div>
+      <div>
+        <div class="resp-head">
+          <span class="resp-label">Response</span>
+          <span id="s-health"></span>
+        </div>
+        <div class="resp-box" id="r-health">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── GET /health/run ─────────────────────────────── -->
+  <div class="panel" id="p-health-db">
+    <div class="panel-head">
+      <span class="panel-method GET">GET</span>
+      <span class="panel-path">/health/run</span>
+      <span class="panel-desc">Database connectivity · public</span>
+    </div>
+    <div class="panel-body">
+      <div class="btn-row">
+        <button class="btn primary" onclick="doHealthDb()">Send</button>
+      </div>
+      <div>
+        <div class="resp-head">
+          <span class="resp-label">Response</span>
+          <span id="s-health-db"></span>
+        </div>
+        <div class="resp-box" id="r-health-db">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── POST /auth/login ────────────────────────────── -->
+  <div class="panel" id="p-login">
+    <div class="panel-head">
+      <span class="panel-method POST">POST</span>
+      <span class="panel-path">/auth/login</span>
+      <span class="panel-desc">Username + password → JWT pair</span>
+    </div>
+    <div class="panel-body">
+      <div class="chips">
+        <span class="chips-label">Quick fill:</span>
+        <span class="chip" onclick="fillLogin('superadmin','Super@123')">superadmin</span>
+        <span class="chip" onclick="fillLogin('manager1','Manager@123')">manager1</span>
+        <span class="chip" onclick="fillLogin('admin1','Admin@123')">admin1</span>
+        <span class="chip" onclick="fillLogin('supervisor1','Super1@123')">supervisor1</span>
+        <span class="chip" onclick="fillLogin('cashier1','Cashier@123')">cashier1</span>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>username</label>
+          <input id="login-user" type="text" placeholder="superadmin" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>password</label>
+          <input id="login-pass" type="password" placeholder="••••••••" autocomplete="off">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" onclick="doLogin()">Login</button>
+        <span style="font-size:10px;color:var(--text3);font-family:var(--mono)">Tokens auto-stored on success</span>
+      </div>
+      <div>
+        <div class="resp-head">
+          <span class="resp-label">Response</span>
+          <span id="s-login"></span>
+        </div>
+        <div class="resp-box" id="r-login">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── POST /auth/refresh ──────────────────────────── -->
+  <div class="panel" id="p-refresh">
+    <div class="panel-head">
+      <span class="panel-method POST">POST</span>
+      <span class="panel-path">/auth/refresh</span>
+      <span class="panel-desc">Refresh token → new JWT pair</span>
+    </div>
+    <div class="panel-body">
+      <div class="field">
+        <label>Refresh Token  <span style="color:var(--text3)">(sent as Authorization: Bearer)</span></label>
+        <input id="refresh-tok" type="text" placeholder="Auto-filled from store — or paste manually">
+      </div>
+      <div class="btn-row">
+        <button class="btn" onclick="fillRefresh()">Fill from Store</button>
+        <button class="btn primary" onclick="doRefresh()">Refresh</button>
+      </div>
+      <div>
+        <div class="resp-head">
+          <span class="resp-label">Response</span>
+          <span id="s-refresh"></span>
+        </div>
+        <div class="resp-box" id="r-refresh">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── POST /auth/logout ───────────────────────────── -->
+  <div class="panel" id="p-logout">
+    <div class="panel-head">
+      <span class="panel-method POST">POST</span>
+      <span class="panel-path">/auth/logout</span>
+      <span class="panel-desc">Stateless logout · clears local tokens</span>
+    </div>
+    <div class="panel-body">
+      <div class="info-banner">
+        Sends <code>Authorization: Bearer &lt;accessToken&gt;</code> from the store.
+        Tokens are cleared locally on success. Login first if the store is empty.
+      </div>
+      <div class="btn-row">
+        <button class="btn danger" onclick="doLogout()">Logout</button>
+      </div>
+      <div>
+        <div class="resp-head">
+          <span class="resp-label">Response</span>
+          <span id="s-logout"></span>
+        </div>
+        <div class="resp-box" id="r-logout">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── GET /auth/me ────────────────────────────────── -->
+  <div class="panel" id="p-me">
+    <div class="panel-head">
+      <span class="panel-method GET">GET</span>
+      <span class="panel-path">/auth/me</span>
+      <span class="panel-desc">Current user profile · requires auth</span>
+    </div>
+    <div class="panel-body">
+      <div class="info-banner">
+        Sends <code>Authorization: Bearer &lt;accessToken&gt;</code> from the store.
+        Login first if the store is empty.
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" onclick="doMe()">Get Profile</button>
+      </div>
+      <div>
+        <div class="resp-head">
+          <span class="resp-label">Response</span>
+          <span id="s-me"></span>
+        </div>
+        <div class="resp-box" id="r-me">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── JWT Inspector ───────────────────────────────── -->
+  <div class="panel" id="p-jwt">
+    <div class="panel-head">
+      <span class="panel-method JWT">JWT</span>
+      <span class="panel-path">Inspector</span>
+      <span class="panel-desc">Decode & inspect tokens</span>
+    </div>
+    <div class="panel-body">
+      <div class="field">
+        <label>Token</label>
+        <textarea id="jwt-input" rows="3" placeholder="Paste a JWT here, or click Fill from Store"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn" onclick="fillJwt()">Fill from Store</button>
+        <button class="btn primary" onclick="decodeJwt()">Decode</button>
+        <button class="btn" onclick="clearJwt()">Clear</button>
+      </div>
+      <div id="jwt-expiry" style="display:none" class="info-banner"></div>
+      <div class="jwt-grid" id="jwt-grid" style="display:none">
+        <div>
+          <div class="jwt-sec-title">Header</div>
+          <div class="resp-box" id="jwt-header">—</div>
+        </div>
+        <div>
+          <div class="jwt-sec-title">Payload</div>
+          <div class="resp-box" id="jwt-payload">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── Log Panel ───────────────────────────────────────────────────────── -->
+<aside id="log">
+  <div class="log-head">
+    <span class="log-title">Request Log</span>
+    <button class="btn sm" onclick="clearLog()">CLEAR</button>
+  </div>
+  <div class="log-body" id="log-body">
+    <div class="log-empty">No requests yet</div>
+  </div>
+</aside>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const store = { accessToken:'', refreshToken:'', userId:'', role:'', branchId:'' };
+let env = 'local';
+const DEFAULTS = { local:'http://localhost:3000', cloud:'' };
+
+// ── Init ───────────────────────────────────────────────────────────────────
+(function init() {
+  env = localStorage.getItem('erp_env') || 'local';
+  const saved = localStorage.getItem(`erp_url_${env}`);
+  const urlEl = document.getElementById('apiBaseUrl');
+  urlEl.value = saved || DEFAULTS[env];
+  refreshEnvUI();
+  document.getElementById('welcome-url').textContent = getUrl();
+  pingHealth();
+})();
+
+// ── URL / Env ──────────────────────────────────────────────────────────────
+function getUrl() {
+  return document.getElementById('apiBaseUrl').value.replace(/\/$/, '');
+}
+function saveUrl() {
+  localStorage.setItem(`erp_url_${env}`, getUrl());
+  document.getElementById('welcome-url').textContent = getUrl();
+}
+function switchEnv(e) {
+  saveUrl();
+  env = e;
+  localStorage.setItem('erp_env', e);
+  const saved = localStorage.getItem(`erp_url_${e}`);
+  document.getElementById('apiBaseUrl').value = saved || DEFAULTS[e];
+  refreshEnvUI();
+  pingHealth();
+}
+function refreshEnvUI() {
+  const lBtn = document.getElementById('btn-local');
+  const cBtn = document.getElementById('btn-cloud');
+  const lDot = document.getElementById('dot-local');
+  const cDot = document.getElementById('dot-cloud');
+  if (env === 'local') {
+    lBtn.className = 'active';
+    cBtn.className = 'cloud';
+    lDot.style.cssText = 'display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;margin-right:5px;vertical-align:1px';
+    cDot.style.cssText = 'display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--text3);margin-right:5px;vertical-align:1px';
+  } else {
+    lBtn.className = '';
+    cBtn.className = 'active cloud';
+    lDot.style.cssText = 'display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--text3);margin-right:5px;vertical-align:1px';
+    cDot.style.cssText = 'display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;margin-right:5px;vertical-align:1px';
+  }
+}
+
+// ── Token Store ────────────────────────────────────────────────────────────
+function setTok(key, val) {
+  store[key] = val;
+  const map = { accessToken:'ts-access', refreshToken:'ts-refresh', userId:'ts-userid', role:'ts-role', branchId:'ts-branch' };
+  const el = document.getElementById(map[key]);
+  if (!el) return;
+  if (val) {
+    el.textContent = val.length > 52 ? val.slice(0,52)+'…' : val;
+    el.classList.remove('empty');
+  } else {
+    el.textContent = '— empty —';
+    el.classList.add('empty');
+  }
+}
+function clearAllTokens() {
+  ['accessToken','refreshToken','userId','role','branchId'].forEach(k => setTok(k,''));
+  logInfo('STORE', 'All tokens cleared');
+}
+function copyToken(type) {
+  const val = { access:store.accessToken, refresh:store.refreshToken, userid:store.userId }[type];
+  if (!val) { logInfo('COPY', `${type} token is empty`); return; }
+  navigator.clipboard.writeText(val).then(() => logInfo('COPY', `${type} token copied to clipboard`));
+}
+function absorbTokens(data) {
+  const d = data?.data ?? data;
+  if (d?.accessToken)  setTok('accessToken',  d.accessToken);
+  if (d?.refreshToken) setTok('refreshToken', d.refreshToken);
+  if (d?.accessToken) {
+    try {
+      const p = JSON.parse(atob(d.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+      setTok('userId',   p.sub        || '');
+      setTok('role',     p.role       || '');
+      setTok('branchId', p.branch_id  || '');
+    } catch {}
+  }
+}
+
+// ── Panel routing ──────────────────────────────────────────────────────────
+const PANELS = ['health','health-db','login','refresh','logout','me','jwt'];
+let active = null;
+function show(id) {
+  if (active) {
+    document.getElementById(`p-${active}`).classList.remove('active');
+    document.getElementById(`nav-${active}`)?.classList.remove('active');
+  }
+  document.getElementById('p-welcome').style.display = 'none';
+  document.getElementById(`p-${id}`).classList.add('active');
+  document.getElementById(`nav-${id}`)?.classList.add('active');
+  active = id;
+  if (id === 'refresh') fillRefresh();
+  if (id === 'jwt' && store.accessToken) fillJwt();
+}
+
+// ── API helpers ────────────────────────────────────────────────────────────
+async function call(method, path, body, bearerToken) {
+  const url = getUrl() + path;
+  const headers = { 'Content-Type': 'application/json' };
+  if (bearerToken) headers['Authorization'] = `Bearer ${bearerToken}`;
+  logReq(method, url, body);
+  const t0 = Date.now();
+  try {
+    const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const ms  = Date.now() - t0;
+    let data;
+    try { data = await res.json(); } catch { data = {}; }
+    logRes(method, url, res.status, data, ms);
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    logErr('FETCH', err.message);
+    return { ok: false, status: 0, data: { error: err.message } };
+  }
+}
+
+// ── Endpoint handlers ──────────────────────────────────────────────────────
+async function doHealth() {
+  loading('r-health','s-health');
+  render('r-health','s-health', await call('GET','/health',null,null));
+}
+async function doHealthDb() {
+  loading('r-health-db','s-health-db');
+  render('r-health-db','s-health-db', await call('GET','/health/run',null,null));
+}
+async function doLogin() {
+  const u = document.getElementById('login-user').value.trim();
+  const p = document.getElementById('login-pass').value;
+  if (!u || !p) { logErr('LOGIN','Username and password are required'); return; }
+  loading('r-login','s-login');
+  const r = await call('POST','/auth/login',{ username:u, password:p },null);
+  render('r-login','s-login', r);
+  if (r.ok) absorbTokens(r.data);
+}
+async function doRefresh() {
+  const tok = document.getElementById('refresh-tok').value.trim() || store.refreshToken;
+  if (!tok) { logErr('REFRESH','No refresh token — login first'); return; }
+  loading('r-refresh','s-refresh');
+  const r = await call('POST','/auth/refresh',null, tok);
+  render('r-refresh','s-refresh', r);
+  if (r.ok) absorbTokens(r.data);
+}
+async function doLogout() {
+  if (!store.accessToken) { logErr('LOGOUT','No access token — login first'); return; }
+  loading('r-logout','s-logout');
+  const r = await call('POST','/auth/logout',null, store.accessToken);
+  render('r-logout','s-logout', r);
+  if (r.ok) clearAllTokens();
+}
+async function doMe() {
+  if (!store.accessToken) { logErr('ME','No access token — login first'); return; }
+  loading('r-me','s-me');
+  render('r-me','s-me', await call('GET','/auth/me',null, store.accessToken));
+}
+async function pingHealth() {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'dot';
+  try {
+    const r = await fetch(getUrl() + '/health');
+    dot.className = r.ok ? 'dot ok' : 'dot err';
+  } catch {
+    dot.className = 'dot err';
+  }
+}
+
+// ── Fill helpers ───────────────────────────────────────────────────────────
+function fillLogin(u, p) {
+  document.getElementById('login-user').value = u;
+  document.getElementById('login-pass').value = p;
+}
+function fillRefresh() {
+  if (store.refreshToken) document.getElementById('refresh-tok').value = store.refreshToken;
+}
+function fillJwt() {
+  if (store.accessToken) {
+    document.getElementById('jwt-input').value = store.accessToken;
+    decodeJwt();
+  }
+}
+
+// ── JWT decode ─────────────────────────────────────────────────────────────
+function decodeJwt() {
+  const raw = document.getElementById('jwt-input').value.trim();
+  if (!raw) return;
+  try {
+    const parts = raw.split('.');
+    if (parts.length !== 3) throw new Error('Not a valid JWT — expected 3 dot-separated parts');
+    const b64 = s => JSON.parse(atob(s.replace(/-/g,'+').replace(/_/g,'/')));
+    const hdr     = b64(parts[0]);
+    const payload = b64(parts[1]);
+    document.getElementById('jwt-header').textContent  = JSON.stringify(hdr,     null, 2);
+    document.getElementById('jwt-payload').textContent = JSON.stringify(payload, null, 2);
+    document.getElementById('jwt-grid').style.display  = 'grid';
+    const expEl = document.getElementById('jwt-expiry');
+    if (payload.exp) {
+      const expAt  = new Date(payload.exp * 1000);
+      const diff   = expAt - Date.now();
+      const mins   = Math.abs(Math.round(diff / 60000));
+      const expired = diff < 0;
+      expEl.style.display = 'block';
+      expEl.innerHTML = expired
+        ? `<span style="color:var(--danger)">⚠ Expired</span> &nbsp;·&nbsp; ${expAt.toLocaleString()} &nbsp;(${mins}m ago)`
+        : `<span style="color:var(--accent)">✓ Valid</span> &nbsp;·&nbsp; Expires ${expAt.toLocaleString()} &nbsp;(in ${mins}m)`;
+    } else {
+      expEl.style.display = 'none';
+    }
+  } catch (e) {
+    document.getElementById('jwt-header').textContent  = `Error: ${e.message}`;
+    document.getElementById('jwt-payload').textContent = '';
+    document.getElementById('jwt-grid').style.display  = 'grid';
+    document.getElementById('jwt-expiry').style.display = 'none';
+  }
+}
+function clearJwt() {
+  document.getElementById('jwt-input').value = '';
+  document.getElementById('jwt-grid').style.display   = 'none';
+  document.getElementById('jwt-expiry').style.display = 'none';
+}
+
+// ── Response helpers ───────────────────────────────────────────────────────
+function loading(boxId, statId) {
+  const box = document.getElementById(boxId);
+  box.textContent = 'Sending…';
+  box.classList.add('loading');
+  document.getElementById(statId).innerHTML = '';
+}
+function render(boxId, statId, r) {
+  const box = document.getElementById(boxId);
+  box.classList.remove('loading');
+  box.textContent = JSON.stringify(r.data, null, 2);
+  const cls = r.status >= 500 ? 's5xx' : r.status >= 400 ? 's4xx' : r.status >= 200 ? 's2xx' : '';
+  document.getElementById(statId).innerHTML = r.status
+    ? `<span class="badge ${cls}">${r.status}</span>`
+    : `<span class="badge s5xx">ERR</span>`;
+}
+
+// ── Log panel ──────────────────────────────────────────────────────────────
+function logReq(method, url, body) {
+  const lb = document.getElementById('log-body');
+  lb.querySelector('.log-empty')?.remove();
+  const t   = new Date().toLocaleTimeString('en-US', { hour12:false });
+  const cls = method === 'GET' ? 'GET' : method === 'DELETE' ? 'DEL' : 'POST';
+  const preview = body ? JSON.stringify(body).slice(0, 100) : '(no body)';
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `
+    <div class="log-top">
+      <span class="log-time">${t}</span>
+      <span class="log-m nav-badge ${cls}">${method}</span>
+      <span class="log-url">${url.replace(getUrl(),'')}</span>
+    </div>
+    <div class="log-prev">${preview}</div>`;
+  lb.prepend(entry);
+  return entry;
+}
+function logRes(method, url, status, data, ms) {
+  const lb    = document.getElementById('log-body');
+  const entry = lb.firstElementChild;
+  if (!entry?.classList.contains('log-entry')) return;
+  const cls     = status >= 500 ? 's5xx' : status >= 400 ? 's4xx' : 's2xx';
+  const preview = JSON.stringify(data).slice(0, 80);
+  entry.querySelector('.log-prev').textContent = `${status} · ${ms}ms · ${preview}`;
+  const badge = document.createElement('span');
+  badge.className = `badge ${cls}`;
+  badge.style.cssText = 'margin-left:auto;padding:1px 5px;font-size:9px;font-weight:700';
+  badge.textContent = status || 'ERR';
+  entry.querySelector('.log-top').appendChild(badge);
+}
+function logInfo(src, msg) {
+  const lb = document.getElementById('log-body');
+  lb.querySelector('.log-empty')?.remove();
+  const t  = new Date().toLocaleTimeString('en-US', { hour12:false });
+  const el = document.createElement('div');
+  el.className   = 'log-info';
+  el.textContent = `${t} [${src}] ${msg}`;
+  lb.prepend(el);
+}
+function logErr(src, msg) {
+  const lb = document.getElementById('log-body');
+  lb.querySelector('.log-empty')?.remove();
+  const t  = new Date().toLocaleTimeString('en-US', { hour12:false });
+  const el = document.createElement('div');
+  el.className   = 'log-err';
+  el.textContent = `${t} [${src}] ✗ ${msg}`;
+  lb.prepend(el);
+}
+function clearLog() {
+  document.getElementById('log-body').innerHTML = '<div class="log-empty">No requests yet</div>';
+}
+</script>
+</body>
+</html>
