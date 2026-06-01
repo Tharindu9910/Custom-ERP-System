@@ -1,6 +1,6 @@
 # Saniro ERP — Project Plan v6
 
-> **Frontend:** React 19 + TypeScript + Vite 6 + Zustand v5 + TanStack Suite + shadcn/ui
+> **Frontend:** React 19 + TypeScript + Vite 6 + Zustand v5 + TanStack Suite + shadcn/ui + tailwindcss
 > **Backend:** NestJS + TypeORM + PostgreSQL 16+
 > **Tooling:** pnpm workspaces + Turborepo + Claude Code
 > **Team:** 2 developers, equal level, splitting work by module

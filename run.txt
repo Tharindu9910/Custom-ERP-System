@@ -1,2 +1,2 @@
 run backend server: pnpm --filter api dev
-npx kill-port 3000
+kill a port : npx kill-port 3000
