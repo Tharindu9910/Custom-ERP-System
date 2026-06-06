@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from 'typeorm'
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class CreateUserAndUserRole1748700000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -7,7 +7,7 @@ export class CreateUserAndUserRole1748700000000 implements MigrationInterface {
         'SUPER_ADMIN', 'ADMIN', 'AUDITOR',
         'SUPERVISOR', 'CHIEF', 'CASHIER', 'MANAGER'
       )
-    `)
+    `);
 
     await queryRunner.query(`
       CREATE TABLE "user" (
@@ -23,7 +23,7 @@ export class CreateUserAndUserRole1748700000000 implements MigrationInterface {
         CONSTRAINT "PK_user" PRIMARY KEY ("user_id"),
         CONSTRAINT "UQ_user_username" UNIQUE ("username")
       )
-    `)
+    `);
 
     await queryRunner.query(`
       CREATE TABLE "user_role" (
@@ -38,20 +38,20 @@ export class CreateUserAndUserRole1748700000000 implements MigrationInterface {
         CONSTRAINT "FK_user_role_user" FOREIGN KEY ("user_id")
           REFERENCES "user" ("user_id") ON DELETE CASCADE
       )
-    `)
+    `);
 
     // One active role per user — enforced at DB level
     await queryRunner.query(`
       CREATE UNIQUE INDEX "idx_user_role_one_active"
         ON "user_role" ("user_id")
         WHERE "is_active" = true
-    `)
+    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS "idx_user_role_one_active"`)
-    await queryRunner.query(`DROP TABLE IF EXISTS "user_role"`)
-    await queryRunner.query(`DROP TABLE IF EXISTS "user"`)
-    await queryRunner.query(`DROP TYPE IF EXISTS "role_enum"`)
+    await queryRunner.query(`DROP INDEX IF EXISTS "idx_user_role_one_active"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "user_role"`);
+    await queryRunner.query(`DROP TABLE IF EXISTS "user"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "role_enum"`);
   }
 }

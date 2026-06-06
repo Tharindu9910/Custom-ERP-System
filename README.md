@@ -26,7 +26,7 @@ A production-grade ERP system for a fabrication workshop. Built as a pnpm monore
 |---|---|
 | Monorepo | pnpm workspaces + Turborepo |
 | Backend | NestJS + TypeORM + PostgreSQL 16 |
-| Frontend | React 19 + Vite 6 + TanStack Query + TanStack Router |
+| Frontend | React 19 + Vite 6 + TanStack Query + TanStack Router + TailwindCSS |
 | Auth | JWT Bearer tokens only (no cookies) |
 | Real-time | SSE (Server-Sent Events, in-process) |
 | Background jobs | pg-boss (runs inside Postgres — no Redis) |

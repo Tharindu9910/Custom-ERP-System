@@ -1,6 +1,6 @@
-import { Controller, Get } from '@nestjs/common'
-import { Public } from '../../common/decorators'
-import { HealthService } from './health.service'
+import { Controller, Get } from '@nestjs/common';
+import { Public } from '../../common/decorators';
+import { HealthService } from './health.service';
 
 @Public()
 @Controller('health')
@@ -9,11 +9,11 @@ export class HealthController {
 
   @Get()
   check() {
-    return this.healthService.check()
+    return this.healthService.check();
   }
 
   @Get('run')
   async checkDb() {
-    return this.healthService.checkDb()
+    return this.healthService.checkDb();
   }
 }

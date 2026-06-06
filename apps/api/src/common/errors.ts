@@ -1,14 +1,28 @@
 export const ERR = {
-
   // ── Auth ────────────────────────────────────────────────────────────────
-  AUTH_INVALID_CREDENTIALS:     { code: 'AUTH_001', message: 'Invalid username or password' },
-  AUTH_TOKEN_EXPIRED:           { code: 'AUTH_002', message: 'Token has expired' },
-  AUTH_REFRESH_TOKEN_INVALID:   { code: 'AUTH_003', message: 'Refresh token is invalid or expired' },
-  AUTH_INSUFFICIENT_PERMISSION: { code: 'AUTH_004', message: 'You do not have permission for this action' },
-  AUTH_USER_INACTIVE:           { code: 'AUTH_005', message: 'This account has been deactivated' },
+  AUTH_INVALID_CREDENTIALS: {
+    code: 'AUTH_001',
+    message: 'Invalid username or password',
+  },
+  AUTH_TOKEN_EXPIRED: { code: 'AUTH_002', message: 'Token has expired' },
+  AUTH_REFRESH_TOKEN_INVALID: {
+    code: 'AUTH_003',
+    message: 'Refresh token is invalid or expired',
+  },
+  AUTH_INSUFFICIENT_PERMISSION: {
+    code: 'AUTH_004',
+    message: 'You do not have permission for this action',
+  },
+  AUTH_USER_INACTIVE: {
+    code: 'AUTH_005',
+    message: 'This account has been deactivated',
+  },
 
   // ── Rate limiting ────────────────────────────────────────────────────────
-  RATE_LIMIT_EXCEEDED:          { code: 'RATE_001', message: 'Too many requests — please slow down' },
+  RATE_LIMIT_EXCEEDED: {
+    code: 'RATE_001',
+    message: 'Too many requests — please slow down',
+  },
 
   // ── Job Cards ────────────────────────────────────────────────────────────
   // JOB_CARD_NOT_FOUND, JOB_CARD_INVALID_TRANSITION, JOB_CARD_BALANCE_NOT_ZERO,
@@ -35,7 +49,6 @@ export const ERR = {
 
   // ── Offline Sync ─────────────────────────────────────────────────────────
   // SYNC_EVENT_TOO_OLD, SYNC_PAYMENT_BLOCKED — defined later
+} as const;
 
-} as const
-
-export type ErrPayload = { code: string; message: string }
+export type ErrPayload = { code: string; message: string };
