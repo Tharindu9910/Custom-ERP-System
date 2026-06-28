@@ -66,6 +66,10 @@ import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
+import { PermissionsModule } from './modules/permissions/permissions.module';
+import { BranchesModule } from './modules/branches/branches.module';
+import { WorkersModule } from './modules/workers/workers.module';
+import { CustomersModule } from './modules/customers/customers.module';
 
 const ALL_ENTITIES = [
   UserEntity,
@@ -159,6 +163,10 @@ const ALL_ENTITIES = [
     HealthModule,
     AuditLogsModule,
     LedgerModule,
+    PermissionsModule,
+    BranchesModule,
+    WorkersModule,
+    CustomersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

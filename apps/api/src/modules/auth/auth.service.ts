@@ -10,6 +10,7 @@ import { UserRoleEntity } from '../../database/entities/user-role.entity';
 import { UserSessionEntity } from '../../database/entities/user-session.entity';
 import { UsersRepository } from '../users/users.repository';
 import { UsersService } from '../users/users.service';
+import { PermissionsService } from '../permissions/permissions.service';
 
 const CROSS_BRANCH_ROLES: Role[] = [Role.SUPER_ADMIN, Role.MANAGER];
 
@@ -22,6 +23,7 @@ export class AuthService {
     private readonly usersRepository: UsersRepository,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    private readonly permissionsService: PermissionsService,
     @InjectRepository(UserRoleEntity)
     private readonly userRoleRepo: Repository<UserRoleEntity>,
     @InjectRepository(UserSessionEntity)
@@ -88,6 +90,12 @@ export class AuthService {
     const user = await this.usersService.findById(userId);
     const roleRow = await this.getActiveRole(userId);
 
+    // SUPER_ADMIN bypasses the guard in code — return empty list (guard never checks)
+    const permissions =
+      roleRow.role === Role.SUPER_ADMIN
+        ? []
+        : await this.permissionsService.getGrantedPermissions(roleRow.role);
+
     return {
       user_id: user.user_id,
       name: user.full_name,
@@ -96,7 +104,7 @@ export class AuthService {
       role: roleRow.role,
       branch_id: roleRow.branch_id,
       last_login_at: user.last_login_at,
-      permissions: [] as string[],
+      permissions,
     };
   }
 

@@ -13,8 +13,8 @@
 | 1  | Monorepo scaffold + health endpoints               | ✅ Done       |
 | 2  | Auth module (JWT + sessions) — backend             | ✅ Done       |
 | 2B | Foundation close-out (frontend infra + shared pkg) | ✅ Done       |
-| 3  | Branch, users, permissions, workers, customers     | 🔲 Next       |
-| 4  | Price list + job cards + work orders + cashier queue | 🔲 Pending  |
+| 3  | Branch, users, permissions, workers, customers     | ✅ Done       |
+| 4  | Price list + job cards + work orders + cashier queue | 🔲 Next     |
 | 5  | Inventory, material orders, goods issue            | 🔲 Pending    |
 | 6  | Payments + full financial ledger + invoices + PDF  | 🔲 Pending    |
 | 7  | Offline sync, conflict queue, notifications, audit log, supporting modules | 🔲 Pending |
@@ -65,16 +65,12 @@
 
 ---
 
-## Phase 2B — Foundation Close-Out 🔲
-
-> **Start here next.**
-> Everything in this phase must be done before Phase 3 module work begins.
-> Backend items complete the shared infrastructure. Frontend items build the app shell that all future pages plug into.
+## Phase 2B — Foundation Close-Out ✅
 
 ### Backend — complete the shared infrastructure
 
 #### `common/errors.ts` — all error codes defined before any module is built
-- [ ] Create `apps/api/src/common/errors.ts` with full `ERR` object covering:
+- [x] Create `apps/api/src/common/errors.ts` with full `ERR` object covering:
   - Auth: `AUTH_INVALID_CREDENTIALS`, `AUTH_TOKEN_EXPIRED`, `AUTH_INSUFFICIENT_PERMISSION`
   - Job Cards: `JOB_CARD_NOT_FOUND`, `JOB_CARD_INVALID_TRANSITION`, `JOB_CARD_BALANCE_NOT_ZERO`, `JOB_CARD_VERSION_CONFLICT`
   - Work Orders: `WORK_ORDER_NOT_FOUND`, `WORK_ORDER_NO_WORKER`, `WORK_ORDER_WORKER_BRANCH`, `WORK_ORDER_INVALID_SPEC`, `WORK_ORDER_INVALID_TRANSITION`
@@ -84,10 +80,10 @@
   - Customers: `CUSTOMER_PHONE_EXISTS`, `CUSTOMER_NOT_FOUND`
   - Workers: `WORKER_NOT_FOUND`, `WORKER_INACTIVE`
   - Offline Sync: `SYNC_EVENT_TOO_OLD`, `SYNC_PAYMENT_BLOCKED`
-- [ ] Wire `common/errors.ts` as a re-export from `packages/shared/src/errors.ts`
+- [x] Wire `common/errors.ts` as a re-export from `packages/shared/src/errors.ts`
 
 #### `packages/shared` — complete all enums, schemas, constants, and types
-- [ ] **Enums** — add all missing enums (only `role.enum.ts` exists today):
+- [x] **Enums** — add all missing enums (only `role.enum.ts` exists today):
   - `job-card-status.enum.ts` — `DRAFT | IN_QUEUE | IN_PROGRESS | CANCELLATION_PENDING | CLOSED | VOIDED`
   - `work-order-status.enum.ts` — `PENDING | ASSIGNED | IN_PROGRESS | COMPLETED | CANCELLED`
   - `work-order-type.enum.ts` — `CUT | BEND | PIPE_BEND | BOX_BAR_BEND | FLAT_IRON | L_ANGLE | SHEET_ROLL | COIL_CUT`
@@ -100,7 +96,7 @@
   - `goods-issue-status.enum.ts` — `PENDING | ISSUED | CONFIRMED | CANCELLED`
   - `conflict-status.enum.ts` — `PENDING | RESOLVED | DISMISSED`
   - `index.ts` barrel export
-- [ ] **Zod schemas** — `schemas/` folder:
+- [x] **Zod schemas** — `schemas/` folder:
   - `job-card.schema.ts`
   - `work-order.schema.ts` — includes discriminated union for CutBend / Rolling / CoilCut spec
   - `customer.schema.ts`
@@ -111,19 +107,19 @@
   - `worker.schema.ts`
   - `offline-event.schema.ts`
   - `index.ts` barrel export
-- [ ] **Constants** — `constants/` folder:
+- [x] **Constants** — `constants/` folder:
   - `work-order-materials.ts` — predefined material list (BR08 / BR23)
   - `thickness-options.ts` — 6mm, 5mm, 4.5mm, 4mm, 3mm, 2.5mm, 2mm, gauges 16 18 19 20 22 23 24
   - `rolling-work-types.ts` — GI Pipe, L Bending (1), Rolling (2), Full Length, Circle Bend, Gate Bend Two Side, Gate Bend One Side, For Lottery (FR09)
   - `system-accounts.ts` — chart of accounts codes (1100 AR, 1200 Cash, 2100 Advance, 4000 Revenue, 4100 Material Revenue, 5100 Material Cost, 5200 Cancelled Job Loss)
   - `index.ts` barrel export
-- [ ] **Types** — `types/` folder:
+- [x] **Types** — `types/` folder:
   - `api.types.ts` — `ApiResponse<T>`, `PaginatedResponse<T>`, `ApiError`
   - `spec.types.ts` — `CutBendSpec | RollingSpec | CoilCutSpec` discriminated union
   - `index.ts` barrel export
 
 #### State machines — `packages/shared/src/state-machines/`
-- [ ] `job-card.transitions.ts` — `canTransition(from, to, actorRole)` for all Job Card transitions:
+- [x] `job-card.transitions.ts` — `canTransition(from, to, actorRole)` for all Job Card transitions:
   - `DRAFT → IN_QUEUE` (payment recorded + invoice generated)
   - `DRAFT → VOIDED` (Supervisor / Chief / Admin void)
   - `IN_QUEUE → IN_PROGRESS` (first WO moves to IN_PROGRESS)
@@ -132,117 +128,115 @@
   - `IN_PROGRESS → CANCELLATION_PENDING` (Admin requests cancel)
   - `CANCELLATION_PENDING → VOIDED` (Admin approves)
   - `CANCELLATION_PENDING → previous status` (Admin rejects)
-- [ ] `work-order.transitions.ts` — `canTransition(from, to, actorRole)`:
+- [x] `work-order.transitions.ts` — `canTransition(from, to, actorRole)`:
   - `PENDING → ASSIGNED` (worker assigned)
   - `ASSIGNED → IN_PROGRESS` (stock check passes / Admin override)
   - `IN_PROGRESS → COMPLETED` (Supervisor or Chief marks complete)
   - Any non-terminal `→ CANCELLED` (Admin cancels)
-- [ ] `index.ts` barrel export
+- [x] `index.ts` barrel export
 
 #### All TypeORM entities + single consolidated migration
-> These tables are absent from the current codebase. All must land in one migration before Phase 3 starts. `synchronize: false` — no exceptions.
-
-- [ ] `BranchEntity` + `BranchSectionEntity`
-- [ ] `BranchConfigEntity` — min advance pct, stock override password hash; 1:1 with Branch
-- [ ] `PermissionEntity` + `RolePermissionEntity` — dynamic RBAC; SUPER_ADMIN bypasses in code, never in DB
-- [ ] `WorkerEntity` — branch-scoped roster; not a system user
-- [ ] `WorkOrderWorkerEntity` — junction table, composite PK `(work_order_id, worker_id)`
-- [ ] `CustomerEntity` — add `customer_type` enum, `company_name`, `contact_person`; UNIQUE constraint on `phone`
-- [ ] `JobCardEntity` — columns: `section_type`, `service_type`, `version DEFAULT 1`, `is_legacy DEFAULT false`, `balance_due` (cents), `actor_role_at_creation`
-- [ ] `JobStatusLogEntity` — append-only; REVOKE UPDATE DELETE at DB level
-- [ ] `WorkOrderEntity` — columns: `spec JSONB`, `version DEFAULT 1`, `customer_supplied DEFAULT false`, `pricing_model`, `is_customized DEFAULT false`, `customized_reason_code`, `actor_role_at_creation`, `gate_pass_id FK NULLABLE`
-- [ ] `WorkOrderStatusNoteEntity` — append-only; REVOKE UPDATE DELETE at DB level
-- [ ] `WorkOrderInspectionEntity`
-- [ ] `WorkOrderAttachmentEntity`
-- [ ] `PriceListEntryEntity` — `branch_id NULLABLE` (NULL = master template)
-- [ ] `MaterialOrderEntity` + `MaterialOrderLineEntity`
-- [ ] `HardwareStoreItemEntity` + `StockMovementEntity` + `StockAlertEntity`
-- [ ] `GoodsIssueEntity` + `GoodsIssueLineEntity`
-- [ ] `FinancialAccountEntity` + `LedgerEntryEntity` — REVOKE UPDATE DELETE on ledger_entry at DB level
-- [ ] `PaymentEntity` + `InvoiceEntity`
-- [ ] `DeliveryEntity`
-- [ ] `CancellationRequestEntity`
-- [ ] `ConflictQueueEntity`
-- [ ] `GatePassEntity` + `GatePassItemEntity`
-- [ ] `PettyCashEntity`
-- [ ] `NotificationEntity`
-- [ ] `AuditLogEntity` — append-only; REVOKE UPDATE DELETE at DB level; includes `actor_role` column
-- [ ] `LegacyImportEntity`
-- [ ] All indexes from plan-v6 §10 applied in migration
+- [x] `BranchEntity` + `BranchSectionEntity`
+- [x] `BranchConfigEntity` — min advance pct, stock override password hash; 1:1 with Branch
+- [x] `PermissionEntity` + `RolePermissionEntity` — dynamic RBAC; SUPER_ADMIN bypasses in code, never in DB
+- [x] `WorkerEntity` — branch-scoped roster; not a system user
+- [x] `WorkOrderWorkerEntity` — junction table, composite PK `(work_order_id, worker_id)`
+- [x] `CustomerEntity` — add `customer_type` enum, `company_name`, `contact_person`; UNIQUE constraint on `phone`
+- [x] `JobCardEntity` — columns: `section_type`, `service_type`, `version DEFAULT 1`, `is_legacy DEFAULT false`, `balance_due` (cents), `actor_role_at_creation`
+- [x] `JobStatusLogEntity` — append-only; REVOKE UPDATE DELETE at DB level
+- [x] `WorkOrderEntity` — columns: `spec JSONB`, `version DEFAULT 1`, `customer_supplied DEFAULT false`, `pricing_model`, `is_customized DEFAULT false`, `customized_reason_code`, `actor_role_at_creation`, `gate_pass_id FK NULLABLE`
+- [x] `WorkOrderStatusNoteEntity` — append-only; REVOKE UPDATE DELETE at DB level
+- [x] `WorkOrderInspectionEntity`
+- [x] `WorkOrderAttachmentEntity`
+- [x] `PriceListEntryEntity` — `branch_id NULLABLE` (NULL = master template)
+- [x] `MaterialOrderEntity` + `MaterialOrderLineEntity`
+- [x] `HardwareStoreItemEntity` + `StockMovementEntity` + `StockAlertEntity`
+- [x] `GoodsIssueEntity` + `GoodsIssueLineEntity`
+- [x] `FinancialAccountEntity` + `LedgerEntryEntity` — REVOKE UPDATE DELETE on ledger_entry at DB level
+- [x] `PaymentEntity` + `InvoiceEntity`
+- [x] `DeliveryEntity`
+- [x] `CancellationRequestEntity`
+- [x] `ConflictQueueEntity`
+- [x] `GatePassEntity` + `GatePassItemEntity`
+- [x] `PettyCashEntity`
+- [x] `NotificationEntity`
+- [x] `AuditLogEntity` — append-only; REVOKE UPDATE DELETE at DB level; includes `actor_role` column
+- [x] `LegacyImportEntity`
+- [x] All indexes from plan-v6 §10 applied in migration
 
 #### Audit + ledger foundation
-- [ ] `auditable.event.ts` — event class in `modules/audit-logs/`
-- [ ] `audit-log.listener.ts` — `@OnEvent('audit', { async: true })` — never causes business rollback
-- [ ] `LedgerService` skeleton — only writer to `LEDGER_ENTRY`; accepts optional `EntityManager` param
-- [ ] Seed chart of accounts (7 accounts from `system-accounts.ts`) — idempotent
+- [x] `auditable.event.ts` — event class in `modules/audit-logs/`
+- [x] `audit-log.listener.ts` — `@OnEvent('audit', { async: true })` — never causes business rollback
+- [x] `LedgerService` skeleton — only writer to `LEDGER_ENTRY`; accepts optional `EntityManager` param
+- [x] Seed chart of accounts (7 accounts from `system-accounts.ts`) — idempotent
 
 #### `PermissionsGuard` — wire dynamic RBAC
-- [ ] `permissions.guard.ts` reads in-memory cache keyed by role
-- [ ] Cache TTL: 5 min (`PERMISSION_CACHE_TTL_MS`)
-- [ ] `SUPER_ADMIN` bypasses guard in code — never stored in `ROLE_PERMISSION`
-- [ ] Default role permissions seeded (full matrix from plan-v6 §7)
+- [x] `permissions.guard.ts` reads in-memory cache keyed by role
+- [x] Cache TTL: 5 min (`PERMISSION_CACHE_TTL_MS`)
+- [x] `SUPER_ADMIN` bypasses guard in code — never stored in `ROLE_PERMISSION`
+- [x] Default role permissions seeded (full matrix from plan-v6 §7)
 
 ### Frontend — build the complete app shell
 
 #### Install and configure all dependencies
-- [ ] TanStack Router (file-based, typed routes)
-- [ ] TanStack Query v5
-- [ ] TanStack Table v8
-- [ ] TanStack Virtual
-- [ ] Zustand v5
-- [ ] shadcn/ui + Radix UI + Tailwind CSS
-- [ ] react-hook-form + zod
-- [ ] CASL (`@casl/ability`, `@casl/react`)
-- [ ] Axios
-- [ ] date-fns
-- [ ] jsondiffpatch
-- [ ] qrcode.react
+- [x] TanStack Router (file-based, typed routes)
+- [x] TanStack Query v5
+- [x] TanStack Table v8
+- [x] TanStack Virtual
+- [x] Zustand v5
+- [x] shadcn/ui + Radix UI + Tailwind CSS
+- [x] react-hook-form + zod
+- [x] CASL (`@casl/ability`, `@casl/react`)
+- [x] Axios
+- [x] date-fns
+- [x] jsondiffpatch
+- [x] qrcode.react
 
 #### `env.ts` — typed env accessor
-- [ ] Read and validate all `VITE_*` variables at startup
-- [ ] Hard crash on missing required vars
-- [ ] Export typed constants — no other file may use `import.meta.env` directly
+- [x] Read and validate all `VITE_*` variables at startup
+- [x] Hard crash on missing required vars
+- [x] Export typed constants — no other file may use `import.meta.env` directly
 
 #### `app/` — global providers
-- [ ] `providers.tsx` — stacks `QueryClientProvider`, `RouterProvider`, `ThemeProvider`
-- [ ] `router.tsx` — TanStack Router file-based setup; all routes registered
-- [ ] `ability.ts` — CASL builder from `permissions: string[]` returned by login
+- [x] `providers.tsx` — stacks `QueryClientProvider`, `RouterProvider`, `ThemeProvider`
+- [x] `router.tsx` — TanStack Router file-based setup; all routes registered
+- [x] `ability.ts` — CASL builder from `permissions: string[]` returned by login
 
 #### Auth flow (completes the Phase 2 frontend gap)
-- [ ] `routes/login.tsx` — login form, redirects to dashboard if already authenticated
-- [ ] `routes/_layout.tsx` — sidebar + header shell; redirects to `/login` if no session
-- [ ] `routes/__root.tsx` — offline banner mount point + global toast
-- [ ] `shared/stores/auth.store.ts` — persisted Zustand store: `user`, `accessToken`, `activeBranchId`, CASL ability
-- [ ] `shared/api/client.ts` — Axios instance: JWT attach interceptor + silent refresh on 401
+- [x] `routes/login.tsx` — login form, redirects to dashboard if already authenticated
+- [x] `routes/_layout.tsx` — sidebar + header shell; redirects to `/login` if no session
+- [x] `routes/__root.tsx` — offline banner mount point + global toast
+- [x] `shared/stores/auth.store.ts` — persisted Zustand store: `user`, `accessToken`, `activeBranchId`, CASL ability
+- [x] `shared/api/client.ts` — Axios instance: JWT attach interceptor + silent refresh on 401
 
 #### Shared infrastructure hooks and stores
-- [ ] `shared/stores/offline.store.ts` — pending event count, sync in-progress flag
-- [ ] `shared/hooks/usePermission.ts` — wraps CASL: `can('create', 'job_card')`
-- [ ] `shared/hooks/useSSE.ts` — generic SSE subscription hook with reconnect + cleanup
-- [ ] `shared/hooks/useOnlineStatus.ts` — browser online/offline detection
-- [ ] `shared/hooks/useOfflineSync.ts` — manages IndexedDB queue, triggers flush on reconnect
-- [ ] `shared/hooks/usePagination.ts` — page/limit state for list views
-- [ ] `shared/hooks/usePrint.ts` — wraps `window.print()` with PrintLayout
-- [ ] `shared/api/query-keys.ts` — central key factory for all modules
+- [x] `shared/stores/offline.store.ts` — pending event count, sync in-progress flag
+- [x] `shared/hooks/usePermission.ts` — wraps CASL: `can('create', 'job_card')`
+- [x] `shared/hooks/useSSE.ts` — generic SSE subscription hook with reconnect + cleanup
+- [x] `shared/hooks/useOnlineStatus.ts` — browser online/offline detection
+- [x] `shared/hooks/useOfflineSync.ts` — manages IndexedDB queue, triggers flush on reconnect
+- [x] `shared/hooks/usePagination.ts` — page/limit state for list views
+- [x] `shared/hooks/usePrint.ts` — wraps `window.print()` with PrintLayout
+- [x] `shared/api/query-keys.ts` — central key factory for all modules
 
 #### Shared UI components
-- [ ] `DataTable.tsx` — base table used by all list views
-- [ ] `FormField.tsx` — label + input + error message wrapper
-- [ ] `PageHeader.tsx` — title + breadcrumb + action button bar
-- [ ] `StatusBadge.tsx` — coloured pill for all status enums
-- [ ] `ConfirmDialog.tsx` — "Are you sure?" modal for destructive actions
-- [ ] `EmptyState.tsx` — "No results" illustration
-- [ ] `FileUpload.tsx` — drag-and-drop for work order attachments
-- [ ] `PrintLayout.tsx` — print-safe wrapper for invoices and gate passes
-- [ ] `VersionConflictToast.tsx` — shown on 409 optimistic lock conflict
+- [x] `DataTable.tsx` — base table used by all list views
+- [x] `FormField.tsx` — label + input + error message wrapper
+- [x] `PageHeader.tsx` — title + breadcrumb + action button bar
+- [x] `StatusBadge.tsx` — coloured pill for all status enums
+- [x] `ConfirmDialog.tsx` — "Are you sure?" modal for destructive actions
+- [x] `EmptyState.tsx` — "No results" illustration
+- [x] `FileUpload.tsx` — drag-and-drop for work order attachments
+- [x] `PrintLayout.tsx` — print-safe wrapper for invoices and gate passes
+- [x] `VersionConflictToast.tsx` — shown on 409 optimistic lock conflict
 
 #### `shared/lib/`
-- [ ] `format.ts` — `formatCurrency(cents)` (÷100 happens only here), `formatDate()`, `formatPhone()`
-- [ ] `utils.ts` — `cn(...classes)` Tailwind merge, `debounce(fn, ms)`
+- [x] `format.ts` — `formatCurrency(cents)` (÷100 happens only here), `formatDate()`, `formatPhone()`
+- [x] `utils.ts` — `cn(...classes)` Tailwind merge, `debounce(fn, ms)`
 
 ---
 
-## Phase 3 — Branch, Users, Permissions, Workers, Customers 🔲
+## Phase 3 — Branch, Users, Permissions, Workers, Customers ✅
 
 > All entities already exist from Phase 2B migrations. This phase builds the CRUD APIs and UI pages on top of them.
 > Must be complete before Phase 4 — Workers and Price List are hard dependencies of Work Order creation.
@@ -250,70 +244,70 @@
 ### Backend
 
 #### `branches/` module
-- [ ] `GET /branches` — list all (Manager / Super Admin) or own branch (others)
-- [ ] `POST /branches` — Super Admin only
-- [ ] `PATCH /branches/:id` — Super Admin only
-- [ ] `GET /branches/:id/config` — read branch config (advance %, stock override)
-- [ ] `PATCH /branches/:id/config` — Branch Manager / Admin
-- [ ] `BranchesService.getConfig(branchId)` — used by Work Orders and Payments modules
+- [x] `GET /branches` — list all (Manager / Super Admin) or own branch (others)
+- [x] `POST /branches` — Super Admin only
+- [x] `PATCH /branches/:id` — Super Admin only
+- [x] `GET /branches/:id/config` — read branch config (advance %, stock override)
+- [x] `PATCH /branches/:id/config` — Branch Manager / Admin
+- [x] `BranchesService.getConfig(branchId)` — used by Work Orders and Payments modules
 
 #### `permissions/` module
-- [ ] `GET /permissions` — full permission list (Super Admin)
-- [ ] `GET /permissions/roles` — current role → permission matrix
-- [ ] `PATCH /permissions/roles` — Super Admin toggles grant/revoke per role
-- [ ] In-memory cache: `permissions:{role}` key, 5 min TTL
-- [ ] Cache invalidation: delete key on save, repopulate on next request
+- [x] `GET /permissions` — full permission list (Super Admin)
+- [x] `GET /permissions/roles` — current role → permission matrix
+- [x] `PATCH /permissions/roles` — Super Admin toggles grant/revoke per role
+- [x] In-memory cache: `permissions:{role}` key, 5 min TTL
+- [x] Cache invalidation: delete key on save, repopulate on next request
 
 #### `users/` module
-- [ ] `GET /users` — branch-scoped list
-- [ ] `POST /users` — Admin / Super Admin
-- [ ] `PATCH /users/:id` — Admin / Super Admin
-- [ ] `PATCH /users/:id/role` — role assignment; one active role per user enforced
+- [x] `GET /users` — branch-scoped list
+- [x] `POST /users` — Admin / Super Admin
+- [x] `PATCH /users/:id` — Admin / Super Admin
+- [x] `PATCH /users/:id/role` — role assignment; one active role per user enforced
 
 #### `workers/` module (branch-scoped roster — not system users)
-- [ ] `GET /workers` — active workers for caller's branch
-- [ ] `POST /workers` — Branch Manager / Admin
-- [ ] `PATCH /workers/:id` — Branch Manager / Admin (deactivate sets `is_active = false`)
-- [ ] `WorkersService.isInBranch(workerId, branchId)` — called by Work Orders to enforce BR19
-- [ ] Deactivated workers hidden from assignment dropdowns; remain on historical records (BR20)
+- [x] `GET /workers` — active workers for caller's branch
+- [x] `POST /workers` — Branch Manager / Admin
+- [x] `PATCH /workers/:id` — Branch Manager / Admin (deactivate sets `is_active = false`)
+- [x] `WorkersService.isInBranch(workerId, branchId)` — called by Work Orders to enforce BR19
+- [x] Deactivated workers hidden from assignment dropdowns; remain on historical records (BR20)
 
 #### `customers/` module
-- [ ] `GET /customers` — search by phone (branch-scoped)
-- [ ] `POST /customers` — Supervisor creates minimal record (phone + name); Cashier completes later
-- [ ] `PATCH /customers/:id` — Cashier completes profile (address, type, company, email)
-- [ ] Phone UNIQUE constraint enforced at DB level; service returns `ERR.CUSTOMER_PHONE_EXISTS` on conflict
+- [x] `GET /customers` — search by phone (branch-scoped)
+- [x] `POST /customers` — Supervisor creates minimal record (phone + name); Cashier completes later
+- [x] `PATCH /customers/:id` — Cashier completes profile (address, type, company, email)
+- [x] Phone UNIQUE constraint enforced at DB level; service returns `ERR.CUSTOMER_PHONE_EXISTS` on conflict
 
 #### Seed script update
-- [ ] 2 branches with configs (30% customized advance, 0% standard)
-- [ ] 1 user per role per branch
-- [ ] Default role permissions from plan-v6 §7 inserted into `ROLE_PERMISSION`
-- [ ] Worker roster: 3–4 workers per branch
-- [ ] 2–3 sample customers
+- [x] 2 branches with configs (30% customized advance, 0% standard)
+- [x] 1 user per role per branch
+- [x] Default role permissions from plan-v6 §7 inserted into `ROLE_PERMISSION`
+- [x] Worker roster: 3–4 workers per branch
+- [x] 2–3 sample customers
 
 ### Frontend
 
 #### `routes/settings/` pages
-- [ ] `settings/users.tsx` — user list + create/edit (Admin)
-- [ ] `settings/permissions.tsx` — role × permission grid (Super Admin only)
-- [ ] `settings/workers.tsx` — worker roster (Branch Manager / Admin)
-- [ ] `settings/branch-config.tsx` — min advance %, stock override toggle (Branch Manager / Admin)
+- [x] `settings/users.tsx` — user list + create/edit (Admin)
+- [x] `settings/permissions.tsx` — role × permission grid (Super Admin only)
+- [x] `settings/workers.tsx` — worker roster (Branch Manager / Admin)
+- [x] `settings/branch-config.tsx` — min advance %, stock override toggle (Branch Manager / Admin)
 
 #### `modules/permissions/`
-- [ ] `PermissionsMatrix.tsx` — role × permission grid with live toggles; saving invalidates cache
-- [ ] `usePermissionsMatrix.ts` — fetch + patch permissions
+- [x] `PermissionsMatrix.tsx` — role × permission grid with live toggles; saving invalidates cache
+- [x] `usePermissionsMatrix.ts` — fetch + patch permissions
 
 #### `modules/workers/`
-- [ ] Worker list with active/inactive filter
-- [ ] Create / edit / deactivate worker form
+- [x] Worker list with active/inactive filter
+- [x] Create / edit / deactivate worker form
 
 #### `modules/customers/`
-- [ ] Customer search by phone (used during Job Card creation)
-- [ ] Customer profile completion form (Cashier view)
-- [ ] Business vs Individual type toggle revealing company fields
+- [x] Customer search by phone (used during Job Card creation)
+- [x] Customer profile completion form (Cashier view)
+- [x] Business vs Individual type toggle revealing company fields
 
 #### Sidebar navigation
-- [ ] Role-aware sidebar: items rendered only if `can()` returns true
-- [ ] Active branch selector for Manager / Super Admin (cross-branch users)
+- [x] Role-aware sidebar: items rendered only if `can()` returns true
+- [x] Active branch selector for Manager / Super Admin (cross-branch users)
 
 ---
 

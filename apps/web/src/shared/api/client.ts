@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { env } from '@/env';
 import { useAuthStore } from '@/shared/stores/auth.store';
+import { queryClient } from '@/app/query-client';
+import { queryKeys } from '@/shared/api/query-keys';
 
 export const apiClient = axios.create({
   baseURL: env.API_URL,
@@ -8,10 +10,11 @@ export const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach Bearer token on every request
+// Attach Bearer token and active branch context on every request
 apiClient.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().accessToken;
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  const { accessToken, activeBranchId } = useAuthStore.getState();
+  if (accessToken) config.headers.Authorization = `Bearer ${accessToken}`;
+  if (activeBranchId) config.headers['X-Branch-Id'] = activeBranchId;
   return config;
 });
 
@@ -33,6 +36,12 @@ apiClient.interceptors.response.use(
     const original = error.config as import('axios').InternalAxiosRequestConfig & {
       _retry?: boolean;
     };
+
+    // 403 means the user lost a permission — refresh their permissions immediately
+    if (error.response?.status === 403) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.auth.me() });
+      return Promise.reject(error);
+    }
 
     if (error.response?.status !== 401 || original._retry) {
       return Promise.reject(error);
