@@ -446,6 +446,11 @@ main {
     <span class="nav-badge POST">POST</span>
     <span class="nav-path">/auth/logout</span>
   </div>
+  <div class="nav-item" id="nav-logout-all" onclick="show('logout-all')">
+    <span class="nav-badge POST">POST</span>
+    <span class="nav-path">/auth/logout/all</span>
+    <span class="nav-sub">all sessions</span>
+  </div>
   <div class="nav-item" id="nav-me" onclick="show('me')">
     <span class="nav-badge GET">GET</span>
     <span class="nav-path">/auth/me</span>
@@ -638,6 +643,31 @@ main {
     </div>
   </div>
 
+  <!-- ── POST /auth/logout/all ──────────────────────── -->
+  <div class="panel" id="p-logout-all">
+    <div class="panel-head">
+      <span class="panel-method POST">POST</span>
+      <span class="panel-path">/auth/logout/all</span>
+      <span class="panel-desc">Revoke every active session · requires auth</span>
+    </div>
+    <div class="panel-body">
+      <div class="info-banner">
+        Sends <code>Authorization: Bearer &lt;accessToken&gt;</code> from the store.
+        All sessions for the current user are revoked server-side. Local tokens are cleared on success.
+      </div>
+      <div class="btn-row">
+        <button class="btn danger" onclick="doLogoutAll()">Logout All Sessions</button>
+      </div>
+      <div>
+        <div class="resp-head">
+          <span class="resp-label">Response</span>
+          <span id="s-logout-all"></span>
+        </div>
+        <div class="resp-box" id="r-logout-all">—</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── GET /auth/me ────────────────────────────────── -->
   <div class="panel" id="p-me">
     <div class="panel-head">
@@ -797,7 +827,7 @@ function absorbTokens(data) {
 }
 
 // ── Panel routing ──────────────────────────────────────────────────────────
-const PANELS = ['health','health-db','login','refresh','logout','me','jwt'];
+const PANELS = ['health','health-db','login','refresh','logout','logout-all','me','jwt'];
 let active = null;
 function show(id) {
   if (active) {
@@ -863,6 +893,13 @@ async function doLogout() {
   loading('r-logout','s-logout');
   const r = await call('POST','/auth/logout',null, store.accessToken);
   render('r-logout','s-logout', r);
+  if (r.ok) clearAllTokens();
+}
+async function doLogoutAll() {
+  if (!store.accessToken) { logErr('LOGOUT-ALL','No access token — login first'); return; }
+  loading('r-logout-all','s-logout-all');
+  const r = await call('POST','/auth/logout/all',null, store.accessToken);
+  render('r-logout-all','s-logout-all', r);
   if (r.ok) clearAllTokens();
 }
 async function doMe() {

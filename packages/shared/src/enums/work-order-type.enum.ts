@@ -1,0 +1,10 @@
+export enum WorkOrderType {
+  CUT = 'CUT',
+  BEND = 'BEND',
+  PIPE_BEND = 'PIPE_BEND',
+  BOX_BAR_BEND = 'BOX_BAR_BEND',
+  FLAT_IRON = 'FLAT_IRON',
+  L_ANGLE = 'L_ANGLE',
+  SHEET_ROLL = 'SHEET_ROLL',
+  COIL_CUT = 'COIL_CUT',
+}

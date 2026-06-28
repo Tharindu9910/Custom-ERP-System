@@ -312,24 +312,24 @@ GET /health/run   → 200 no token needed
 
 ## Completion Criteria for Step 2
 
-- [ ] `USER` and `USER_ROLE` tables created via migration, not auto-sync
-- [ ] Partial unique index `idx_user_role_one_active` exists on `USER_ROLE` — enforces one active role per user at DB level
-- [ ] `Role` enum lives in `packages/shared` and is used by the entity
-- [ ] `POST /auth/login` returns `{ data: { accessToken, refreshToken } }`
-- [ ] JWT payload contains `role` and `branch_id` — `branch_id` is `null` for `SUPER_ADMIN` and `MANAGER`
-- [ ] Both tokens are Bearer tokens — no cookies anywhere
-- [ ] Global `JwtAuthGuard` protects all routes by default
-- [ ] `@Public()` correctly bypasses the guard — health endpoints still return 200 with no token
-- [ ] `POST /auth/refresh` accepts the refresh token as Bearer and returns a new token pair
-- [ ] `POST /auth/logout` returns success (stateless v1, comment explains deferral)
-- [ ] `GET /auth/me` returns the current user profile without `password_hash`
-- [ ] `POST /auth/login` returns 429 after exceeding `THROTTLE_AUTH_LIMIT` requests per minute
-- [ ] 429 response follows `{ error: { code: "RATE_LIMIT_EXCEEDED", message: "..." } }` shape
-- [ ] All errors use `{ error: { code, message } }` shape via `common/errors.ts`
-- [ ] All successes use `{ data: ... }` shape via the response interceptor
-- [ ] Env validation crashes the app if JWT secrets or throttle config are missing
-- [ ] `common/errors.ts` exists with auth codes and placeholder sections for all other modules
-- [ ] Test users seeded with correct `branch_id` nullability, credentials in `SEED_CREDENTIALS.md`
+- [x] `USER` and `USER_ROLE` tables created via migration, not auto-sync
+- [x] Partial unique index `idx_user_role_one_active` exists on `USER_ROLE` — enforces one active role per user at DB level
+- [x] `Role` enum lives in `packages/shared` and is used by the entity
+- [x] `POST /auth/login` returns `{ data: { accessToken, refreshToken } }`
+- [x] JWT payload contains `role` and `branch_id` — `branch_id` is `null` for `SUPER_ADMIN` and `MANAGER`
+- [x] Both tokens are Bearer tokens — no cookies anywhere
+- [x] Global `JwtAuthGuard` protects all routes by default
+- [x] `@Public()` correctly bypasses the guard — health endpoints still return 200 with no token
+- [x] `POST /auth/refresh` accepts the refresh token as Bearer and returns a new token pair
+- [x] `POST /auth/logout` returns success (stateless v1, comment explains deferral)
+- [x] `GET /auth/me` returns the current user profile without `password_hash`
+- [x] `POST /auth/login` returns 429 after exceeding `THROTTLE_AUTH_LIMIT` requests per minute
+- [x] 429 response follows `{ error: { code: "RATE_LIMIT_EXCEEDED", message: "..." } }` shape
+- [x] All errors use `{ error: { code, message } }` shape via `common/errors.ts`
+- [x] All successes use `{ data: ... }` shape via the response interceptor
+- [x] Env validation crashes the app if JWT secrets or throttle config are missing
+- [x] `common/errors.ts` exists with auth codes and placeholder sections for all other modules
+- [x] Test users seeded with correct `branch_id` nullability, credentials in `SEED_CREDENTIALS.md`
 
 ---
 

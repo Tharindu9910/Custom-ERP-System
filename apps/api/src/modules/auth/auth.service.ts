@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Request } from 'express';
-import { LessThan, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Role } from '@erp/shared';
 import { ERR } from '../../common/errors';
 import { UserRoleEntity } from '../../database/entities/user-role.entity';
@@ -36,7 +36,7 @@ export class AuthService {
     const roleRow = await this.getActiveRole(user.user_id);
     const tokens = await this.createSession(user.user_id, roleRow, req);
     await this.usersRepository.updateLastLogin(user.user_id);
-    return tokens;
+    return { ...tokens, user: await this.getMe(user.user_id) };
   }
 
   async refresh(userId: string, jti: string, req: Request) {
@@ -90,12 +90,13 @@ export class AuthService {
 
     return {
       user_id: user.user_id,
-      full_name: user.full_name,
+      name: user.full_name,
       username: user.username,
       phone: user.phone,
       role: roleRow.role,
       branch_id: roleRow.branch_id,
       last_login_at: user.last_login_at,
+      permissions: [] as string[],
     };
   }
 

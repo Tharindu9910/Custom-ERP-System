@@ -14,6 +14,10 @@ export class UsersRepository {
     return this.repo.findOne({ where: { username } });
   }
 
+  findByEmail(email: string): Promise<UserEntity | null> {
+    return this.repo.findOne({ where: { email } });
+  }
+
   findById(id: string): Promise<UserEntity | null> {
     return this.repo.findOne({ where: { user_id: id } });
   }
