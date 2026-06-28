@@ -109,6 +109,36 @@ export const ERR = {
     message: 'Worker is inactive and cannot be assigned',
   },
 
+  // ── Users ────────────────────────────────────────────────────────────────
+  USER_NOT_FOUND: {
+    code: 'USR_001',
+    message: 'User not found',
+  },
+  USER_ROLE_CONFLICT: {
+    code: 'USR_002',
+    message: 'User already has an active role — deactivate it first',
+  },
+  USER_USERNAME_EXISTS: {
+    code: 'USR_003',
+    message: 'A user with this username already exists',
+  },
+
+  // ── Branches ─────────────────────────────────────────────────────────────
+  BRANCH_NOT_FOUND: {
+    code: 'BR_001',
+    message: 'Branch not found',
+  },
+  BRANCH_NAME_EXISTS: {
+    code: 'BR_002',
+    message: 'A branch with this name already exists',
+  },
+
+  // ── Permissions ──────────────────────────────────────────────────────────
+  PERMISSION_NOT_FOUND: {
+    code: 'PRM_001',
+    message: 'Permission not found',
+  },
+
   // ── Offline Sync ─────────────────────────────────────────────────────────
   SYNC_EVENT_TOO_OLD: {
     code: 'SYNC_001',

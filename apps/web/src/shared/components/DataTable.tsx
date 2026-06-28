@@ -2,14 +2,23 @@ import {
   useReactTable,
   getCoreRowModel,
   flexRender,
+  type ColumnDef,
 } from '@tanstack/react-table';
-import type { ColumnDef } from '@tanstack/react-table';
 import { cn } from '@/shared/lib/utils';
 
+// Simplified column spec used by all list views in this app.
+// TanStack Table's ColumnDef is not used directly because it requires
+// an explicit `id` when the header is empty or accessor is a function.
+export interface TableColumn<TData> {
+  header: string;
+  id?: string;
+  accessor: (row: TData) => React.ReactNode;
+}
+
 interface DataTableProps<TData> {
-  columns: ColumnDef<TData, unknown>[];
+  columns: TableColumn<TData>[];
   data: TData[];
-  isLoading?: boolean;
+  loading?: boolean;
   emptyMessage?: string;
   className?: string;
   onRowClick?: (row: TData) => void;
@@ -18,14 +27,23 @@ interface DataTableProps<TData> {
 export function DataTable<TData>({
   columns,
   data,
-  isLoading,
+  loading,
   emptyMessage = 'No results.',
   className,
   onRowClick,
 }: DataTableProps<TData>) {
+  // Convert simplified column spec to valid TanStack ColumnDefs each render.
+  // Columns are always defined inline in callers, so memoizing by identity
+  // would never hit anyway. TanStack Table handles new column refs each render.
+  const colDefs: ColumnDef<TData, unknown>[] = columns.map((col, idx) => ({
+    id: col.id ?? (col.header || `col-${idx}`),
+    header: col.header,
+    cell: ({ row }) => col.accessor(row.original),
+  }));
+
   const table = useReactTable({
     data,
-    columns,
+    columns: colDefs,
     getCoreRowModel: getCoreRowModel(),
   });
 
@@ -53,7 +71,7 @@ export function DataTable<TData>({
             ))}
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
-            {isLoading ? (
+            {loading ? (
               <tr>
                 <td
                   colSpan={columns.length}

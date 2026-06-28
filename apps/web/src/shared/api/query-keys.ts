@@ -3,6 +3,19 @@ export const queryKeys = {
     me: () => ['auth', 'me'] as const,
     permissions: () => ['auth', 'permissions'] as const,
   },
+  users: {
+    all: (params?: object) => ['users', params] as const,
+    detail: (id: string) => ['users', id] as const,
+  },
+  permissions: {
+    all: () => ['permissions'] as const,
+    matrix: () => ['permissions', 'matrix'] as const,
+  },
+  branches: {
+    all: () => ['branches'] as const,
+    detail: (id: string) => ['branches', id] as const,
+    config: (id: string) => ['branches', id, 'config'] as const,
+  },
   customers: {
     all: (params?: object) => ['customers', params] as const,
     detail: (id: string) => ['customers', id] as const,
@@ -33,10 +46,6 @@ export const queryKeys = {
   payments: {
     byJobCard: (jobCardId: string) =>
       ['payments', 'by-job-card', jobCardId] as const,
-  },
-  branches: {
-    all: () => ['branches'] as const,
-    detail: (id: string) => ['branches', id] as const,
   },
   gatePass: {
     all: (params?: object) => ['gate-pass', params] as const,

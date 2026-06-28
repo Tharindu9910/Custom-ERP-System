@@ -21,7 +21,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "migration:run": "ts-node -r tsconfig-paths/register -e \"require('./src/database/datasource').AppDataSource.initialize().then(ds => ds.runMigrations()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\"",
     "migration:revert": "ts-node -r tsconfig-paths/register -e \"require('./src/database/datasource').AppDataSource.initialize().then(ds => ds.undoLastMigration()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\"",
-    "seed": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts"
+    "seed": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts",
+    "db:clear": "ts-node -r tsconfig-paths/register src/database/seeds/clear.ts"
   },
   "dependencies": {
     "@erp/shared": "workspace:*",

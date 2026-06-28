@@ -1,3 +1,33 @@
-run backend server: pnpm --filter api dev
-run backend server: pnpm --filter web dev
-kill a port : npx kill-port 3000
+========================================
+  RECOMMENDED: run everything from root
+========================================
+pnpm dev
+  → builds @erp/shared first (auto), then starts api + web in parallel
+
+========================================
+  RUNNING INDIVIDUALLY (manual build required)
+========================================
+# Step 1 — always rebuild shared first when running filters individually
+pnpm --filter @erp/shared build
+
+# Step 2 — then start what you need
+pnpm --filter api dev
+pnpm --filter web dev
+
+========================================
+  OTHER COMMANDS
+========================================
+kill a port:   npx kill-port 3000
+run DB seed:   pnpm db:seed
+run migration: pnpm db:migrate
+clear all data (keep schema): pnpm db:clear
+
+========================================
+  RULE
+========================================
+If you see "does not provide an export named '...'" from packages/shared/dist/index.js
+→ This should no longer happen. Vite resolves @erp/shared directly from TypeScript source.
+→ If it still appears, restart the web dev server: pnpm --filter web dev
+
+NOTE: pnpm --filter @erp/shared build is still needed for the API (NestJS uses the dist).
+The web app no longer depends on the dist at all.
