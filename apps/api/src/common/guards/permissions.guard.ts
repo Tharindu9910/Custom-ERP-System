@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Inject,
   Injectable,
 } from '@nestjs/common';
@@ -8,7 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Role } from '@erp/shared';
+import { ERR, Role } from '@erp/shared';
 import { IS_PUBLIC_KEY, PERMISSIONS_KEY } from '../decorators';
 
 @Injectable()
@@ -41,7 +42,9 @@ export class PermissionsGuard implements CanActivate {
     if (user.role === Role.SUPER_ADMIN) return true;
 
     const granted = await this.getGrantedPermissions(user.role as Role);
-    return required.every((action) => granted.has(action));
+    // Throw the documented code; returning false gives Nest's bare "Forbidden resource"
+    if (!required.every((action) => granted.has(action))) throw new ForbiddenException(ERR.AUTH_INSUFFICIENT_PERMISSION);
+    return true;
   }
 
   private async getGrantedPermissions(role: Role): Promise<Set<string>> {

@@ -1,4 +1,5 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { PettyCashStatus } from '@erp/shared';
 
 @Entity('petty_cash')
 export class PettyCashEntity {
@@ -9,22 +10,28 @@ export class PettyCashEntity {
   branch_id: string;
 
   @Column({ type: 'uuid' })
-  recorded_by: string;
+  requested_by: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  requested_for: string | null;
+
+  @Column()
+  category: string;
 
   @Column({ type: 'int' })
   amount: number;
 
-  @Column()
-  description: string;
+  @Column({ type: 'int', nullable: true })
+  spent: number | null;
 
-  @Column({ type: 'varchar', default: 'PENDING' })
-  status: string;
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
 
-  @Column({ type: 'uuid', nullable: true })
-  approved_by: string | null;
+  @Column({ type: 'varchar', nullable: true })
+  reference_note: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
-  approved_at: Date | null;
+  @Column({ type: 'enum', enum: PettyCashStatus, enumName: 'petty_cash_status_enum', default: PettyCashStatus.PENDING })
+  status: PettyCashStatus;
 
   @CreateDateColumn()
   created_at: Date;

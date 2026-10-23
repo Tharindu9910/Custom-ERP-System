@@ -39,11 +39,18 @@ apiClient.interceptors.response.use(
 
     // 403 means the user lost a permission — refresh their permissions immediately
     if (error.response?.status === 403) {
+      const code = (error.response.data as { error?: { code?: string } } | undefined)?.error?.code;
+      // Temporary password still in use: the server allows only a password change
+      if (code === 'AUTH_006' && window.location.pathname !== '/change-password') {
+        window.location.assign('/change-password');
+        return Promise.reject(error);
+      }
       void queryClient.invalidateQueries({ queryKey: queryKeys.auth.me() });
       return Promise.reject(error);
     }
 
-    if (error.response?.status !== 401 || original._retry) {
+    // A failed sign-in is a wrong password, not an expired session: show the server's message
+    if (error.response?.status !== 401 || original._retry || original.url === '/auth/login') {
       return Promise.reject(error);
     }
 

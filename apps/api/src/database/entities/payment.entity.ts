@@ -1,5 +1,5 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
-import { PaymentMode, PaymentType } from '@erp/shared';
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { PaymentKind, PaymentMode, PaymentStatus } from '@erp/shared';
 
 @Entity('payment')
 export class PaymentEntity {
@@ -7,26 +7,36 @@ export class PaymentEntity {
   payment_id: string;
 
   @Column({ type: 'uuid' })
-  job_card_id: string;
+  order_id: string;
 
-  @Column({ type: 'uuid' })
-  branch_id: string;
+  @Column({ type: 'enum', enum: PaymentKind, enumName: 'payment_kind_enum' })
+  kind: PaymentKind;
+
+  @Column({ type: 'enum', enum: PaymentMode, enumName: 'payment_mode_enum' })
+  mode: PaymentMode;
+
+  @Column({ type: 'enum', enum: PaymentStatus, enumName: 'payment_status_enum', default: PaymentStatus.COMPLETED })
+  status: PaymentStatus;
+
+  // Cents, always positive
+  @Column({ type: 'int' })
+  amount: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  reference_number: string | null;
+
+  @Column({ unique: true })
+  receipt_no: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  reverses_payment_id: string | null;
 
   @Column({ type: 'uuid' })
   received_by: string;
 
-  @Column({ type: 'int' })
-  amount: number;
+  @Column({ type: 'timestamp', default: () => 'now()' })
+  paid_at: Date;
 
-  @Column({ type: 'enum', enum: PaymentMode })
-  mode: PaymentMode;
-
-  @Column({ type: 'enum', enum: PaymentType })
-  type: PaymentType;
-
-  @Column({ type: 'varchar', nullable: true })
-  notes: string | null;
-
-  @CreateDateColumn()
-  created_at: Date;
+  @Column({ type: 'uuid', nullable: true, unique: true })
+  client_request_id: string | null;
 }

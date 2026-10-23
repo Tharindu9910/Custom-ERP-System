@@ -6,3 +6,7 @@ dist/
 coverage/
 lumina-api-tester/
 .claude/
+apps/api/uploads/
+apps/e2e/test-results/
+apps/e2e/playwright-report/
+apps/api/dist-e2e/

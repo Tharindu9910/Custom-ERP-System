@@ -33,7 +33,7 @@ export function CustomerSearch({ onSelect }: Props) {
                 className="flex items-center justify-between px-4 py-3"
               >
                 <div>
-                  <p className="text-sm font-medium text-gray-800">{c.full_name}</p>
+                  <p className="text-sm font-medium text-gray-800">{c.name}</p>
                   <p className="text-xs text-gray-500">{c.phone}</p>
                   {c.company_name && (
                     <p className="text-xs text-gray-400">{c.company_name}</p>

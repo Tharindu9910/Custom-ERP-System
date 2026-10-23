@@ -11,5 +11,6 @@ export class AuditableEvent {
     public readonly before?: Record<string, unknown>,
     public readonly after?: Record<string, unknown>,
     public readonly entity_version?: number,
+    public readonly ip_address?: string,
   ) {}
 }

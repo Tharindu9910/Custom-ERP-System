@@ -1,0 +1,5 @@
+export enum BranchType {
+  ROOFING = 'ROOFING',
+  WORKSHOP = 'WORKSHOP',
+  ROOFING_WORKSHOP = 'ROOFING_WORKSHOP',
+}

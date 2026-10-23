@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { BranchId, CurrentUser, RequirePermissions } from '../../common/decorators';
 import { RequestUser } from '../../common/types';
@@ -16,9 +17,10 @@ export class WorkersController {
   constructor(private readonly workersService: WorkersService) {}
 
   @Get()
-  listWorkers(@BranchId() branchId: string | null) {
+  listWorkers(@BranchId() branchId: string | null, @Query('active') active?: string) {
     if (!branchId) throw new BadRequestException('Branch context required');
-    return this.workersService.listWorkers(branchId);
+    // ?active=true feeds assignment pickers: deactivated workers are hidden (BR20)
+    return active === 'true' ? this.workersService.listActiveWorkers(branchId) : this.workersService.listWorkers(branchId);
   }
 
   @Post()

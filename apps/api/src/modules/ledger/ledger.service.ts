@@ -20,9 +20,9 @@ export class LedgerService {
   async recordPayment(
     payment: {
       payment_id: string;
-      job_card_id: string;
+      order_id: string;
       amount: number;
-      type: 'ADVANCE' | 'PARTIAL' | 'FINAL';
+      kind: 'ADVANCE' | 'PARTIAL' | 'FINAL';
     },
     actor: Actor,
     em?: EntityManager,
@@ -32,14 +32,14 @@ export class LedgerService {
 
     const base = {
       branch_id: actor.branch_id,
-      job_card_id: payment.job_card_id,
-      reference_type: 'PAYMENT',
-      reference_id: payment.payment_id,
+      order_id: payment.order_id,
+      source_type: 'PAYMENT' as const,
+      source_id: payment.payment_id,
       created_by: actor.user_id,
       actor_role: actor.role,
     };
 
-    if (payment.type === 'ADVANCE' || payment.type === 'PARTIAL') {
+    if (payment.kind === 'ADVANCE' || payment.kind === 'PARTIAL') {
       await repo.save([
         { ...base, account_id: accounts['1200'], entry_type: EntryType.DEBIT,  amount: payment.amount, description: 'Cash received (advance)' },
         { ...base, account_id: accounts['2100'], entry_type: EntryType.CREDIT, amount: payment.amount, description: 'Advance payment recorded' },
@@ -55,7 +55,7 @@ export class LedgerService {
   }
 
   async recordCancellationLoss(
-    advance: { payment_id: string; job_card_id: string; amount: number },
+    advance: { payment_id: string; order_id: string; amount: number },
     actor: Actor,
     em?: EntityManager,
   ): Promise<void> {
@@ -64,12 +64,12 @@ export class LedgerService {
 
     await repo.save({
       branch_id: actor.branch_id,
-      job_card_id: advance.job_card_id,
+      order_id: advance.order_id,
       account_id: accounts['5200'],
       entry_type: EntryType.DEBIT,
       amount: advance.amount,
-      reference_type: 'CANCELLATION',
-      reference_id: advance.payment_id,
+      source_type: 'CANCELLATION',
+      source_id: advance.payment_id,
       description: 'Cancelled job loss (advance forfeited)',
       created_by: actor.user_id,
       actor_role: actor.role,
@@ -77,7 +77,7 @@ export class LedgerService {
   }
 
   async recordStockDeduction(
-    line: { item_id: string; amount: number; job_card_id: string },
+    line: { item_id: string; amount: number; order_id: string },
     actor: Actor,
     em?: EntityManager,
   ): Promise<void> {
@@ -86,12 +86,12 @@ export class LedgerService {
 
     await repo.save({
       branch_id: actor.branch_id,
-      job_card_id: line.job_card_id,
+      order_id: line.order_id,
       account_id: accounts['5100'],
       entry_type: EntryType.DEBIT,
       amount: line.amount,
-      reference_type: 'STOCK_DEDUCTION',
-      reference_id: line.item_id,
+      source_type: 'STOCK_DEDUCTION',
+      source_id: line.item_id,
       description: 'Material cost recorded on stock deduction',
       created_by: actor.user_id,
       actor_role: actor.role,
@@ -121,6 +121,7 @@ export class LedgerService {
             name: a.name,
             account_type: this.resolveAccountType(a.code),
             normal_balance: this.resolveNormalBalance(a.code),
+            is_system: true,
             is_active: true,
           }),
         );

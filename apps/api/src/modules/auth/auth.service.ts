@@ -4,15 +4,13 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Request } from 'express';
 import { Repository } from 'typeorm';
-import { Role } from '@erp/shared';
+import { Role, isGlobalRole, type ChangePasswordDto } from '@erp/shared';
 import { ERR } from '../../common/errors';
 import { UserRoleEntity } from '../../database/entities/user-role.entity';
 import { UserSessionEntity } from '../../database/entities/user-session.entity';
 import { UsersRepository } from '../users/users.repository';
 import { UsersService } from '../users/users.service';
 import { PermissionsService } from '../permissions/permissions.service';
-
-const CROSS_BRANCH_ROLES: Role[] = [Role.SUPER_ADMIN, Role.MANAGER];
 
 @Injectable()
 export class AuthService {
@@ -73,6 +71,16 @@ export class AuthService {
     return this.createSession(userId, roleRow, req);
   }
 
+  /** Replaces the password (temporary or not) and starts a fresh session without the change flag. */
+  async changePassword(userId: string, jti: string, dto: ChangePasswordDto, req: Request) {
+    await this.usersService.changePassword(userId, dto);
+    const session = await this.sessionRepo.findOne({ where: { jti } });
+    if (session) await this.revokeSession(session);
+    const roleRow = await this.getActiveRole(userId);
+    const tokens = await this.createSession(userId, roleRow, req);
+    return { ...tokens, user: await this.getMe(userId) };
+  }
+
   async logout(jti: string): Promise<{ success: true }> {
     const session = await this.sessionRepo.findOne({ where: { jti } });
     if (session) {
@@ -102,8 +110,11 @@ export class AuthService {
       username: user.username,
       phone: user.phone,
       role: roleRow.role,
-      branch_id: roleRow.branch_id,
+      // Same rule as the access token: global roles pick a branch per request
+      branch_id: isGlobalRole(roleRow.role) ? null : roleRow.branch_id,
       last_login_at: user.last_login_at,
+      must_change_password: user.must_change_password,
+      temp_password_expires_at: user.temp_password_expires_at,
       permissions,
     };
   }
@@ -128,7 +139,7 @@ export class AuthService {
     req: Request,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     const jti = crypto.randomUUID();
-    const isCrossBranch = CROSS_BRANCH_ROLES.includes(roleRow.role);
+    const isGlobal = isGlobalRole(roleRow.role);
     const user = await this.usersService.findById(userId);
 
     const refreshExpiresInMs = this.parseExpiry(
@@ -149,7 +160,9 @@ export class AuthService {
       jti,
       username: user.username,
       role: roleRow.role,
-      branch_id: isCrossBranch ? null : roleRow.branch_id,
+      branch_id: isGlobal ? null : roleRow.branch_id,
+      // Temporary password: only password change is allowed until it is replaced
+      pwd_change: user.must_change_password,
     };
 
     const refreshPayload = { sub: userId, jti };

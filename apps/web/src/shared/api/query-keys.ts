@@ -1,10 +1,17 @@
+/**
+ * Appends params only when given, so `x.all()` is the bare root and prefix-matches
+ * every cached variant on invalidation (a trailing `undefined` would match none).
+ */
+const withParams = <R extends readonly unknown[]>(root: R, params?: object): R | readonly [...R, object] =>
+  params === undefined ? root : [...root, params];
+
 export const queryKeys = {
   auth: {
     me: () => ['auth', 'me'] as const,
     permissions: () => ['auth', 'permissions'] as const,
   },
   users: {
-    all: (params?: object) => ['users', params] as const,
+    all: (params?: object) => withParams(['users'] as const, params),
     detail: (id: string) => ['users', id] as const,
   },
   permissions: {
@@ -17,38 +24,59 @@ export const queryKeys = {
     config: (id: string) => ['branches', id, 'config'] as const,
   },
   customers: {
-    all: (params?: object) => ['customers', params] as const,
+    all: (params?: object) => withParams(['customers'] as const, params),
     detail: (id: string) => ['customers', id] as const,
   },
   workers: {
-    all: (params?: object) => ['workers', params] as const,
+    all: (params?: object) => withParams(['workers'] as const, params),
     detail: (id: string) => ['workers', id] as const,
   },
-  jobCards: {
-    all: (params?: object) => ['job-cards', params] as const,
-    detail: (id: string) => ['job-cards', id] as const,
-    statusLog: (id: string) => ['job-cards', id, 'status-log'] as const,
+  branchContext: (branchId: string | null) => ['branch-context', branchId] as const,
+  employees: {
+    active: (params?: object) => withParams(['employees', 'active'] as const, params),
+    withoutAccount: (params?: object) => withParams(['employees', 'without-account'] as const, params),
   },
-  workOrders: {
-    all: (params?: object) => ['work-orders', params] as const,
-    detail: (id: string) => ['work-orders', id] as const,
-    byJobCard: (jobCardId: string) =>
-      ['work-orders', 'by-job-card', jobCardId] as const,
+  gatePasses: {
+    list: (params?: object) => withParams(['gate-passes', 'list'] as const, params),
+    detail: (id: string) => ['gate-passes', 'detail', id] as const,
+    available: (phone: string) => ['gate-passes', 'available', phone] as const,
   },
-  priceList: {
-    all: (branchId?: string) => ['price-list', branchId] as const,
+  orders: {
+    detail: (id: string) => ['orders', 'detail', id] as const,
+    quote: (body: object) => ['orders', 'quote', body] as const,
+  },
+  /** History popup on the Create pages. Not a live topic: it refetches only when opened or filtered. */
+  orderHistory: (type: 'job-cards' | 'roofing-orders', params?: object) => withParams(['order-history', type] as const, params),
+  workshopQueue: (params?: object) => withParams(['workshop-queue'] as const, params),
+  roofingQueue: (params?: object) => withParams(['roofing-queue'] as const, params),
+  cashierQueue: () => ['cashier-queue'] as const,
+  items: {
+    coils: () => ['items', 'coils'] as const,
+    search: (params?: object) => withParams(['items', 'search'] as const, params),
   },
   inventory: {
-    items: (params?: object) => ['inventory', 'items', params] as const,
-    item: (id: string) => ['inventory', 'items', id] as const,
-    alerts: () => ['inventory', 'alerts'] as const,
+    list: (params?: object) => withParams(['inventory', 'list'] as const, params),
+    item: (id: string, branchId?: string) => ['inventory', 'item', id, branchId ?? 'active'] as const,
   },
-  payments: {
-    byJobCard: (jobCardId: string) =>
-      ['payments', 'by-job-card', jobCardId] as const,
+  /** Head-office (all branches) reads — Docs/decisions/0002 */
+  network: {
+    inventory: (params?: object) => withParams(['network', 'inventory'] as const, params),
+    stockAlerts: (params?: object) => withParams(['network', 'stock-alerts'] as const, params),
+    transfers: (params?: object) => withParams(['network', 'stock-transfers'] as const, params),
   },
-  gatePass: {
-    all: (params?: object) => ['gate-pass', params] as const,
-    detail: (id: string) => ['gate-pass', id] as const,
+  stockAlerts: (params?: object) => withParams(['stock-alerts'] as const, params),
+  stockTransfers: {
+    list: (params?: object) => withParams(['stock-transfers', 'list'] as const, params),
+    detail: (id: string) => ['stock-transfers', 'detail', id] as const,
+    targets: () => ['stock-transfers', 'targets'] as const,
   },
+};
+
+/** Live-update topic (from the API) → query roots to refetch. */
+export const LIVE_TOPIC_KEYS: Record<string, readonly (readonly string[])[]> = {
+  orders: [['orders'], ['workshop-queue'], ['roofing-queue'], ['cashier-queue'], ['gate-passes']],
+  payments: [['orders'], ['workshop-queue'], ['roofing-queue'], ['cashier-queue']],
+  gate_passes: [['gate-passes']],
+  stock: [['inventory'], ['stock-alerts'], ['items'], ['network']],
+  transfers: [['stock-transfers'], ['inventory'], ['stock-alerts'], ['network']],
 };

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Role } from '@erp/shared';
+import { clearAllFormDrafts } from '@/shared/hooks/useFormDraft';
 
 export interface AuthUser {
   user_id: string;
@@ -9,6 +10,8 @@ export interface AuthUser {
   role: Role;
   branch_id: string | null;
   permissions: string[];
+  /** Signed in with a temporary password — must change it before anything else. */
+  must_change_password?: boolean;
 }
 
 interface AuthState {
@@ -41,8 +44,11 @@ export const useAuthStore = create<AuthState>()(
           activeBranchId: user.branch_id ?? state.activeBranchId,
         })),
       setActiveBranchId: (activeBranchId) => set({ activeBranchId }),
-      logout: () =>
-        set({ user: null, accessToken: null, refreshToken: null, activeBranchId: null }),
+      logout: () => {
+        // Half-filled forms hold customer details: never leave them for the next login
+        clearAllFormDrafts();
+        set({ user: null, accessToken: null, refreshToken: null, activeBranchId: null });
+      },
     }),
     {
       name: 'erp-auth',

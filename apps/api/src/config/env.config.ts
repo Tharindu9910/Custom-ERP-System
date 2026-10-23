@@ -15,6 +15,9 @@ const envSchema = z.object({
   THROTTLE_TTL_SECONDS: z.coerce.number().default(60),
   THROTTLE_LIMIT: z.coerce.number().default(100),
   THROTTLE_AUTH_LIMIT: z.coerce.number().default(10),
+
+  // Local folder for uploaded files (design photos); relative to the API's working directory
+  UPLOAD_DIR: z.string().default('uploads'),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

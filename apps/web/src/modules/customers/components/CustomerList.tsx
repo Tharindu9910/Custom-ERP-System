@@ -1,21 +1,29 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CustomerType } from '@erp/shared';
 import { DataTable } from '@/shared/components/DataTable';
 import { StatusBadge } from '@/shared/components/StatusBadge';
 import { PageHeader } from '@/shared/components/PageHeader';
-import { useCustomerSearch, useUpdateCustomer, type CustomerDto } from '../hooks/useCustomers';
+import { useCanTransact } from '@/shared/hooks/useCanTransact';
+import { useCustomers, type CustomerDto } from '../hooks/useCustomers';
 import { CustomerForm } from './CustomerForm';
 import { CustomerSearch } from './CustomerSearch';
 
 export function CustomerList() {
-  const [searchPhone, setSearchPhone] = useState('');
-  const { data: customers = [], isFetching } = useCustomerSearch(searchPhone);
+  const [search, setSearch] = useState('');
+  const [term, setTerm] = useState('');
+  // Wait for a short pause in typing before querying
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+  const { data: customers = [], isLoading, isFetching } = useCustomers(term);
   const [editing, setEditing] = useState<CustomerDto | null>(null);
   const [creating, setCreating] = useState(false);
-  const deactivate = useUpdateCustomer(editing?.customer_id ?? '');
+  // Head office views customers; branch staff add and edit them
+  const canTransact = useCanTransact();
 
   const columns = [
-    { header: 'Name', accessor: (c: CustomerDto) => c.full_name },
+    { header: 'Name', accessor: (c: CustomerDto) => c.name },
     { header: 'Phone', accessor: (c: CustomerDto) => c.phone },
     {
       header: 'Type',
@@ -24,18 +32,19 @@ export function CustomerList() {
     },
     { header: 'Company', accessor: (c: CustomerDto) => c.company_name ?? '—' },
     {
-      header: 'Status',
+      header: 'Profile',
       accessor: (c: CustomerDto) => (
-        <StatusBadge status={c.is_active ? 'active' : 'inactive'} />
+        <StatusBadge status={c.completed_at ? 'COMPLETED' : 'PENDING'} />
       ),
     },
     {
       header: '',
-      accessor: (c: CustomerDto) => (
-        <button className="text-xs text-blue-600 hover:underline" onClick={() => setEditing(c)}>
-          Edit
-        </button>
-      ),
+      accessor: (c: CustomerDto) =>
+        canTransact ? (
+          <button className="text-xs text-blue-600 hover:underline" onClick={() => setEditing(c)}>
+            Edit
+          </button>
+        ) : null,
     },
   ];
 
@@ -43,23 +52,30 @@ export function CustomerList() {
     <div>
       <PageHeader
         title="Customers"
-        action={{ label: 'Add Customer', onClick: () => setCreating(true) }}
+        actions={
+          canTransact && (
+            <button className="btn-primary" onClick={() => setCreating(true)}>
+              Add Customer
+            </button>
+          )
+        }
       />
 
       <div className="mb-4">
         <input
           className="input w-full max-w-xs"
-          placeholder="Search by phone…"
-          value={searchPhone}
-          onChange={(e) => setSearchPhone(e.target.value)}
+          placeholder="Search by name or phone…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
-      {searchPhone.length < 3 ? (
-        <p className="text-sm text-gray-400">Enter at least 3 digits to search customers.</p>
-      ) : (
-        <DataTable columns={columns} data={customers} loading={isFetching} />
-      )}
+      <DataTable
+        columns={columns}
+        data={customers}
+        loading={isLoading || (isFetching && customers.length === 0)}
+        emptyMessage={term ? 'No customers match your search.' : 'No customers yet.'}
+      />
 
       {(creating || editing) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

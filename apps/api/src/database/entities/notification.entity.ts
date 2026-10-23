@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { NotificationChannel, NotificationStatus } from '@erp/shared';
 
 @Entity('notification')
 export class NotificationEntity {
@@ -6,31 +7,34 @@ export class NotificationEntity {
   notification_id: string;
 
   @Column({ type: 'uuid', nullable: true })
-  job_card_id: string | null;
+  order_id: string | null;
 
-  @Column({ type: 'uuid' })
-  branch_id: string;
+  @Column({ type: 'uuid', nullable: true })
+  customer_id: string | null;
+
+  @Column({ type: 'enum', enum: NotificationChannel, enumName: 'notification_channel_enum' })
+  channel: NotificationChannel;
+
+  @Column({ type: 'varchar', nullable: true })
+  template_id: string | null;
 
   @Column()
-  channel: string;
-
-  @Column()
-  recipient: string;
-
-  @Column()
-  subject: string;
+  recipient_contact: string;
 
   @Column({ type: 'text' })
-  body: string;
+  message: string;
 
-  @Column({ type: 'varchar', default: 'PENDING' })
-  status: string;
+  @Column({ type: 'enum', enum: NotificationStatus, enumName: 'notification_status_enum', default: NotificationStatus.QUEUED })
+  status: NotificationStatus;
+
+  @Column({ type: 'int', default: 0 })
+  retry_count: number;
 
   @Column({ type: 'text', nullable: true })
-  error: string | null;
+  failure_reason: string | null;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @Column({ type: 'uuid', nullable: true })
+  sent_by: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
   sent_at: Date | null;
