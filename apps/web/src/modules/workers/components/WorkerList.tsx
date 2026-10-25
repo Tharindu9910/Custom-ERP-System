@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useCanTransact } from '@/shared/hooks/useCanTransact';
 import { DataTable } from '@/shared/components/DataTable';
 import { StatusBadge } from '@/shared/components/StatusBadge';
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog';
@@ -10,16 +11,20 @@ export function WorkerList() {
   const { data: workers = [], isLoading } = useWorkers();
   const [editing, setEditing] = useState<WorkerDto | null>(null);
   const [creating, setCreating] = useState(false);
+  // Branch Managers manage workers; head office only views them
+  const canTransact = useCanTransact();
   const [deactivating, setDeactivating] = useState<WorkerDto | null>(null);
   const [activating, setActivating] = useState<WorkerDto | null>(null);
-  const deactivate = useUpdateWorker(deactivating?.worker_id ?? '');
-  const activate = useUpdateWorker(activating?.worker_id ?? '');
+  const deactivate = useUpdateWorker(deactivating?.employee_id ?? '');
+  const activate = useUpdateWorker(activating?.employee_id ?? '');
 
   const [showInactive, setShowInactive] = useState(false);
   const visible = showInactive ? workers : workers.filter((w) => w.is_active);
 
   const columns = [
+    { header: 'Code', accessor: (w: WorkerDto) => w.employee_code },
     { header: 'Name', accessor: (w: WorkerDto) => w.full_name },
+    { header: 'Designation', accessor: (w: WorkerDto) => w.designation ?? '—' },
     { header: 'Phone', accessor: (w: WorkerDto) => w.phone ?? '—' },
     {
       header: 'Status',
@@ -29,7 +34,7 @@ export function WorkerList() {
     },
     {
       header: '',
-      accessor: (w: WorkerDto) => (
+      accessor: (w: WorkerDto) => canTransact && (
         <div className="flex gap-2">
           <button className="text-xs text-blue-600 hover:underline" onClick={() => setEditing(w)}>
             Edit
@@ -44,7 +49,7 @@ export function WorkerList() {
           ) : (
             <button
               className="text-xs text-green-600 hover:underline disabled:opacity-50"
-              disabled={activate.isPending && activating?.worker_id === w.worker_id}
+              disabled={activate.isPending && activating?.employee_id === w.employee_id}
               onClick={() => {
                 setActivating(w);
                 activate.mutate({ is_active: true }, { onSuccess: () => setActivating(null) });
@@ -63,9 +68,11 @@ export function WorkerList() {
       <PageHeader
         title="Workers"
         actions={
-          <button className="btn-primary" onClick={() => setCreating(true)}>
-            Add Worker
-          </button>
+          canTransact && (
+            <button className="btn-primary" onClick={() => setCreating(true)}>
+              Add Worker
+            </button>
+          )
         }
       />
 

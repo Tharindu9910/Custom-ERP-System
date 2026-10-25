@@ -1,7 +1,10 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Role } from '@erp/shared';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Role, permissionGrantBlock, type UpdateRolePermissionsDto } from '@erp/shared';
 import { ERR } from '../../common/errors';
+import type { RequestUser } from '../../common/types';
+import { AuditService } from '../../core/audit.service';
+import { EventsService } from '../../core/events.service';
+import { RolePermissionsService } from '../../core/role-permissions.service';
 import { PermissionsRepository } from './permissions.repository';
 import { PermissionEntity } from '../../database/entities/permission.entity';
 
@@ -15,17 +18,13 @@ export interface RolePermissionsDto {
   }[];
 }
 
-export class UpdateRolePermissionsDto {
-  role: Role;
-  updates: { permission_id: string; granted: boolean }[];
-}
-
 @Injectable()
 export class PermissionsService {
   constructor(
     private readonly permissionsRepo: PermissionsRepository,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    @Inject(CACHE_MANAGER) private readonly cache: any,
+    private readonly rolePermissions: RolePermissionsService,
+    private readonly audit: AuditService,
+    private readonly events: EventsService,
   ) {}
 
   getAllPermissions(): Promise<PermissionEntity[]> {
@@ -51,34 +50,39 @@ export class PermissionsService {
     return [...map.values()];
   }
 
-  async updateRolePermissions(
-    dto: UpdateRolePermissionsDto,
-    actorId: string,
-  ): Promise<void> {
-    for (const update of dto.updates) {
-      const perm = await this.permissionsRepo.findPermissionById(update.permission_id);
-      if (!perm) throw new NotFoundException(ERR.PERMISSION_NOT_FOUND);
+  /**
+   * Saves one role's grants. Refuses Super-Admin-only permissions and branch writes for
+   * head-office roles (they would have no effect: Docs/decisions/0002). Only real changes
+   * are written and audited; every open screen is told to refresh its permissions.
+   */
+  async updateRolePermissions(dto: UpdateRolePermissionsDto, actor: RequestUser): Promise<{ changed: number }> {
+    const ids = [...new Set(dto.updates.map((u) => u.permission_id))];
+    const perms = new Map((await this.permissionsRepo.findPermissionsByIds(ids)).map((p) => [p.permission_id, p]));
+    if (perms.size !== ids.length) throw new NotFoundException(ERR.PERMISSION_NOT_FOUND);
 
-      await this.permissionsRepo.upsertRolePermission(
-        dto.role,
-        update.permission_id,
-        update.granted,
-        actorId,
-      );
+    const current = await this.permissionsRepo.findGrantsForRole(dto.role);
+    const changes = dto.updates.filter((u) => (current.get(u.permission_id) ?? false) !== u.granted);
+    for (const c of changes) {
+      if (!c.granted) continue;
+      const block = permissionGrantBlock(dto.role, perms.get(c.permission_id)!.action);
+      if (block === 'SUPER_ADMIN_ONLY') throw new BadRequestException(ERR.PERMISSION_SUPER_ADMIN_ONLY);
+      if (block === 'GLOBAL_VIEW_ONLY') throw new BadRequestException(ERR.PERMISSION_GLOBAL_VIEW_ONLY);
     }
+    if (changes.length === 0) return { changed: 0 };
 
-    // Invalidate cache for this role so the next request repopulates
-    await this.cache.del(`permissions:${dto.role}`);
+    await this.permissionsRepo.saveRoleGrants(dto.role, changes, actor.user_id);
+    await this.rolePermissions.invalidate(dto.role);
+
+    const actions = (granted: boolean) => changes.filter((c) => c.granted === granted).map((c) => perms.get(c.permission_id)!.action);
+    this.audit.record(actor, { type: 'role_permission' }, 'UPDATE_ROLE_PERMISSIONS', {
+      after: { role: dto.role, granted: actions(true), revoked: actions(false) },
+    });
+    // Signed-in users of that role refetch /auth/me, so their menu changes at once
+    this.events.changedEverywhere('permissions');
+    return { changed: changes.length };
   }
 
-  async getGrantedPermissions(role: Role): Promise<string[]> {
-    const cacheKey = `permissions:${role}`;
-    const cached = (await this.cache.get(cacheKey)) as string[] | undefined;
-    if (cached) return cached;
-
-    const actions = await this.permissionsRepo.getGrantedActionsForRole(role);
-    const ttl = parseInt(process.env.PERMISSION_CACHE_TTL_MS ?? '300000', 10);
-    await this.cache.set(cacheKey, actions, ttl);
-    return actions;
+  getGrantedPermissions(role: Role): Promise<string[]> {
+    return this.rolePermissions.granted(role);
   }
 }

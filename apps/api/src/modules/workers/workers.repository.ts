@@ -1,34 +1,34 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { WorkerEntity } from '../../database/entities/worker.entity';
+import { EmployeeEntity } from '../../database/entities/employee.entity';
 
 @Injectable()
 export class WorkersRepository {
   constructor(
-    @InjectRepository(WorkerEntity)
-    private readonly repo: Repository<WorkerEntity>,
+    @InjectRepository(EmployeeEntity)
+    private readonly repo: Repository<EmployeeEntity>,
   ) {}
 
-  findActiveByBranch(branchId: string): Promise<WorkerEntity[]> {
+  findActiveByBranch(branchId: string): Promise<EmployeeEntity[]> {
     return this.repo.find({
       where: { branch_id: branchId, is_active: true },
       order: { full_name: 'ASC' },
     });
   }
 
-  findAllByBranch(branchId: string): Promise<WorkerEntity[]> {
+  findAllByBranch(branchId: string): Promise<EmployeeEntity[]> {
     return this.repo.find({
       where: { branch_id: branchId },
       order: { is_active: 'DESC', full_name: 'ASC' },
     });
   }
 
-  findById(workerId: string): Promise<WorkerEntity | null> {
-    return this.repo.findOne({ where: { worker_id: workerId } });
+  findById(employeeId: string): Promise<EmployeeEntity | null> {
+    return this.repo.findOne({ where: { employee_id: employeeId } });
   }
 
-  save(worker: Partial<WorkerEntity>): Promise<WorkerEntity> {
-    return this.repo.save(worker as WorkerEntity);
+  save(employee: Partial<EmployeeEntity>): Promise<EmployeeEntity> {
+    return this.repo.save(employee as EmployeeEntity);
   }
 }

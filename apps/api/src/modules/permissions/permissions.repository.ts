@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Role } from '@erp/shared';
 import { PermissionEntity } from '../../database/entities/permission.entity';
 import { RolePermissionEntity } from '../../database/entities/role-permission.entity';
@@ -51,38 +51,26 @@ export class PermissionsRepository {
       .getRawMany();
   }
 
-  async getGrantedActionsForRole(role: Role): Promise<string[]> {
-    const rows: { action: string }[] = await this.rpRepo
-      .createQueryBuilder('rp')
-      .innerJoin(PermissionEntity, 'p', 'p.permission_id = rp.permission_id')
-      .select('p.action', 'action')
-      .where('rp.role = :role', { role })
-      .andWhere('rp.granted = true')
-      .getRawMany();
-    return rows.map((r) => r.action);
+  findPermissionsByIds(ids: string[]): Promise<PermissionEntity[]> {
+    return this.permRepo.find({ where: { permission_id: In(ids) } });
   }
 
-  async findRolePermission(
-    role: Role,
-    permissionId: string,
-  ): Promise<RolePermissionEntity | null> {
-    return this.rpRepo.findOne({ where: { role, permission_id: permissionId } });
+  async findGrantsForRole(role: Role): Promise<Map<string, boolean>> {
+    const rows = await this.rpRepo.find({ where: { role } });
+    return new Map(rows.map((r) => [r.permission_id, r.granted]));
   }
 
-  async upsertRolePermission(
-    role: Role,
-    permissionId: string,
-    granted: boolean,
-    setBy: string,
-  ): Promise<void> {
-    const existing = await this.findRolePermission(role, permissionId);
-    if (existing) {
-      existing.granted = granted;
-      existing.set_by = setBy;
-      await this.rpRepo.save(existing);
-    } else {
-      const row = this.rpRepo.create({ role, permission_id: permissionId, granted, set_by: setBy });
-      await this.rpRepo.save(row);
-    }
+  /** Writes every change for one role in one transaction. */
+  async saveRoleGrants(role: Role, changes: { permission_id: string; granted: boolean }[], setBy: string): Promise<void> {
+    await this.rpRepo.manager.transaction(async (em) => {
+      for (const c of changes) {
+        await em.query(
+          `INSERT INTO role_permission (role, permission_id, granted, set_by, set_at)
+           VALUES ($1::role_enum, $2, $3, $4, now())
+           ON CONFLICT (role, permission_id) DO UPDATE SET granted = EXCLUDED.granted, set_by = EXCLUDED.set_by, set_at = now()`,
+          [role, c.permission_id, c.granted, setBy],
+        );
+      }
+    });
   }
 }

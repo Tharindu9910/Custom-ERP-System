@@ -4,10 +4,9 @@ export const OfflineEventSchema = z.object({
   event_id: z.string().uuid(),
   event_type: z.enum([
     'CREATE_JOB_CARD',
-    'UPDATE_JOB_CARD_STATUS',
-    'CREATE_WORK_ORDER',
-    'UPDATE_WORK_ORDER_STATUS',
-    'ADD_WORK_ORDER_NOTE',
+    'CREATE_GATE_PASS',
+    'UPDATE_ORDER_LINE_STATUS',
+    'ADD_ORDER_NOTE',
   ]),
   entity_id: z.string().uuid().optional(),
   payload: z.record(z.string(), z.unknown()),

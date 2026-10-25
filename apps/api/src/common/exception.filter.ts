@@ -6,7 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { ErrPayload } from './errors';
+import { ERR, ErrPayload } from './errors';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -18,6 +18,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let code = 'INTERNAL_ERROR';
     let message = 'An unexpected error occurred';
+    let details: unknown;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -31,12 +32,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
         const err = payload as ErrPayload;
         code = err.code;
         message = err.message;
+        details = err.details;
       } else if (typeof payload === 'string') {
         message = payload;
       }
+      if (status === HttpStatus.TOO_MANY_REQUESTS) {
+        code = ERR.RATE_LIMIT_EXCEEDED.code;
+        message = ERR.RATE_LIMIT_EXCEEDED.message;
+      }
     }
 
-    const body: Record<string, unknown> = { error: { code, message } };
+    // details lets the UI act on the error (e.g. available qty, override allowed)
+    const body: Record<string, unknown> = {
+      error: details === undefined ? { code, message } : { code, message, details },
+    };
 
     // if (process.env.NODE_ENV === 'development' && exception instanceof Error) {
     //   body.error = { ...(body.error as object), stack: exception.stack }

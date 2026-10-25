@@ -1,15 +1,12 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, PrimaryColumn } from 'typeorm';
 import { Role } from '@erp/shared';
 
 @Entity('role_permission')
 export class RolePermissionEntity {
-  @PrimaryGeneratedColumn('uuid')
-  role_permission_id: string;
-
-  @Column({ type: 'enum', enum: Role })
+  @PrimaryColumn({ type: 'enum', enum: Role })
   role: Role;
 
-  @Column({ type: 'uuid' })
+  @PrimaryColumn({ type: 'uuid' })
   permission_id: string;
 
   @Column({ default: true })

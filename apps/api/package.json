@@ -22,7 +22,10 @@
     "migration:run": "ts-node -r tsconfig-paths/register -e \"require('./src/database/datasource').AppDataSource.initialize().then(ds => ds.runMigrations()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\"",
     "migration:revert": "ts-node -r tsconfig-paths/register -e \"require('./src/database/datasource').AppDataSource.initialize().then(ds => ds.undoLastMigration()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })\"",
     "seed": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts",
-    "db:clear": "ts-node -r tsconfig-paths/register src/database/seeds/clear.ts"
+    "seed:demo": "ts-node -r tsconfig-paths/register src/database/seeds/demo.ts",
+    "db:clear": "ts-node -r tsconfig-paths/register src/database/seeds/clear.ts",
+    "check:numbers": "ts-node -r tsconfig-paths/register src/database/checks/check-supervisor-numbers.ts",
+    "backfill:reservations": "ts-node -r tsconfig-paths/register src/database/scripts/backfill-stock-reservations.ts"
   },
   "dependencies": {
     "@erp/shared": "workspace:*",

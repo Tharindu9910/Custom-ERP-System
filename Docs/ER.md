@@ -1,3 +1,5 @@
+> **Superseded by [ER-v6.md](ER-v6.md).** Kept for reference only.
+
 ```mermaid
 erDiagram
  

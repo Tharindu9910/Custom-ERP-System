@@ -18,7 +18,7 @@ export function CustomerForm({ customer, onClose }: Props) {
   const create = useCreateCustomer();
   const update = useUpdateCustomer(customer?.customer_id ?? '');
 
-  const [fullName, setFullName] = useState(customer?.full_name ?? '');
+  const [fullName, setFullName] = useState(customer?.name ?? '');
   const [phone, setPhone] = useState(customer?.phone ?? '');
   const [email, setEmail] = useState(customer?.email ?? '');
   const [address, setAddress] = useState(customer?.address ?? '');
@@ -28,6 +28,7 @@ export function CustomerForm({ customer, onClose }: Props) {
     customer?.customer_type ?? CustomerType.INDIVIDUAL,
   );
   const [error, setError] = useState('');
+  const isBusiness = customerType === CustomerType.BUSINESS;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,15 +36,16 @@ export function CustomerForm({ customer, onClose }: Props) {
     try {
       if (isEdit) {
         await update.mutateAsync({
-          full_name: fullName,
+          name: fullName,
           email: email || undefined,
           address: address || undefined,
           customer_type: customerType,
-          company_name: companyName || undefined,
-          contact_person: contactPerson || undefined,
+          // Business details only apply to businesses; null clears them when switching to Individual
+          company_name: isBusiness ? companyName.trim() : null,
+          contact_person: isBusiness ? contactPerson.trim() || null : null,
         });
       } else {
-        await create.mutateAsync({ full_name: fullName, phone });
+        await create.mutateAsync({ name: fullName, phone });
       }
       onClose();
     } catch (err: unknown) {
@@ -90,13 +92,14 @@ export function CustomerForm({ customer, onClose }: Props) {
         </select>
       </FormField>
 
-      {(customerType === CustomerType.BUSINESS || isEdit) && (
+      {isBusiness && (
         <>
-          <FormField label="Company Name">
+          <FormField label="Company Name" required>
             <input
               className="input"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
+              required
             />
           </FormField>
           <FormField label="Contact Person">

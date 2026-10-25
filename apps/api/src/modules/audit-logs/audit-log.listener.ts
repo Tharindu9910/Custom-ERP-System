@@ -18,13 +18,14 @@ export class AuditLogListener {
       await this.repo.save({
         entity_type: event.entity_type,
         action: event.action,
-        actor_id: event.actor_id,
+        user_id: event.actor_id,
         actor_role: event.actor_role,
         entity_id: event.entity_id,
         branch_id: event.branch_id,
-        before: event.before,
-        after: event.after,
+        old_value: event.before,
+        new_value: event.after,
         entity_version: event.entity_version,
+        ip_address: event.ip_address,
       });
     } catch {
       // Audit failures never propagate — business ops must not roll back for audit

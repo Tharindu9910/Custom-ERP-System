@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Role } from '@erp/shared';
+import { Role, isGlobalRole } from '@erp/shared';
 import { FormField } from '@/shared/components/FormField';
 import {
   useCreateUser,
@@ -9,6 +9,7 @@ import {
   type CreateUserPayload,
 } from '../hooks/useUsers';
 import { useBranches } from '@/modules/branches/hooks/useBranches';
+import { branchOptionLabel } from '@/shared/lib/branch';
 
 interface Props {
   user?: UserDto;
@@ -16,8 +17,14 @@ interface Props {
 }
 
 const ROLES: Role[] = [
-  Role.ADMIN, Role.AUDITOR, Role.SUPERVISOR, Role.CHIEF, Role.CASHIER, Role.MANAGER,
+  Role.ADMIN, Role.AUDITOR, Role.MANAGER, Role.SUPERVISOR, Role.CHIEF, Role.CASHIER,
 ];
+
+const ROLE_LABEL: Partial<Record<Role, string>> = {
+  [Role.ADMIN]: 'Admin (head office)',
+  [Role.AUDITOR]: 'Auditor (head office)',
+  [Role.MANAGER]: 'Branch Manager',
+};
 
 export function UserForm({ user, onClose }: Props) {
   const isEdit = !!user;
@@ -39,6 +46,9 @@ export function UserForm({ user, onClose }: Props) {
 
   const set = (field: keyof CreateUserPayload, value: string) =>
     setForm((f) => ({ ...f, [field]: value }));
+  // Head-office roles have no branch; every other role needs one (mirrors the API rule)
+  const globalRole = isGlobalRole(form.role);
+  const setRole = (role: Role) => setForm((f) => ({ ...f, role, branch_id: isGlobalRole(role) ? '' : f.branch_id }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,10 +62,15 @@ export function UserForm({ user, onClose }: Props) {
         });
         await assignRole.mutateAsync({
           role: form.role,
-          branch_id: form.branch_id || undefined,
+          branch_id: globalRole ? undefined : form.branch_id || undefined,
         });
       } else {
-        await createUser.mutateAsync(form);
+        await createUser.mutateAsync({
+          ...form,
+          email: form.email?.trim() || undefined,
+          phone: form.phone?.trim() || undefined,
+          branch_id: globalRole ? undefined : form.branch_id,
+        });
       }
       onClose();
     } catch (err: unknown) {
@@ -117,27 +132,32 @@ export function UserForm({ user, onClose }: Props) {
         <select
           className="input"
           value={form.role}
-          onChange={(e) => set('role', e.target.value)}
+          onChange={(e) => setRole(e.target.value as Role)}
           required
         >
           {ROLES.map((r) => (
-            <option key={r} value={r}>{r.replace('_', ' ')}</option>
+            <option key={r} value={r}>{ROLE_LABEL[r] ?? r.replace('_', ' ')}</option>
           ))}
         </select>
       </FormField>
 
-      <FormField label="Branch">
-        <select
-          className="input"
-          value={form.branch_id}
-          onChange={(e) => set('branch_id', e.target.value)}
-        >
-          <option value="">— Cross-branch (no branch) —</option>
-          {branches.map((b) => (
-            <option key={b.branch_id} value={b.branch_id}>{b.name}</option>
-          ))}
-        </select>
-      </FormField>
+      {globalRole ? (
+        <p className="text-xs text-gray-500">Head-office role: sees every branch and is not tied to one. View-only on branch work.</p>
+      ) : (
+        <FormField label="Branch" required>
+          <select
+            className="input"
+            value={form.branch_id}
+            onChange={(e) => set('branch_id', e.target.value)}
+            required
+          >
+            <option value="" disabled>Choose a branch…</option>
+            {branches.filter((b) => b.is_active).map((b) => (
+              <option key={b.branch_id} value={b.branch_id}>{branchOptionLabel(b)}</option>
+            ))}
+          </select>
+        </FormField>
+      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

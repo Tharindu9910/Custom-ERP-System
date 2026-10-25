@@ -1,12 +1,12 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('legacy_import')
 export class LegacyImportEntity {
   @PrimaryGeneratedColumn('uuid')
   import_id: string;
 
-  @Column({ type: 'uuid' })
-  job_card_id: string;
+  @Column({ type: 'uuid', unique: true })
+  order_id: string;
 
   @Column({ unique: true })
   legacy_reference: string;
@@ -17,6 +17,6 @@ export class LegacyImportEntity {
   @Column({ type: 'uuid' })
   imported_by: string;
 
-  @CreateDateColumn()
+  @Column({ type: 'timestamp', default: () => 'now()' })
   imported_at: Date;
 }

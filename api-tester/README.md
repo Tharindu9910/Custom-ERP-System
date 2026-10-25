@@ -55,10 +55,12 @@ Open **http://localhost:9000** in your browser.
 | Chip | Username | Password | Role |
 |------|----------|----------|------|
 | superadmin | superadmin | Super@123 | SUPER_ADMIN |
-| manager1 | manager1 | Manager@123 | MANAGER |
-| admin1 | admin1 | Admin@123 | ADMIN |
-| supervisor1 | supervisor1 | Super1@123 | SUPERVISOR |
-| cashier1 | cashier1 | Cashier@123 | CASHIER |
+| admin | admin | Admin@123 | ADMIN (global, view-only on branch work) |
+| manager_thangalla | manager_thangalla | Dev@1234 | MANAGER (branch) |
+| supervisor_thangalla | supervisor_thangalla | Dev@1234 | SUPERVISOR |
+| cashier_thangalla | cashier_thangalla | Dev@1234 | CASHIER |
+
+Every branch (naiwala, veyangoda, thangalla) has `manager_`, `supervisor_`, `chief_` and `cashier_<branch>` users with password `Dev@1234`.
 
 ## Typical Test Flows
 

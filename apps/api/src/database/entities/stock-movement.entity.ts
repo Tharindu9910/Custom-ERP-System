@@ -1,34 +1,40 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { MovementType } from '@erp/shared';
+import { numeric } from '../transformers';
 
+// Append-only. quantity is signed (+ in / - out); branch stock = sum of movements.
 @Entity('stock_movement')
 export class StockMovementEntity {
   @PrimaryGeneratedColumn('uuid')
   movement_id: string;
 
   @Column({ type: 'uuid' })
+  branch_id: string;
+
+  @Column({ type: 'uuid' })
   item_id: string;
 
-  @Column({ type: 'uuid', nullable: true })
-  branch_id: string | null;
+  @Column({ type: 'enum', enum: MovementType, enumName: 'movement_type_enum' })
+  movement_type: MovementType;
 
-  @Column({ type: 'varchar' })
-  direction: 'IN' | 'OUT';
-
-  @Column({ type: 'int' })
+  @Column({ type: 'numeric', precision: 14, scale: 3, transformer: numeric })
   quantity: number;
 
-  @Column({ type: 'varchar', nullable: true })
-  reference_type: string | null;
+  @Column({ type: 'numeric', precision: 14, scale: 3, transformer: numeric })
+  quantity_after: number;
 
   @Column({ type: 'uuid', nullable: true })
-  reference_id: string | null;
-
-  @Column({ type: 'varchar', nullable: true })
-  notes: string | null;
+  line_id: string | null;
 
   @Column({ type: 'uuid', nullable: true })
-  created_by: string | null;
+  transfer_line_id: string | null;
 
-  @CreateDateColumn()
+  @Column({ type: 'text', nullable: true })
+  reason: string | null;
+
+  @Column({ type: 'uuid' })
+  created_by: string;
+
+  @Column({ type: 'timestamp', default: () => 'now()' })
   moved_at: Date;
 }

@@ -10,9 +10,10 @@ interface Props {
 export function WorkerForm({ worker, onClose }: Props) {
   const isEdit = !!worker;
   const create = useCreateWorker();
-  const update = useUpdateWorker(worker?.worker_id ?? '');
+  const update = useUpdateWorker(worker?.employee_id ?? '');
 
   const [fullName, setFullName] = useState(worker?.full_name ?? '');
+  const [designation, setDesignation] = useState(worker?.designation ?? '');
   const [phone, setPhone] = useState(worker?.phone ?? '');
   const [error, setError] = useState('');
 
@@ -21,9 +22,17 @@ export function WorkerForm({ worker, onClose }: Props) {
     setError('');
     try {
       if (isEdit) {
-        await update.mutateAsync({ full_name: fullName, phone: phone || undefined });
+        await update.mutateAsync({
+          full_name: fullName,
+          designation: designation || undefined,
+          phone: phone || undefined,
+        });
       } else {
-        await create.mutateAsync({ full_name: fullName, phone: phone || undefined });
+        await create.mutateAsync({
+          full_name: fullName,
+          designation: designation || undefined,
+          phone: phone || undefined,
+        });
       }
       onClose();
     } catch (err: unknown) {
@@ -43,6 +52,14 @@ export function WorkerForm({ worker, onClose }: Props) {
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
           required
+        />
+      </FormField>
+      <FormField label="Designation">
+        <input
+          className="input"
+          value={designation}
+          onChange={(e) => setDesignation(e.target.value)}
+          placeholder="e.g. MACHINE OPERATOR"
         />
       </FormField>
       <FormField label="Phone">

@@ -10,7 +10,9 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
-import { CurrentUser, Public } from '../../common/decorators';
+import { ChangePasswordSchema, type ChangePasswordDto } from '@erp/shared';
+import { AllowDuringPasswordChange, CurrentUser, Public } from '../../common/decorators';
+import { ZodPipe } from '../../common/zod.pipe';
 import { RequestUser } from '../../common/types';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -19,8 +21,8 @@ import { LoginDto } from './dto/login.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  // THROTTLE_AUTH_LIMIT (default 10) requests per minute per IP
-  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  // THROTTLE_AUTH_LIMIT (default 10) requests per minute per IP; tests raise it
+  @Throttle({ default: { ttl: 60000, limit: () => Number(process.env.THROTTLE_AUTH_LIMIT ?? 10) } })
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -39,18 +41,28 @@ export class AuthController {
     return this.authService.refresh(user.user_id, user.jti, req);
   }
 
+  @AllowDuringPasswordChange()
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  changePassword(@Body(new ZodPipe(ChangePasswordSchema)) dto: ChangePasswordDto, @CurrentUser() user: RequestUser, @Req() req: any) {
+    return this.authService.changePassword(user.user_id, user.jti, dto, req);
+  }
+
+  @AllowDuringPasswordChange()
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   logout(@CurrentUser() user: RequestUser) {
     return this.authService.logout(user.jti);
   }
 
+  @AllowDuringPasswordChange()
   @Post('logout/all')
   @HttpCode(HttpStatus.OK)
   logoutAll(@CurrentUser() user: RequestUser) {
     return this.authService.logoutAll(user.user_id);
   }
 
+  @AllowDuringPasswordChange()
   @Get('me')
   getMe(@CurrentUser() user: RequestUser) {
     return this.authService.getMe(user.user_id);

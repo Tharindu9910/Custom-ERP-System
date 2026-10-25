@@ -4,10 +4,13 @@ import { StatusBadge } from '@/shared/components/StatusBadge';
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog';
 import { PageHeader } from '@/shared/components/PageHeader';
 import { useUsers, useUpdateUser, type UserDto } from '../hooks/useUsers';
+import { useBranches } from '@/modules/branches/hooks/useBranches';
 import { UserForm } from './UserForm';
 
 export function UserList() {
   const { data: users = [], isLoading } = useUsers();
+  const { data: branches = [] } = useBranches();
+  const branchName = (id: string | null) => (id ? (branches.find((b) => b.branch_id === id)?.name ?? '—') : 'Head office');
   const [editing, setEditing] = useState<UserDto | null>(null);
   const [creating, setCreating] = useState(false);
   const [deactivating, setDeactivating] = useState<UserDto | null>(null);
@@ -22,7 +25,7 @@ export function UserList() {
     { header: 'Role', accessor: (u: UserDto) => u.role?.replace('_', ' ') ?? '—' },
     { header: 'Email', accessor: (u: UserDto) => u.email ?? '—' },
     { header: 'Phone', accessor: (u: UserDto) => u.phone ?? '—' },
-    { header: 'Branch', accessor: (u: UserDto) => u.branch_id ?? 'Cross-branch' },
+    { header: 'Branch', accessor: (u: UserDto) => branchName(u.branch_id) },
     {
       header: 'Created',
       accessor: (u: UserDto) => new Date(u.created_at).toLocaleDateString(),

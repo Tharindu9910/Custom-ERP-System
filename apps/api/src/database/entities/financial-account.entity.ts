@@ -1,5 +1,5 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
-import { AccountType } from '@erp/shared';
+import { AccountType, EntryType } from '@erp/shared';
 
 @Entity('financial_account')
 export class FinancialAccountEntity {
@@ -15,8 +15,11 @@ export class FinancialAccountEntity {
   @Column({ type: 'enum', enum: AccountType })
   account_type: AccountType;
 
-  @Column({ type: 'varchar' })
-  normal_balance: 'DEBIT' | 'CREDIT';
+  @Column({ type: 'enum', enum: EntryType })
+  normal_balance: EntryType;
+
+  @Column({ default: false })
+  is_system: boolean;
 
   @Column({ default: true })
   is_active: boolean;

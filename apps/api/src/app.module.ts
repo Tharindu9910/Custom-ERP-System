@@ -5,60 +5,23 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CacheModule } from '@nestjs/cache-manager';
+import { ScheduleModule } from '@nestjs/schedule';
 import { validateEnv } from './config/env.config';
 
 // Guards / Interceptors / Filters
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import { PasswordChangeGuard } from './common/guards/password-change.guard';
 import { ResponseInterceptor } from './common/response.interceptor';
 import { HttpExceptionFilter } from './common/exception.filter';
+import { CoreModule } from './core/core.module';
+import { FeatureGuard } from './core/feature.guard';
 
-// Phase 1-2 entities
-import { UserEntity } from './database/entities/user.entity';
-import { UserRoleEntity } from './database/entities/user-role.entity';
-import { UserSessionEntity } from './database/entities/user-session.entity';
-
-// Phase 2B entities
-import { BranchEntity } from './database/entities/branch.entity';
-import { BranchSectionEntity } from './database/entities/branch-section.entity';
-import { BranchConfigEntity } from './database/entities/branch-config.entity';
-import { PermissionEntity } from './database/entities/permission.entity';
-import { RolePermissionEntity } from './database/entities/role-permission.entity';
-import { WorkerEntity } from './database/entities/worker.entity';
-import { CustomerEntity } from './database/entities/customer.entity';
-import { JobCardEntity } from './database/entities/job-card.entity';
-import { JobStatusLogEntity } from './database/entities/job-status-log.entity';
-import { WorkOrderEntity } from './database/entities/work-order.entity';
-import { WorkOrderWorkerEntity } from './database/entities/work-order-worker.entity';
-import { WorkOrderStatusNoteEntity } from './database/entities/work-order-status-note.entity';
-import { WorkOrderInspectionEntity } from './database/entities/work-order-inspection.entity';
-import { WorkOrderAttachmentEntity } from './database/entities/work-order-attachment.entity';
-import { PriceListEntryEntity } from './database/entities/price-list-entry.entity';
-import { HardwareStoreItemEntity } from './database/entities/hardware-store-item.entity';
-import { StockMovementEntity } from './database/entities/stock-movement.entity';
-import { StockAlertEntity } from './database/entities/stock-alert.entity';
-import { MaterialOrderEntity } from './database/entities/material-order.entity';
-import { MaterialOrderLineEntity } from './database/entities/material-order-line.entity';
-import { GoodsIssueEntity } from './database/entities/goods-issue.entity';
-import { GoodsIssueLineEntity } from './database/entities/goods-issue-line.entity';
-import { FinancialAccountEntity } from './database/entities/financial-account.entity';
-import { LedgerEntryEntity } from './database/entities/ledger-entry.entity';
-import { PaymentEntity } from './database/entities/payment.entity';
-import { InvoiceEntity } from './database/entities/invoice.entity';
-import { DeliveryEntity } from './database/entities/delivery.entity';
-import { CancellationRequestEntity } from './database/entities/cancellation-request.entity';
-import { ConflictQueueEntity } from './database/entities/conflict-queue.entity';
-import { GatePassEntity } from './database/entities/gate-pass.entity';
-import { GatePassItemEntity } from './database/entities/gate-pass-item.entity';
-import { PettyCashEntity } from './database/entities/petty-cash.entity';
-import { NotificationEntity } from './database/entities/notification.entity';
-import { AuditLogEntity } from './database/entities/audit-log.entity';
-import { LegacyImportEntity } from './database/entities/legacy-import.entity';
+import { ALL_ENTITIES } from './database/entities';
 
 // Migrations
-import { CreateUserAndUserRole1748700000000 } from './database/migrations/1748700000000-CreateUserAndUserRole';
-import { CreateUserSession1748700100000 } from './database/migrations/1748700100000-CreateUserSession';
-import { Phase2BFoundation1748800000000 } from './database/migrations/1748800000000-Phase2BFoundation';
+import { BaselineV61749000000000 } from './database/migrations/1749000000000-BaselineV6';
+import { GlobalScopeMainBranch1761100000000 } from './database/migrations/1761100000000-GlobalScopeMainBranch';
 
 // Feature modules
 import { AuthModule } from './modules/auth/auth.module';
@@ -70,47 +33,14 @@ import { PermissionsModule } from './modules/permissions/permissions.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { WorkersModule } from './modules/workers/workers.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { GatePassesModule } from './modules/gate-passes/gate-passes.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { ItemsModule } from './modules/items/items.module';
+import { AttachmentsModule } from './modules/attachments/attachments.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
+import { StockTransfersModule } from './modules/stock-transfers/stock-transfers.module';
+import { PriceListModule } from './modules/price-list/price-list.module';
 
-const ALL_ENTITIES = [
-  UserEntity,
-  UserRoleEntity,
-  UserSessionEntity,
-  BranchEntity,
-  BranchSectionEntity,
-  BranchConfigEntity,
-  PermissionEntity,
-  RolePermissionEntity,
-  WorkerEntity,
-  CustomerEntity,
-  JobCardEntity,
-  JobStatusLogEntity,
-  WorkOrderEntity,
-  WorkOrderWorkerEntity,
-  WorkOrderStatusNoteEntity,
-  WorkOrderInspectionEntity,
-  WorkOrderAttachmentEntity,
-  PriceListEntryEntity,
-  HardwareStoreItemEntity,
-  StockMovementEntity,
-  StockAlertEntity,
-  MaterialOrderEntity,
-  MaterialOrderLineEntity,
-  GoodsIssueEntity,
-  GoodsIssueLineEntity,
-  FinancialAccountEntity,
-  LedgerEntryEntity,
-  PaymentEntity,
-  InvoiceEntity,
-  DeliveryEntity,
-  CancellationRequestEntity,
-  ConflictQueueEntity,
-  GatePassEntity,
-  GatePassItemEntity,
-  PettyCashEntity,
-  NotificationEntity,
-  AuditLogEntity,
-  LegacyImportEntity,
-];
 
 @Module({
   imports: [
@@ -121,6 +51,8 @@ const ALL_ENTITIES = [
     }),
 
     EventEmitterModule.forRoot(),
+
+    ScheduleModule.forRoot(),
 
     CacheModule.register({ isGlobal: true, ttl: 300000 }),
 
@@ -145,9 +77,8 @@ const ALL_ENTITIES = [
         url: config.getOrThrow<string>('DATABASE_URL'),
         entities: ALL_ENTITIES,
         migrations: [
-          CreateUserAndUserRole1748700000000,
-          CreateUserSession1748700100000,
-          Phase2BFoundation1748800000000,
+          BaselineV61749000000000,
+          GlobalScopeMainBranch1761100000000,
         ],
         synchronize: false,
         ssl:
@@ -158,6 +89,7 @@ const ALL_ENTITIES = [
       inject: [ConfigService],
     }),
 
+    CoreModule,
     AuthModule,
     UsersModule,
     HealthModule,
@@ -167,11 +99,20 @@ const ALL_ENTITIES = [
     BranchesModule,
     WorkersModule,
     CustomersModule,
+    GatePassesModule,
+    OrdersModule,
+    ItemsModule,
+    AttachmentsModule,
+    InventoryModule,
+    StockTransfersModule,
+    PriceListModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: PasswordChangeGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useClass: FeatureGuard },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
   ],

@@ -17,6 +17,9 @@ A production-grade ERP system for a fabrication workshop. Built as a pnpm monore
 9. [Project Documentation](#project-documentation)
 10. [Useful Commands](#useful-commands)
 11. [Key Decisions](#key-decisions)
+12. [Technology Reference](#technology-reference)
+13. [Development Rules](#development-rules)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -26,7 +29,7 @@ A production-grade ERP system for a fabrication workshop. Built as a pnpm monore
 |---|---|
 | Monorepo | pnpm workspaces + Turborepo |
 | Backend | NestJS + TypeORM + PostgreSQL 16 |
-| Frontend | React 19 + Vite 6 + TanStack Query + TanStack Router + TailwindCSS |
+| Frontend | React 19 + Vite 8 + TanStack Query + TanStack Router + TailwindCSS |
 | Auth | JWT Bearer tokens only (no cookies) |
 | Real-time | SSE (Server-Sent Events, in-process) |
 | Background jobs | pg-boss (runs inside Postgres — no Redis) |
@@ -37,20 +40,23 @@ A production-grade ERP system for a fabrication workshop. Built as a pnpm monore
 
 ## Prerequisites
 
-Install these before anything else.
+Install these before anything else. Node and pnpm versions are **enforced** — `.npmrc` sets `engine-strict=true`, so `pnpm install` refuses to run on a mismatched version.
 
-| Tool | Version | Install |
-|---|---|---|
-| Node.js | 20 LTS or later | https://nodejs.org |
-| pnpm | 9 or later | `npm install -g pnpm` |
-| Docker Desktop | latest | https://www.docker.com/products/docker-desktop |
+| Tool | Version | Why it matters | Install |
+|---|---|---|---|
+| Node.js | **24.13.0** (pinned in `.nvmrc`; `engines` allows `>=24 <25`) | Mismatches break native module builds | https://nodejs.org/dist/v24.13.0/ |
+| pnpm | **9.12.0** (`packageManager` field) | Lockfile format is version-bound | `npm install -g pnpm@9.12.0` |
+| Docker Desktop | latest stable | Runs the PostgreSQL 16 container | https://www.docker.com/products/docker-desktop |
+
+> Using a Node version manager (nvm / fnm)? Run `nvm use` (or `fnm use`) inside the repo — the `.nvmrc` file selects `24.13.0` automatically.
 
 Confirm your setup:
 
 ```bash
-node -v
-pnpm -v
+node -v    # must be v24.x (v24.13.0 recommended)
+pnpm -v    # must be 9.12.0
 docker -v
+docker compose version   # must show v2.x.x
 ```
 
 ---
@@ -83,10 +89,10 @@ saniro-erp/
 ```bash
 git clone <repo-url>
 cd saniro-erp
-pnpm install
+pnpm install --frozen-lockfile
 ```
 
-This installs dependencies for all workspaces (`apps/api`, `apps/web`, `packages/shared`, `packages/offline-queue`) in one command.
+This installs dependencies for all workspaces (`apps/api`, `apps/web`, `packages/shared`, `packages/offline-queue`) in one command. `--frozen-lockfile` guarantees you get exactly the versions recorded in `pnpm-lock.yaml` and never mutates it — always use it on a fresh clone. If you ever run a bare `pnpm install` and it alters the lockfile, run `git checkout pnpm-lock.yaml` then reinstall with `--frozen-lockfile`.
 
 > **Docs:** See [Docs/monorepo-structure.md](Docs/monorepo-structure.md) for how workspaces, Turborepo, and the root scripts are wired together.
 
@@ -165,6 +171,13 @@ docker compose down -v
 
 ## Step 4 — Run Migrations and Seed
 
+`apps/api` imports enums/schemas/types from `@erp/shared`, a compiled workspace package. It must be built once before migrations (or anything else in `apps/api`) can resolve it — otherwise you'll hit `Cannot find module '@erp/shared'`.
+
+```bash
+# Build the shared package first (only needed once, or after pulling changes to packages/shared)
+pnpm --filter @erp/shared build
+```
+
 Run pending database migrations:
 
 ```bash
@@ -179,14 +192,18 @@ pnpm db:seed
 
 The seed is idempotent — you can run it multiple times without creating duplicates.
 
-**Test credentials are in [SEED_CREDENTIALS.md](SEED_CREDENTIALS.md).** Key accounts:
+Seeded branches: **Naiwala** (Roofing, ★ main branch), **Veyangoda** (Workshop), **Thangalla** (Roofing + Workshop).
 
 | Username | Password | Role |
 |---|---|---|
-| `superadmin` | `Super@123` | SUPER_ADMIN |
-| `manager1` | `Manager@123` | MANAGER |
-| `admin1` | `Admin@123` | ADMIN |
-| `cashier1` | `Cashier@123` | CASHIER |
+| `superadmin` | `Super@123` | SUPER_ADMIN (head office, all branches) |
+| `admin` | `Admin@123` | ADMIN (head office, all branches; view-only on branch work) |
+| `auditor1` | `Auditor@123` | AUDITOR (head office, read-only) |
+| `<role>_<branch>` | `Dev@1234` | One MANAGER, SUPERVISOR, CHIEF and CASHIER per branch, e.g. `manager_naiwala`, `supervisor_naiwala`, `cashier_thangalla` |
+
+Head office vs branch rules: `Docs/decisions/0002-global-scope-and-main-branch.md`.
+
+In dev, the login page has a **Quick login** box: pick a branch and a role and sign in.
 
 > **Note:** TypeORM `synchronize` is **disabled**. The database schema never auto-updates. Always generate and run an explicit migration when you change an entity.
 
@@ -291,3 +308,82 @@ These are load-bearing decisions that affect the whole codebase — understand t
 **Branch isolation.** Data from Branch A is invisible to Branch B unless the user is MANAGER or SUPER_ADMIN. This is enforced at the service layer, not just the controller.
 
 **Financial atomicity.** Payment recording and ledger writes happen in a single database transaction. Stock deductions are also atomic. Never write financial data outside a transaction.
+
+---
+
+## Technology Reference
+
+### Backend (`apps/api`)
+
+| Library | Version | Role |
+|---|---|---|
+| NestJS | ^11.0.1 | HTTP framework |
+| TypeORM | ^1.0.0 | ORM — migrations only |
+| PostgreSQL driver (`pg`) | ^8.21.0 | DB connection |
+| `@nestjs/jwt` | ^11.0.2 | JWT token generation |
+| `@nestjs/passport` + `passport-jwt` | ^11.0.5 / ^4.0.1 | Auth strategies |
+| `@nestjs/throttler` | ^6.5.0 | Rate limiting |
+| `@nestjs/config` | ^4.0.4 | Env config |
+| Zod | ^4.4.3 | Runtime validation at API boundary |
+| bcrypt | ^6.0.0 | Password hashing |
+| rxjs | ^7.8.1 | Observables / SSE |
+| TypeScript | ^5.7.3 | Language |
+| Jest | ^30.0.0 | Tests |
+
+### Frontend (`apps/web`)
+
+| Library | Version | Role |
+|---|---|---|
+| React | ^19.2.6 | UI framework |
+| Vite | ^8.0.12 | Dev server + bundler |
+| TanStack Query / Router / Table / Virtual | ^5 / ^1 / ^8 / ^3 | Data fetching, routing, tables, virtualization |
+| Zustand | ^5.0.14 | Client state |
+| React Hook Form + Zod | ^7.79.0 / ^4.4.3 | Forms + validation |
+| `@casl/ability` + `@casl/react` | ^7.0.0 | Client-side permissions |
+| TailwindCSS | ^4.3.1 | Styling |
+| axios | ^1.17.0 | HTTP client |
+| TypeScript | ~6.0.2 | Language |
+
+### Planned backend additions (not yet installed)
+
+Added as development progresses (see `plan.md §9.4`):
+
+| Library | Role |
+|---|---|
+| `@nestjs/event-emitter` | Audit log async events |
+| `@nestjs/schedule` | Cron jobs (stock alerts) |
+| `@nestjs/cache-manager` | In-memory permission + price list cache |
+| `pg-boss` | Postgres-backed background job queue |
+| `pino` | Structured JSON logging |
+| `puppeteer` | Server-side PDF generation |
+
+---
+
+## Development Rules
+
+The most critical rules — read the full list in `plan.md §14`.
+
+1. **No `synchronize: true`** in TypeORM — schema changes go through migrations only.
+2. **Never throw raw strings** — always use `ERR.*` from [apps/api/src/common/errors.ts](apps/api/src/common/errors.ts).
+3. **All money is stored as integers (cents)** — `4500` = LKR 45.00. Divide by 100 only in `format.ts`.
+4. **No Redis** — pg-boss runs in Postgres; caching is in-memory.
+5. **Branch scope is enforced server-side** — never trust `branchId` from a request body.
+6. **`common/` never imports from `modules/`.**
+7. **`LedgerService` is the only writer to `LEDGER_ENTRY`** — entries are append-only.
+8. **Offline payments are always blocked** — client-side and server-side.
+9. **Every mutating request must send the current `version`** — optimistic locking is mandatory.
+10. **No `console.log` in the API** — use Pino (once installed).
+
+---
+
+## Troubleshooting
+
+| Problem | Cause | Fix |
+|---|---|---|
+| `pnpm install` fails with engine error | Wrong Node or pnpm version | Match the pinned versions in [Prerequisites](#prerequisites) |
+| `pnpm install` alters `pnpm-lock.yaml` | Ran without `--frozen-lockfile` | `git checkout pnpm-lock.yaml` then `pnpm install --frozen-lockfile` |
+| DB connection refused | Docker not running or wrong port | Run `docker compose up -d`; use port **5433** |
+| Migration fails | DB not started or wrong `DATABASE_URL` | Check `.env` and that Docker is up |
+| `Cannot find module '@erp/shared'` | `packages/shared` was never built | Run `pnpm --filter @erp/shared build` (see [Step 4](#step-4--run-migrations-and-seed)) |
+| `nest start` fails on missing env vars | Zod rejects config at boot | Fill all required keys in `.env` (see [Step 2](#step-2--environment-variables)) |
+| Port 3000 or 5173 already in use | Another process running | `lsof -i :3000` (Mac/Linux) or Task Manager (Windows) to kill it |

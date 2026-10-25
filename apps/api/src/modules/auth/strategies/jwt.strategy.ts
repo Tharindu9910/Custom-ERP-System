@@ -12,6 +12,7 @@ interface JwtPayload {
   username: string;
   role: string;
   branch_id: string | null;
+  pwd_change?: boolean;
 }
 
 @Injectable()
@@ -39,6 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       username: payload.username,
       role: payload.role as RequestUser['role'],
       branch_id: payload.branch_id,
+      must_change_password: !!payload.pwd_change,
     };
   }
 }
