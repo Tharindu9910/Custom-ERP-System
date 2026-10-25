@@ -1,10 +1,11 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import type { EntityManager } from 'typeorm';
 import { MovementType, ReservationStatus, stockLevel, type StockOverride } from '@erp/shared';
 import { ERR, errWith } from '../common/errors';
 import type { Actor } from '../common/actor';
 import { BranchContextService } from './branch-context.service';
+import { RolePermissionsService } from './role-permissions.service';
 
 export interface StockDeduction {
   item_id: string;
@@ -60,7 +61,10 @@ const round3 = (n: number) => Math.round(n * 1000) / 1000;
  */
 @Injectable()
 export class StockService {
-  constructor(private readonly branches: BranchContextService) {}
+  constructor(
+    private readonly branches: BranchContextService,
+    private readonly rolePermissions: RolePermissionsService,
+  ) {}
 
   /**
    * Deducts several items all-or-nothing. A line's own reservation is consumed first;
@@ -105,7 +109,7 @@ export class StockService {
         shortages.push({ item_id: itemId, item_name: '', unit: '', required: round3(need + (held.get(itemId) ?? 0)), available: round3(free + (held.get(itemId) ?? 0)), reserved: round3((s?.reserved ?? 0) - (held.get(itemId) ?? 0)) });
       }
     }
-    if (shortages.length > 0) await this.authoriseShortages(em, branchId, shortages, opts.override);
+    if (shortages.length > 0) await this.authoriseShortages(em, branchId, shortages, opts.override, actor);
 
     // Deduct per line so each movement points at the line that used the stock
     const stock = new Map([...locked].map(([id, s]) => [id, { quantity: s.quantity, reserved: s.reserved }]));
@@ -172,7 +176,7 @@ export class StockService {
       const available = s ? round3(s.quantity - s.reserved) : 0;
       if (available < required) shortages.push({ item_id: itemId, item_name: '', unit: '', required, available, reserved: s?.reserved ?? 0 });
     }
-    if (shortages.length > 0) await this.authoriseShortages(em, branchId, shortages, opts.override);
+    if (shortages.length > 0) await this.authoriseShortages(em, branchId, shortages, opts.override, actor);
 
     const free = new Map([...locked].map(([id, s]) => [id, round3(s.quantity - s.reserved)]));
     const added = new Map<string, number>();
@@ -314,18 +318,25 @@ export class StockService {
     );
   }
 
-  /** Fills in names, then throws 409 unless a valid override covers the shortages. */
+  /**
+   * Fills in names, then throws 409 unless a valid override covers the shortages.
+   * Using an override needs override:stock (Role Permissions) as well as the branch password.
+   */
   private async authoriseShortages(
     em: EntityManager,
     branchId: string,
     shortages: StockShortage[],
     override: StockOverride | undefined,
+    actor: Pick<Actor, 'role'>,
   ): Promise<void> {
     await this.describe(em, shortages);
     const branch = await this.branches.get(branchId);
     const overrideAllowed = branch.settings.stock_override_enabled && branch.stock_override_configured;
     if (!override) {
       throw new ConflictException(errWith(ERR.STOCK_INSUFFICIENT, { shortages, override_allowed: overrideAllowed }));
+    }
+    if (!(await this.rolePermissions.has(actor.role, 'override:stock'))) {
+      throw new ForbiddenException(ERR.AUTH_INSUFFICIENT_PERMISSION);
     }
     if (!overrideAllowed) throw new BadRequestException(ERR.STOCK_OVERRIDE_DISABLED);
     await this.checkOverridePassword(em, branchId, override.password);

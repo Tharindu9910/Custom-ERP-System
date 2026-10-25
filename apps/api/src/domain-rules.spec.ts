@@ -42,7 +42,6 @@ import {
 // from the approved prototype so a change in a formula shows up here.
 
 const rate = (r: Partial<RateRow> & Pick<RateRow, 'line_type' | 'price_basis' | 'rate'>): RateRow => ({
-  branch_id: null,
   sub_type: null,
   variant: null,
   work_type: null,
@@ -51,18 +50,13 @@ const rate = (r: Partial<RateRow> & Pick<RateRow, 'line_type' | 'price_basis' | 
   ...r,
 });
 
-const BRANCH = '11111111-1111-1111-1111-111111111111';
-
 describe('findRate', () => {
   const rates = [
     rate({ line_type: LineType.ROOFING_SHEET, variant: 'Roofing', thickness_or_size: '0.47mm', price_basis: PriceBasis.PER_FT, rate: 47000 }),
-    rate({ branch_id: BRANCH, line_type: LineType.ROOFING_SHEET, variant: 'Roofing', thickness_or_size: '0.47mm', price_basis: PriceBasis.PER_FT, rate: 50000 }),
+    rate({ line_type: LineType.ROOFING_SHEET, variant: 'Roofing', thickness_or_size: '0.53mm', price_basis: PriceBasis.PER_FT, rate: 52000 }),
   ];
-  it('prefers the branch rate over the master rate', () => {
-    expect(findRate(rates, { line_type: LineType.ROOFING_SHEET, variant: 'Roofing', thickness_or_size: '0.47mm' })?.rate).toBe(50000);
-  });
-  it('falls back to the master rate', () => {
-    expect(findRate(rates.slice(0, 1), { line_type: LineType.ROOFING_SHEET, variant: 'Roofing', thickness_or_size: '0.47mm' })?.rate).toBe(47000);
+  it('finds the rate whose key fields all match', () => {
+    expect(findRate(rates, { line_type: LineType.ROOFING_SHEET, variant: 'Roofing', thickness_or_size: '0.53mm' })?.rate).toBe(52000);
   });
   it('returns null when nothing matches (unset key fields only match NULL)', () => {
     expect(findRate(rates, { line_type: LineType.ROOFING_SHEET, variant: 'Roofing' })).toBeNull();

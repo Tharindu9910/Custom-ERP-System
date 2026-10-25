@@ -144,6 +144,35 @@ export class TestApp {
     );
   }
 
+  /** Ticks or unticks one permission for a role on Role Permissions, as the Super Admin. */
+  async setGrant(role: string, action: string, granted: boolean): Promise<Res> {
+    const [perm] = await this.sql<{ permission_id: string }>(
+      `SELECT permission_id FROM permission WHERE action = $1`,
+      [action],
+    );
+    if (!perm) throw new Error(`no permission ${action}`);
+    return this.as('superadmin').patch('/permissions/roles', {
+      role,
+      updates: [{ permission_id: perm.permission_id, granted }],
+    });
+  }
+
+  /** Runs `fn` while `role` holds `action`, then restores what the role had. */
+  async withGrant<T>(role: string, action: string, fn: () => Promise<T>): Promise<T> {
+    const [had] = await this.sql<{ granted: boolean }>(
+      `SELECT rp.granted FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id
+       WHERE rp.role = $1 AND p.action = $2`,
+      [role, action],
+    );
+    const set = await this.setGrant(role, action, true);
+    if (set.status !== 200) throw new Error(`grant ${action} to ${role} → ${set.status} ${JSON.stringify(set.body)}`);
+    try {
+      return await fn();
+    } finally {
+      await this.setGrant(role, action, had?.granted ?? false);
+    }
+  }
+
   async sql<T = any>(query: string, params: unknown[] = []): Promise<T[]> {
     return this.db.query(query, params);
   }

@@ -1,4 +1,4 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { ItemType } from '@erp/shared';
 
 /**
@@ -46,4 +46,11 @@ export class ItemEntity {
 
   @Column({ default: true })
   is_active: boolean;
+
+  // Who last changed the price on the Price List page
+  @Column({ type: 'uuid', nullable: true })
+  updated_by: string | null;
+
+  @UpdateDateColumn()
+  updated_at: Date;
 }

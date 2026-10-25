@@ -52,6 +52,7 @@ export function useUpdateRolePermissions() {
     mutationFn: async (payload: UpdateRolePermissionsPayload) => {
       await apiClient.patch('/permissions/roles', payload);
     },
+    // Refetch before resolving so the page shows the saved grants, not a flash of the old ones
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.permissions.matrix() }),
   });
 }

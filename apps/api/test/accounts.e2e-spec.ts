@@ -41,6 +41,7 @@ describe('AUTH login', () => {
     expect(new Set(me.permissions)).toEqual(
       new Set([
         'create:job_card',
+        'view:job_cards',
         'update:job_card_status',
         'cancel:job_card_draft',
         'create:work_order',
@@ -51,6 +52,7 @@ describe('AUTH login', () => {
         'view:gate_pass',
         'create:gate_pass',
         'create:roofing_order',
+        'allocate:gate_pass_order',
         'view:orders',
         'update:order_status',
         'release:order',

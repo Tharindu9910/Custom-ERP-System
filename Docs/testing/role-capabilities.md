@@ -24,9 +24,9 @@ Browser runs use the installed Google Chrome. Set `E2E_CHANNEL=chromium` to use 
 | | SUPER_ADMIN (`superadmin`) | SUPERVISOR (`supervisor_<branch>`) |
 |---|---|---|
 | Branch | None (head office). Picks a branch in the top bar to view one. | Exactly one. Any `X-Branch-Id` header is ignored. |
-| Permissions | Passes every permission check. | 19 grants (`AUTH-03`). |
+| Permissions | Passes every permission check. | 21 grants by default (`AUTH-03`), all changeable on Role Permissions. |
 | Branch work | **View only.** The UI hides the buttons, and the server answers `403 CTX_003` to any write. | Own branch only (BR06). Other branches' records return 404. |
-| Settings | Branch Config, Users, Role Permissions. | None. |
+| Settings | Branch Config, Price List, Users, Role Permissions. | None. |
 
 Seeded branches:
 
@@ -108,6 +108,7 @@ The e2e suites leave their own test records behind. To get back to just the samp
 | Colour | Asked at roofing branches; not asked at a workshop-only branch, and the server drops it there | n/a | GP-04, GP-12, GP-13 |
 | Queue: search, status, date range, Reset or Clear; the available count matches the Available filter | ✅ | ✅ (read) | GP-05, GP-15, GP-16, GP-19, GP-20 |
 | Details, then Allocate to Job Card or to Order Form | ✅ (only what the branch runs) | ❌ (buttons hidden) | GP-14, GP-17, GP-19 |
+| Using a pass on a roofing order needs `allocate:gate_pass_order` (SUPERVISOR, CHIEF and CASHIER by default). Unticked, Allocate to Order Form is hidden, the order form shows no pass, and the API answers `AUTH_004`. An order that already uses a pass can still be saved with it. | ✅ | n/a | RO-08, GP-21 |
 | "Create New Gate Pass" from a form returns to that form with the pass linked | ✅ | n/a | GP-18, JC-33 |
 | Another branch's pass | 404 | n/a | GP-06 |
 
@@ -133,7 +134,7 @@ The e2e suites leave their own test records behind. To get back to just the samp
 | KPIs and tab counts equal their rows; search; date filter with Clear | ✅ | ✅ (read) | WQ-01, WQ-20, WQ-21 |
 | Unpaid card: no Start, with a "waiting for the advance" note (G9); a partial advance keeps it DRAFT | ✅ | n/a | WQ-02, WQ-09, WQ-22 |
 | Start deducts sheets; Complete records the supervisor as inspector (BR07) | ✅ | ❌ | WQ-03, WQ-23 |
-| Short stock: override dialog; a wrong password is refused (`STK_002`); the right one starts the work and stock stops at 0 | ✅ (Thangalla) | ❌ | WQ-05, WQ-24 |
+| Short stock: override dialog; a wrong password is refused (`STK_002`); the right one saves the card and stock stops at 0 at Start | Only once granted `override:stock` (MANAGER-only by default). Without it the dialog says the role can't override, and the API answers `AUTH_004` even with the right password. | ❌ | WQ-05, WQ-24, WQ-31 |
 | Branch without the override | Explains it is off; no override button (`STK_004`) | n/a | WQ-06, WQ-28 |
 | Void an unpaid DRAFT card (reason of 3+ characters; Keep backs out). A paid card cannot be voided. | ✅ | ❌ | JC-10, JC-11, WQ-25, WQ-26 |
 | BR21: a chief is blocked on a supervisor's card while the supervisor is active | Never blocked | n/a | WQ-07, WQ-29 |
@@ -160,7 +161,7 @@ The e2e suites leave their own test records behind. To get back to just the samp
 |---|---|---|---|
 | Tab counts equal their rows and add up; search; placed-on filter | ✅ | ✅ (read) | OQ-01, OQ-20, OQ-21 |
 | Start (deducts coil feet), then Complete (Ready) | ✅ | ❌ | OQ-02, OQ-05, OQ-22 |
-| Short coil: override | ✅ | ❌ | OQ-04, OQ-24 |
+| Short coil: override | Only once granted `override:stock` (`AUTH_004` otherwise) | ❌ | OQ-04, OQ-24 |
 | Release: locked while a balance is due (`ORD_006`) and not before Ready (`ORD_017`); needs "handed to"; the timeline is filled in | ✅ | ❌ | OQ-03, OQ-06, OQ-22, OQ-25 |
 | Collect payment, edit or cancel an order | ❌ (hidden; `AUTH_004`) | ❌ | OQ-06, OQ-07, OQ-22 |
 | Chief: BR21 message; no Release | n/a | n/a | OQ-07, OQ-08, OQ-26 |
@@ -209,14 +210,29 @@ The e2e suites leave their own test records behind. To get back to just the samp
 
 | Action | Tests |
 |---|---|
-| Branch list: search and type filter. Add a branch: a duplicate name is caught in the form, a duplicate code returns `BR_002`, ADMIN cannot add one. The new branch becomes a transfer target. | SA-10, SA-11, SA-BR-01 |
+| Branch list: search and type filter. Add a branch: a duplicate name is caught in the form, a duplicate code returns `BR_002`. Adding or changing a branch's details needs `manage:branches` (nobody by default, so ADMIN cannot add one until it is ticked). The new branch becomes a transfer target. | SA-10, SA-11, SA-BR-01, SA-PRM-04 |
 | Feature switches: unsaved changes, Discard, Save, Reset to defaults, the "leave without saving?" prompt. The supervisor's menu, URL and API follow at once. | SA-12, SA-13, NAV-20, SA-CFG-01, SA-CFG-02 |
 | Invalid settings are refused | SA-CFG-03 |
 | The override password set here is the one supervisors must enter | SA-15, SA-CFG-04 |
 | Move the main branch and back. The main branch cannot be unset (`BR_004`) or deactivated (`BR_005`). Deactivating another branch removes it from the targets. | SA-14, SA-16, SA-17, SA-BR-02 |
 | Users: list includes head office. The role list never offers SUPER ADMIN. Branch roles need a branch (`USR_004`); head-office roles must not have one (`USR_006`). Duplicate username (`USR_003`). Edit. Deactivate ends sessions and blocks login (`AUTH_005`); Activate restores it. Only a super admin grants SUPER_ADMIN. | SA-20…24, SA-USR-01…05 |
-| Role Permissions: every role but SUPER_ADMIN. Revoking `view:inventory` from SUPERVISOR removes it from the menu and the API at once; granting it back restores it. | SA-30, SA-31, SA-PRM-01, SA-PRM-02 |
+| Role Permissions: every role but SUPER_ADMIN. Revoking `view:inventory` from SUPERVISOR removes it from the menu and the API at once (open screens refresh over the live stream); granting it back restores it. | SA-30, SA-31, SA-PRM-01, SA-PRM-02 |
+| Role Permissions refuses grants that would do nothing or escalate: the SUPER_ADMIN role (`VAL_001`), `configure:permissions` (`PRM_002`), branch writes for ADMIN/AUDITOR (`PRM_003`), unknown ids (`PRM_001`). Those cells are disabled on the page. Rows for screens not built yet are tagged "Not used yet". | SA-PRM-03 |
+| `view:job_cards` opens the Workshop Queue for every role that has it, head office included | SA-PRM-05, NAV-21 |
+| Every save is audited (`UPDATE_ROLE_PERMISSIONS`, with what was granted and revoked). Re-running the seed keeps changes made on the page. | SA-PRM-06 |
 | Cashier Queue, Workers and Customers are readable, with no Record payment, Add or Edit | SA-40…42, SA-VIEW-02, ACC-11 |
+
+## Price List (PL)
+
+One price list for every branch ([0004](../decisions/0004-global-price-list.md)). Settings → Price List has two tabs: **Work rates** (`price_rate`) and **Item prices** (`item.price` / `unit_cost`).
+
+| Action | Tests |
+|---|---|
+| `view:price_list` opens the page (ADMIN, AUDITOR, MANAGER by default, plus SUPER_ADMIN). Supervisor, chief and cashier get `403 AUTH_004`, and the menu item and URL are hidden from them. | PL-ACC-01, PL-ACC-02, NAV-01, NAV-02, NAV-10 |
+| `configure:price_list` edits work rates; `configure:item_prices` edits item prices (ADMIN and MANAGER by default). The auditor only views. It is a global setting, so ADMIN can edit despite the head-office view-only rule. | PL-ACC-03…05, PL-03 |
+| A changed rate prices new quotes at **every** branch. Saved orders keep the price they were saved with. | PL-RATE-01, PL-01 |
+| A second active rate with the same key is refused (`PRC_003`). Deactivating a rate makes that job customized (priced by hand) again. Inactive rates stay listed. | PL-RATE-02, PL-RATE-03 |
+| Every change is audited (`price_rate` / `item_price`, old and new values). | PL-RATE-04 |
 
 ## Gaps found while mapping, and what was done
 
@@ -233,8 +249,9 @@ The e2e suites leave their own test records behind. To get back to just the samp
 | G9 | An unpaid job card offered Start, which then failed | Start hidden until the advance is paid, with a note | WQ-22 |
 | G10 | Adding a second user with no email from Users failed with "An unexpected error occurred" (the blank email was saved as `''` and hit the unique index) | Blank email and phone are saved as "not given"; a taken email returns `USR_005` | SA-22, SA-USR-06 |
 | G11 | Several stock movements in one transaction shared a timestamp, so "latest movement" and the Recent movements order were arbitrary | Each movement records its real time (`clock_timestamp()`) | LEDGER-01, `pnpm check:numbers` |
+| G12 | ADMIN and AUDITOR saw Workshop Queue and Stock Request in the menu, but the route and the API refused them | New `view:job_cards` opens the Workshop Queue; the Stock Request route accepts `view:inventory` for head office, as the menu does | SA-PRM-05, NAV-21 |
+| G13 | Several permissions on Role Permissions changed nothing: `override:stock` was never checked, branch create/edit was hard-coded to SUPER_ADMIN, chiefs were hard-coded out of allocating a gate pass to an order, `POST /customers` checked `create:job_card` although the Customers page uses `complete:customer_profile`, and re-seeding re-granted anything revoked | Each is now enforced by its permission; the seed only adds missing grants. Permissions with no screen yet are tagged "Not used yet". | WQ-05, OQ-04, SA-PRM-03…06, ACC-30, RO-08, GP-21 |
 
 Found but not fixed (outside these two roles):
-- ADMIN and AUDITOR see Workshop Queue and Stock Request in the menu, but the route and the API refuse them.
 - `useOfflineSync` posts to `/offline-sync/flush`, which doesn't exist (offline work is deferred).
 - After a job card with no advance due is created, the success message still says it was "sent to the Cashier Queue".

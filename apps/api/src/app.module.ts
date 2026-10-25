@@ -39,6 +39,7 @@ import { ItemsModule } from './modules/items/items.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { StockTransfersModule } from './modules/stock-transfers/stock-transfers.module';
+import { PriceListModule } from './modules/price-list/price-list.module';
 
 
 @Module({
@@ -104,6 +105,7 @@ import { StockTransfersModule } from './modules/stock-transfers/stock-transfers.
     AttachmentsModule,
     InventoryModule,
     StockTransfersModule,
+    PriceListModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

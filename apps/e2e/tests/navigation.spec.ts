@@ -7,7 +7,7 @@ import { menuLabels, navLink, pickBranch, scopeSelect, sidebar } from '../suppor
 const ROOFING = ['Create Order', 'Order Queue'];
 const WORKSHOP = ['Create Job Card', 'Workshop Queue'];
 const COMMON = ['Gate Pass', 'Inventory', 'Stock Alerts', 'Stock Request', 'Create Chief Profile'];
-const NEVER_FOR_SUPERVISOR = ['Dashboard', 'Cashier Queue', 'Customers', 'Finance', 'Audit Log', 'Branch Config', 'Users', 'Workers', 'Role Permissions'];
+const NEVER_FOR_SUPERVISOR = ['Dashboard', 'Cashier Queue', 'Customers', 'Finance', 'Audit Log', 'Branch Config', 'Price List', 'Users', 'Workers', 'Role Permissions'];
 
 for (const [branch, has, hasNot] of [
   ['thangalla', [...ROOFING, ...WORKSHOP], []],
@@ -29,7 +29,7 @@ for (const [branch, has, hasNot] of [
 }
 
 test.describe('supervisor URL guards', () => {
-  for (const url of ['/cashier-queue', '/customers', '/workers', '/settings/branch-config', '/settings/users', '/settings/workers', '/settings/permissions']) {
+  for (const url of ['/cashier-queue', '/customers', '/workers', '/settings/branch-config', '/settings/price-list', '/settings/users', '/settings/workers', '/settings/permissions']) {
     test(`NAV-02 ${url} redirects a supervisor away`, async ({ page }) => {
       await page.goto(url);
       await expect(page).toHaveURL(/\/gate-pass$/);
@@ -71,7 +71,7 @@ test.describe('super admin', () => {
   test('NAV-10 menu: branch screens to view, settings, and the Super Admin section', async ({ page }) => {
     await page.goto('/');
     const labels = await menuLabels(page);
-    for (const l of ['Dashboard', 'Cashier Queue', 'Gate Pass', 'Order Queue', 'Workshop Queue', 'Inventory', 'Stock Alerts', 'Stock Request', 'Customers', 'Finance', 'Audit Log', 'Branch Config', 'Users', 'Workers', 'Role Permissions']) {
+    for (const l of ['Dashboard', 'Cashier Queue', 'Gate Pass', 'Order Queue', 'Workshop Queue', 'Inventory', 'Stock Alerts', 'Stock Request', 'Customers', 'Finance', 'Audit Log', 'Branch Config', 'Price List', 'Users', 'Workers', 'Role Permissions']) {
       expect(labels).toContain(l);
     }
     // Create forms are branch work
@@ -167,3 +167,20 @@ test.describe('feature switches (Branch Config → supervisor menu)', () => {
     });
   }
 });
+
+for (const user of ['admin', 'auditor1']) {
+  test.describe(`head office (${user})`, () => {
+    test.use({ user });
+
+    test(`NAV-21 ${user}: Workshop Queue and Stock Request open from the menu instead of bouncing back`, async ({ page }) => {
+      await page.goto('/inventory');
+      const labels = await menuLabels(page);
+      expect(labels).toContain('Workshop Queue');
+      expect(labels).toContain('Stock Request');
+      for (const path of ['/workshop-queue', '/stock-requests']) {
+        await page.goto(path);
+        await expect(page).toHaveURL(new RegExp(`${path}`));
+      }
+    });
+  });
+}

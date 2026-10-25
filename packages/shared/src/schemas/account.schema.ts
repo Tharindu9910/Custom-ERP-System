@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Role } from '../enums/role.enum';
 
 export const CreateChiefSchema = z.object({
   employee_id: z.string().uuid({ message: 'Select an employee' }),
@@ -26,3 +27,9 @@ export const ChangePasswordSchema = z
     path: ['new_password'],
   });
 export type ChangePasswordDto = z.infer<typeof ChangePasswordSchema>;
+
+export const UpdateRolePermissionsSchema = z.object({
+  role: z.nativeEnum(Role).refine((r) => r !== Role.SUPER_ADMIN, 'SUPER_ADMIN always has every permission'),
+  updates: z.array(z.object({ permission_id: z.string().uuid(), granted: z.boolean() })).min(1),
+});
+export type UpdateRolePermissionsDto = z.infer<typeof UpdateRolePermissionsSchema>;

@@ -42,7 +42,7 @@ export const MAIN_NAV: NavItem[] = [
   { label: 'Create Order', to: '/orders/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'roofing_order' }, section: 'roofing' },
   { label: 'Order Queue', to: '/order-queue', icon: 'listOrdered', scope: 'branch', permission: { action: 'view', subject: 'orders' }, section: 'roofing' },
   { label: 'Create Job Card', to: '/job-cards/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'job_card' }, section: 'workshop' },
-  { label: 'Workshop Queue', to: '/workshop-queue', icon: 'clipboardList', scope: 'branch', permission: { action: 'update', subject: 'job_card_status' }, globalPermission: { action: 'view', subject: 'orders' }, section: 'workshop' },
+  { label: 'Workshop Queue', to: '/workshop-queue', icon: 'clipboardList', scope: 'branch', permission: { action: 'view', subject: 'job_cards' }, section: 'workshop' },
   { label: 'Inventory', to: '/inventory', icon: 'package', scope: 'network', permission: { action: 'view', subject: 'inventory' }, feature: 'inventory' },
   { label: 'Stock Alerts', to: '/stock-alerts', icon: 'packageOpen', scope: 'network', permission: { action: 'view', subject: 'stock_alerts' }, feature: 'stockAlerts' },
   { label: 'Stock Request', to: '/stock-requests', icon: 'arrowRightLeft', scope: 'network', permission: { action: 'request', subject: 'stock' }, globalPermission: { action: 'view', subject: 'inventory' }, feature: 'stockRequest' },
@@ -54,6 +54,7 @@ export const MAIN_NAV: NavItem[] = [
 
 export const SETTINGS_NAV: NavItem[] = [
   { label: 'Branch Config', to: '/settings/branch-config', icon: 'settings', scope: 'global', permission: { action: 'configure', subject: 'branch' } },
+  { label: 'Price List', to: '/settings/price-list', icon: 'banknote', scope: 'global', permission: { action: 'view', subject: 'price_list' } },
   { label: 'Users', to: '/settings/users', icon: 'users', scope: 'global', permission: { action: 'manage', subject: 'users' } },
   { label: 'Workers', to: '/settings/workers', icon: 'userCircle', scope: 'branch', permission: { action: 'manage', subject: 'workers' } },
 ];

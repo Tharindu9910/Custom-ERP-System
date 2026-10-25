@@ -26,7 +26,7 @@ export class CustomersController {
 
   // @BranchId() refuses global roles (view-only, Docs/decisions/0002)
   @Post()
-  @RequirePermissions('create:job_card')
+  @RequirePermissions('complete:customer_profile')
   createCustomer(@Body() dto: CreateCustomerDto, @BranchId() branchId: string | null, @CurrentUser() actor: RequestUser) {
     return this.customersService.createCustomer(dto, branchId, actor.user_id);
   }

@@ -14,14 +14,13 @@ export interface PricingData {
 
 const key = (m: string, t: string) => `${m.trim().toLowerCase()}|${t.trim().toLowerCase()}`;
 
-/** Loads the branch's rates (branch + master) and catalogue prices for the shared pricing functions. */
+/** Loads the price list (one for every branch, Docs/decisions/0004) and catalogue prices for the shared pricing functions. */
 @Injectable()
 export class PricingService {
-  async load(em: EntityManager, branchId: string): Promise<PricingData> {
+  async load(em: EntityManager): Promise<PricingData> {
     const rates: RateRow[] = await em.query(
-      `SELECT branch_id, line_type, sub_type, variant, work_type, thickness_or_size, material_source, price_basis, rate
-       FROM price_rate WHERE is_active = true AND (branch_id = $1 OR branch_id IS NULL)`,
-      [branchId],
+      `SELECT line_type, sub_type, variant, work_type, thickness_or_size, material_source, price_basis, rate
+       FROM price_rate WHERE is_active = true`,
     );
     const items: { item_id: string; item_type: string; price: number; attributes: Record<string, string> }[] = await em.query(
       `SELECT item_id, item_type, price, attributes FROM item WHERE is_active = true AND item_type IN ('MATERIAL', 'COIL')`,

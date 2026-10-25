@@ -9,7 +9,8 @@ export class AuditService {
   constructor(private readonly events: EventEmitter2) {}
 
   record(
-    actor: Pick<Actor, 'user_id' | 'role' | 'branch_id'>,
+    // branch_id null: a head-office change that belongs to no branch (e.g. role permissions)
+    actor: Pick<Actor, 'user_id' | 'role'> & { branch_id: string | null },
     entity: { type: string; id?: string; version?: number },
     action: string,
     change: { before?: Record<string, unknown>; after?: Record<string, unknown> } = {},
@@ -22,7 +23,7 @@ export class AuditService {
         actor.user_id,
         actor.role,
         entity.id,
-        actor.branch_id,
+        actor.branch_id ?? undefined,
         change.before,
         change.after,
         entity.version,

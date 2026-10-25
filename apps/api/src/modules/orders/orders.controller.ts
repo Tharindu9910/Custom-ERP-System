@@ -94,7 +94,7 @@ export class OrdersController {
   }
 
   @Get('workshop-queue')
-  @RequirePermissions('update:job_card_status')
+  @RequirePermissions('view:job_cards')
   @RequireFeature({ section: 'workshop' })
   workshopQueue(@Query(new ZodPipe(WorkshopQueueQuerySchema)) q: WorkshopQueueQuery, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.queries.workshopQueue(q, toActor(u, b).branch_id);

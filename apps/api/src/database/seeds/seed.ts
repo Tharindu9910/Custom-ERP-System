@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import * as bcrypt from 'bcrypt';
 import { DataSource } from 'typeorm';
-import { BranchSettingsSchema, SYSTEM_ACCOUNTS } from '@erp/shared';
+import { BranchSettingsSchema, PERMISSION_CATALOG, SYSTEM_ACCOUNTS } from '@erp/shared';
 import { ALL_ITEMS, MASTER_RATES, openingStock } from './catalog';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../../../.env') });
@@ -29,144 +29,17 @@ const BRANCH_USER_PASSWORD = 'Dev@1234';
 const BRANCH_ROLES = ['MANAGER', 'SUPERVISOR', 'CHIEF', 'CASHIER'] as const;
 
 // ── Permissions ────────────────────────────────────────────────────────────
-const ALL_PERMISSIONS = [
-  {
-    action: 'create:job_card',
-    module: 'job-cards',
-    description: 'Create a new job card',
-  },
-  {
-    action: 'update:job_card_status',
-    module: 'job-cards',
-    description: 'Advance or revert job card status',
-  },
-  {
-    action: 'cancel:job_card_draft',
-    module: 'job-cards',
-    description: 'Cancel a DRAFT job card',
-  },
-  {
-    action: 'cancel:job_card_any',
-    module: 'job-cards',
-    description: 'Cancel a job card in any status',
-  },
-  {
-    action: 'create:work_order',
-    module: 'work-orders',
-    description: 'Add a work order to a job card',
-  },
-  {
-    action: 'complete:work_order',
-    module: 'work-orders',
-    description: 'Mark a work order as completed',
-  },
-  {
-    action: 'assign:worker',
-    module: 'work-orders',
-    description: 'Assign workers to a work order',
-  },
-  {
-    action: 'enter_price:customized',
-    module: 'work-orders',
-    description: 'Enter customised price on work order',
-  },
-  {
-    action: 'enter_price:standard',
-    module: 'work-orders',
-    description: 'Enter standard price on work order',
-  },
-  {
-    action: 'verify_price:standard',
-    module: 'work-orders',
-    description: 'Verify standard price (Cashier)',
-  },
-  {
-    action: 'process:payment',
-    module: 'payments',
-    description: 'Record a payment',
-  },
-  {
-    action: 'generate:invoice',
-    module: 'invoices',
-    description: 'Generate invoice for a job card',
-  },
-  {
-    action: 'complete:customer_profile',
-    module: 'customers',
-    description: 'Complete customer profile (Cashier)',
-  },
-  {
-    action: 'manage:workers',
-    module: 'workers',
-    description: 'Create, edit and deactivate workers',
-  },
-  {
-    action: 'configure:price_list',
-    module: 'price-list',
-    description: 'Manage price list entries',
-  },
-  {
-    action: 'configure:branch',
-    module: 'branches',
-    description: 'Update branch settings and config',
-  },
-  {
-    action: 'override:stock',
-    module: 'inventory',
-    description: 'Override stock check with password',
-  },
-  {
-    action: 'view:audit_log',
-    module: 'audit-logs',
-    description: 'View the audit log',
-  },
-  {
-    action: 'view:financial_report',
-    module: 'ledger',
-    description: 'View financial reports',
-  },
-  {
-    action: 'view:all_branches',
-    module: 'branches',
-    description: 'View data across all branches',
-  },
-  {
-    action: 'resolve:conflict_queue',
-    module: 'offline-sync',
-    description: 'Resolve offline sync conflicts',
-  },
-  {
-    action: 'configure:permissions',
-    module: 'permissions',
-    description: 'Manage role permissions (Super Admin)',
-  },
-  {
-    action: 'manage:users',
-    module: 'users',
-    description: 'Create and manage system users',
-  },
-  // Supervisor dashboard (Docs/decisions/0001)
-  { action: 'view:gate_pass', module: 'gate-passes', description: 'View gate passes and material balances' },
-  { action: 'create:gate_pass', module: 'gate-passes', description: 'Record customer material coming in' },
-  { action: 'create:roofing_order', module: 'orders', description: 'Place roofing orders (with the placement payment)' },
-  { action: 'view:orders', module: 'orders', description: 'View the order queue' },
-  { action: 'update:order_status', module: 'orders', description: 'Start and complete roofing orders' },
-  { action: 'release:order', module: 'orders', description: 'Release a ready, fully paid order to the customer' },
-  { action: 'edit:order', module: 'orders', description: 'Edit a placed roofing order before work starts' },
-  { action: 'cancel:order', module: 'orders', description: 'Cancel a placed roofing order' },
-  { action: 'view:inventory', module: 'inventory', description: 'View branch stock levels' },
-  { action: 'view:stock_alerts', module: 'inventory', description: 'View low and out-of-stock alerts' },
-  { action: 'request:stock', module: 'stock-transfers', description: 'Request stock from another branch and receive it' },
-  { action: 'send:stock', module: 'stock-transfers', description: 'Send or reject stock requested by another branch' },
-  { action: 'create:chief_profile', module: 'users', description: 'Create chief logins for branch employees' },
-];
+// The list itself is PERMISSION_CATALOG in @erp/shared (also read by the Role Permissions page)
 
-// Default role → permission grants from plan §7
+// Default role → permission grants from plan §7. These are only defaults:
+// rows that already exist are left alone so Role Permissions changes survive a reseed.
 // SUPER_ADMIN bypasses guard in code — never seeded here
 // Global roles (ADMIN, AUDITOR) only view branch work; the branch MANAGER runs it (Docs/decisions/0002)
 const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
   ADMIN: [
+    'view:price_list',
     'configure:price_list',
+    'configure:item_prices',
     'configure:branch',
     'manage:users',
     'view:audit_log',
@@ -174,12 +47,14 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'view:inventory',
     'view:stock_alerts',
     'view:orders',
+    'view:job_cards',
   ],
-  AUDITOR: ['view:audit_log', 'view:financial_report', 'view:inventory', 'view:stock_alerts', 'view:orders'],
+  AUDITOR: ['view:price_list', 'view:audit_log', 'view:financial_report', 'view:inventory', 'view:stock_alerts', 'view:orders', 'view:job_cards'],
   // process:payment = cashier-queue payments; the roofing placement payment is
   // part of create:roofing_order (Docs/decisions/0001)
   SUPERVISOR: [
     'create:job_card',
+    'view:job_cards',
     'update:job_card_status',
     'cancel:job_card_draft',
     'create:work_order',
@@ -190,6 +65,7 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'view:gate_pass',
     'create:gate_pass',
     'create:roofing_order',
+    'allocate:gate_pass_order',
     'view:orders',
     'update:order_status',
     'release:order',
@@ -201,6 +77,7 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
   ],
   CHIEF: [
     'create:job_card',
+    'view:job_cards',
     'update:job_card_status',
     'cancel:job_card_draft',
     'create:work_order',
@@ -211,6 +88,7 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'view:gate_pass',
     'create:gate_pass',
     'create:roofing_order',
+    'allocate:gate_pass_order',
     'view:orders',
     'update:order_status',
     'view:inventory',
@@ -221,11 +99,17 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'generate:invoice',
     'complete:customer_profile',
     'create:roofing_order',
+    'allocate:gate_pass_order',
     'view:orders',
     'edit:order',
     'cancel:order',
   ],
   MANAGER: [
+    // The price list is one for every branch (Docs/decisions/0004); managers keep it
+    'view:price_list',
+    'configure:price_list',
+    'configure:item_prices',
+    'view:job_cards',
     'update:job_card_status',
     'cancel:job_card_draft',
     'cancel:job_card_any',
@@ -369,15 +253,15 @@ async function upsertBranch(b: (typeof BRANCHES)[0]) {
 }
 
 async function upsertPermissions() {
-  for (const p of ALL_PERMISSIONS) {
+  for (const p of PERMISSION_CATALOG) {
     await ds.query(
       `INSERT INTO permission (action, module, description, is_system)
        VALUES ($1, $2, $3, true)
-       ON CONFLICT (action) DO NOTHING`,
+       ON CONFLICT (action) DO UPDATE SET module = EXCLUDED.module, description = EXCLUDED.description`,
       [p.action, p.module, p.description],
     );
   }
-  console.log(`   seeded ${ALL_PERMISSIONS.length} permissions`);
+  console.log(`   seeded ${PERMISSION_CATALOG.length} permissions`);
 }
 
 async function upsertRolePermissions(superAdminId: string) {
@@ -395,7 +279,7 @@ async function upsertRolePermissions(superAdminId: string) {
       await ds.query(
         `INSERT INTO role_permission (role, permission_id, granted, set_by)
          VALUES ($1::role_enum, $2, true, $3)
-         ON CONFLICT (role, permission_id) DO UPDATE SET granted = true`,
+         ON CONFLICT (role, permission_id) DO NOTHING`,
         [role, perm.permission_id, superAdminId],
       );
     }
@@ -490,19 +374,20 @@ async function upsertAccounts() {
 }
 
 async function upsertRates(createdBy: string) {
-  const [{ count }] = await ds.query<[{ count: string }]>(`SELECT count(*) FROM price_rate WHERE branch_id IS NULL`);
+  // Rates edited on the Price List page survive a reseed
+  const [{ count }] = await ds.query<[{ count: string }]>(`SELECT count(*) FROM price_rate`);
   if (Number(count) > 0) {
-    console.log(`   skip  master rates (already exist)`);
+    console.log(`   skip  price rates (already exist)`);
     return;
   }
   for (const r of MASTER_RATES) {
     await ds.query(
-      `INSERT INTO price_rate (branch_id, line_type, sub_type, variant, work_type, thickness_or_size, material_source, price_basis, rate, created_by)
-       VALUES (NULL, $1::line_type_enum, $2::line_sub_type_enum, $3, $4, $5, $6::material_source_enum, $7::price_basis_enum, $8, $9)`,
+      `INSERT INTO price_rate (line_type, sub_type, variant, work_type, thickness_or_size, material_source, price_basis, rate, created_by)
+       VALUES ($1::line_type_enum, $2::line_sub_type_enum, $3, $4, $5, $6::material_source_enum, $7::price_basis_enum, $8, $9)`,
       [r.line_type, r.sub_type ?? null, r.variant ?? null, r.work_type ?? null, r.thickness_or_size ?? null, r.material_source ?? 'BRANCH', r.price_basis, r.rate, createdBy],
     );
   }
-  console.log(`   seeded ${MASTER_RATES.length} master price rates`);
+  console.log(`   seeded ${MASTER_RATES.length} price rates`);
 }
 
 async function upsertItems() {

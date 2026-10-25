@@ -30,7 +30,7 @@ export class EventsController {
 
     const changes = fromEvent(this.emitter, BRANCH_CHANGED).pipe(
       map((e) => e as BranchChangedEvent),
-      filter((e) => t.branch_id === null || e.branch_id === t.branch_id),
+      filter((e) => t.branch_id === null || e.branch_id === null || e.branch_id === t.branch_id),
       map((e): MessageEvent => ({ type: 'changed', data: e })),
     );
     // Keeps proxies from closing an idle stream

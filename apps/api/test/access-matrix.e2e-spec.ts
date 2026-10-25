@@ -503,3 +503,15 @@ describe('ACC-SUP supervisor permissions', () => {
     ).toBe(403);
   });
 });
+
+describe('ACC-PRM menu, route and API agree', () => {
+  it('ACC-30 a cashier can add a customer from Customers (complete:customer_profile)', async () => {
+    const r = await t.as(CASHIER.thangalla).post('/customers', { name: 'Cashier Added', phone: newPhone() });
+    expect(r.status).toBe(201);
+  });
+
+  it('ACC-31 head office reads the network stock requests it sees in the menu (view:inventory)', async () => {
+    expect((await t.as('admin').get('/network/stock-transfers')).status).toBe(200);
+    expect((await t.as('auditor1').get('/network/stock-transfers')).status).toBe(200);
+  });
+});

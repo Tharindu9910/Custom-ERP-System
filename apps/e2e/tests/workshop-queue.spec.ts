@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { CUSTOM_LINE, OVERRIDE_PASSWORD, ROLLING_LINE, SA, SUP, call, jobCard, material, newPhone, payAdvance, reserved, sql, stock } from '../support/api';
+import { CUSTOM_LINE, OVERRIDE_PASSWORD, ROLLING_LINE, SA, SUP, call, jobCard, material, newPhone, payAdvance, reserved, sql, stock, withGrant } from '../support/api';
 import { expect, test } from '../support/fixtures';
 import { dialog, field, row } from '../support/ui';
 
@@ -79,34 +79,47 @@ test.describe('supervisor', () => {
   });
 
   test('WQ-24 not enough stock on Submit Job Card: wrong override password is refused, the right one saves; Start then asks nothing', async ({ page }) => {
+    // override:stock is MANAGER-only by default; the Super Admin lets supervisors use it here
+    await withGrant('SUPERVISOR', 'override:stock', async () => {
+      const m = await material('thangalla', 1);
+      const held = await reserved('thangalla', m.sku);
+      const name = await fillShortCard(page, m, m.quantity + 4);
+      await page.getByRole('button', { name: 'Submit Job Card' }).click();
+      const ov = page.getByRole('dialog').filter({ hasText: 'Not enough stock' });
+      await expect(ov).toBeVisible();
+      await expect(ov.locator('tbody tr')).toContainText(String(m.quantity + 4));
+      const go = ov.getByRole('button', { name: 'Override and save' });
+      await expect(go).toBeDisabled();
+      await ov.locator('input[type="password"]').fill('wrong-one');
+      await ov.getByPlaceholder('e.g. Sheets received today, not yet entered').fill('Customer waiting');
+      await go.click();
+      await expect(ov.getByText('The stock override password is incorrect')).toBeVisible();
+      await ov.locator('input[type="password"]').fill(OVERRIDE_PASSWORD);
+      await go.click();
+      await expect(ov).toHaveCount(0);
+      await expect(page.getByText(/Job card JC-\d+ created/)).toBeVisible();
+      // Only what was free is held; the shortfall is authorised, not held
+      expect(await reserved('thangalla', m.sku)).toBe(held + m.quantity);
+
+      const [card] = await sql(`SELECT o.order_id, o.order_number FROM "order" o JOIN customer c ON c.customer_id = o.customer_id WHERE c.name = $1`, [name]);
+      await payAdvance(card);
+      await openCard(page, card.order_number, 'In Queue');
+      await dialog(page).getByRole('button', { name: 'Start' }).first().click();
+      await expect(dialog(page).getByRole('button', { name: 'Complete' })).toBeVisible();
+      await expect(page.getByRole('dialog').filter({ hasText: 'Not enough stock' })).toHaveCount(0);
+      // All free sheets are used; other open orders' holds stay on the shelf
+      expect(await stock('thangalla', m.sku)).toBe(held);
+    });
+  });
+
+  test('WQ-31 without override:stock the dialog explains and offers no override, even where the branch allows it', async ({ page }) => {
     const m = await material('thangalla', 1);
-    const held = await reserved('thangalla', m.sku);
-    const name = await fillShortCard(page, m, m.quantity + 4);
+    await fillShortCard(page, m, m.quantity + 4);
     await page.getByRole('button', { name: 'Submit Job Card' }).click();
     const ov = page.getByRole('dialog').filter({ hasText: 'Not enough stock' });
-    await expect(ov).toBeVisible();
-    await expect(ov.locator('tbody tr')).toContainText(String(m.quantity + 4));
-    const go = ov.getByRole('button', { name: 'Override and save' });
-    await expect(go).toBeDisabled();
-    await ov.locator('input[type="password"]').fill('wrong-one');
-    await ov.getByPlaceholder('e.g. Sheets received today, not yet entered').fill('Customer waiting');
-    await go.click();
-    await expect(ov.getByText('The stock override password is incorrect')).toBeVisible();
-    await ov.locator('input[type="password"]').fill(OVERRIDE_PASSWORD);
-    await go.click();
-    await expect(ov).toHaveCount(0);
-    await expect(page.getByText(/Job card JC-\d+ created/)).toBeVisible();
-    // Only what was free is held; the shortfall is authorised, not held
-    expect(await reserved('thangalla', m.sku)).toBe(held + m.quantity);
-
-    const [card] = await sql(`SELECT o.order_id, o.order_number FROM "order" o JOIN customer c ON c.customer_id = o.customer_id WHERE c.name = $1`, [name]);
-    await payAdvance(card);
-    await openCard(page, card.order_number, 'In Queue');
-    await dialog(page).getByRole('button', { name: 'Start' }).first().click();
-    await expect(dialog(page).getByRole('button', { name: 'Complete' })).toBeVisible();
-    await expect(page.getByRole('dialog').filter({ hasText: 'Not enough stock' })).toHaveCount(0);
-    // All free sheets are used; other open orders' holds stay on the shelf
-    expect(await stock('thangalla', m.sku)).toBe(held);
+    await expect(ov.getByText("Your role can't override stock.")).toBeVisible();
+    await expect(ov.getByRole('button', { name: 'Override and save' })).toHaveCount(0);
+    await expect(ov.locator('input[type="password"]')).toHaveCount(0);
   });
 
   test('WQ-25 void an unpaid card: reason of 3+ characters, then it leaves the queue', async ({ page }) => {

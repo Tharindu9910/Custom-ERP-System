@@ -16,6 +16,7 @@ import {
 import { AppModule } from '../../app.module';
 import type { Actor } from '../../common/actor';
 import { BranchContextService } from '../../core/branch-context.service';
+import { RolePermissionsService } from '../../core/role-permissions.service';
 import { AttachmentsService } from '../../modules/attachments/attachments.service';
 import { ItemsService } from '../../modules/items/items.service';
 import { GatePassesService } from '../../modules/gate-passes/gate-passes.service';
@@ -49,6 +50,7 @@ async function demo() {
   const attachments = app.get(AttachmentsService);
   const branches = app.get(BranchContextService);
   const transfers = app.get(StockTransfersService);
+  const rolePermissions = app.get(RolePermissionsService);
 
   const actor = async (username: string): Promise<Actor> => {
     const [u] = await ds.query(
@@ -56,6 +58,34 @@ async function demo() {
       [username],
     );
     return { user_id: u.user_id, role: u.role as Role, branch_id: u.branch_id, username };
+  };
+  /**
+   * Runs `fn` while `role` holds `action`, as if a Super Admin had ticked it on Role Permissions,
+   * then puts the grant back. Used for the stock override examples (override:stock is MANAGER-only by default).
+   */
+  const withGrant = async <T>(role: Role, action: string, fn: () => Promise<T>): Promise<T> => {
+    const [row] = await ds.query(
+      `SELECT rp.granted FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE rp.role = $1 AND p.action = $2`,
+      [role, action],
+    );
+    const setGrant = async (granted: boolean | null) => {
+      if (granted === null) {
+        await ds.query(`DELETE FROM role_permission WHERE role = $1 AND permission_id = (SELECT permission_id FROM permission WHERE action = $2)`, [role, action]);
+      } else {
+        await ds.query(
+          `INSERT INTO role_permission (role, permission_id, granted) SELECT $1::role_enum, permission_id, $3 FROM permission WHERE action = $2
+           ON CONFLICT (role, permission_id) DO UPDATE SET granted = EXCLUDED.granted`,
+          [role, action, granted],
+        );
+      }
+      await rolePermissions.invalidate(role);
+    };
+    await setGrant(true);
+    try {
+      return await fn();
+    } finally {
+      await setGrant(row ? row.granted : null);
+    }
   };
   const workers = async (branchId: string): Promise<string[]> =>
     (await ds.query(`SELECT employee_id FROM employee WHERE branch_id = $1 AND is_active ORDER BY full_name LIMIT 2`, [branchId])).map(
@@ -498,7 +528,7 @@ async function demo() {
         ORDER BY s.quantity - s.reserved_quantity, i.sku LIMIT 1`,
       [tha.branch_id],
     );
-    d = await jobCards.create(
+    d = await withGrant(Role.SUPERVISOR, 'override:stock', () => jobCards.create(
       {
         client_request_id: randomUUID(),
         customer: { phone: phone('200 3004'), name: 'Override Card Customer' },
@@ -512,7 +542,7 @@ async function demo() {
         override: OVERRIDE,
       },
       tha,
-    );
+    ));
     d = await pay(d.order_id, d.min_advance, thaCashier);
     await lines.start(d.lines[0].line_id, { version: d.lines[0].version }, tha);
 
@@ -561,10 +591,12 @@ async function demo() {
     await roofing.complete(d.order_id, { version: d.version }, tha);
 
     // Started with a coil override (more feet than the coil has)
-    d = await place(tha, 'Coil Override Customer', phone('300 4002'), [sheetLine('Cladding', 'Cladding', short.stock_ft + 40, 1, short.item_id)], {
-      extra: { override: OVERRIDE },
+    await withGrant(Role.SUPERVISOR, 'override:stock', async () => {
+      d = await place(tha, 'Coil Override Customer', phone('300 4002'), [sheetLine('Cladding', 'Cladding', short.stock_ft + 40, 1, short.item_id)], {
+        extra: { override: OVERRIDE },
+      });
+      await roofing.start(d.order_id, { version: d.version }, tha);
     });
-    await roofing.start(d.order_id, { version: d.version }, tha);
 
     // Discount, paid by card
     d = await place(tha, 'Discount Card Customer', phone('300 4003'), [sheetLine('Roofing', 'Tile Roofing', 14, 10, rich[1 % rich.length].item_id)], { discount: 50000, mode: PaymentMode.CARD });

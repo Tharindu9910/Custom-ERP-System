@@ -1,4 +1,4 @@
-import { SA, SUP, gatePass, newPhone } from '../support/api';
+import { SA, SUP, gatePass, newPhone, setGrant } from '../support/api';
 import { expect, test } from '../support/fixtures';
 import { field, pickBranch, row } from '../support/ui';
 
@@ -146,5 +146,29 @@ test.describe('super admin views gate passes', () => {
     await expect(row(page, gp.pass_number)).toHaveCount(0);
     await pickBranch(page, 'Veyangoda');
     await expect(row(page, gp.pass_number)).toBeVisible();
+  });
+});
+
+test.describe('chief at a roofing branch', () => {
+  test.use({ user: 'chief_thangalla' });
+
+  test('GP-21 Allocate to Order Form follows allocate:gate_pass_order: offered to the chief by default, gone once unticked', async ({ page }) => {
+    const gp = await gatePass();
+    const open = async () => {
+      await page.goto('/gate-pass');
+      await page.getByRole('button', { name: 'Gate Pass Queue' }).click();
+      await row(page, gp.pass_number).click();
+    };
+    await open();
+    await expect(page.getByRole('button', { name: 'Allocate to Order Form' })).toBeVisible();
+    try {
+      await setGrant('CHIEF', 'allocate:gate_pass_order', false);
+      await page.reload();
+      await open();
+      await expect(page.getByRole('button', { name: 'Allocate to Job Card' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Allocate to Order Form' })).toHaveCount(0);
+    } finally {
+      await setGrant('CHIEF', 'allocate:gate_pass_order', true);
+    }
   });
 });

@@ -5,7 +5,6 @@ import {
   MaterialSource,
   OrderStatus,
   ROOFING_CATEGORIES,
-  Role,
   isAccessoryCategory,
   lineNeedsCoil,
   lineNeedsPattern,
@@ -31,7 +30,6 @@ import { useOnlineStatus } from '@/shared/hooks/useOnlineStatus';
 import { usePermission } from '@/shared/hooks/usePermission';
 import { centsToInput, formatRs, parseMoney } from '@/shared/lib/format';
 import { emptyPaymentDraft, toPayment, validatePaymentDraft, type PaymentDraft } from '@/shared/lib/payment-draft';
-import { useAuthStore } from '@/shared/stores/auth.store';
 import { CustomerPhoneInput } from '@/modules/customers/components/CustomerPhoneInput';
 import { MaterialAllocationModal, type AllocatedItem } from '@/modules/gate-passes/components/MaterialAllocationModal';
 import { OrderGatePassPanel } from '@/modules/gate-passes/components/OrderGatePassPanel';
@@ -205,10 +203,9 @@ export function OrderFormPage() {
 function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?: OrderDetailDto; initial: InitialState }) {
   const navigate = useNavigate();
   const isEdit = !!orderId;
-  const role = useAuthStore((s) => s.user?.role);
   const online = useOnlineStatus();
   const { can } = usePermission();
-  const { settings, branch, featureOn, hasRoofing, hasWorkshop } = useBranchContext();
+  const { settings, branch, featureOn } = useBranchContext();
   const roofing = settings?.roofing ?? DEFAULT_BRANCH_SETTINGS.roofing;
   const general = settings?.general ?? DEFAULT_BRANCH_SETTINGS.general;
   const policy = settings?.orders ?? DEFAULT_BRANCH_SETTINGS.orders;
@@ -227,8 +224,10 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
           : !existing.can_edit
             ? 'Work has started on this order, so it can no longer be edited.'
             : null;
-  // Managers and cashiers at roofing-only branches allocate existing gate passes but don't create them
-  const canCreateGatePass = can('create', 'gate_pass') && !(hasRoofing && !hasWorkshop && (role === Role.MANAGER || role === Role.CASHIER));
+  // Who may record a gate pass is set on Role Permissions (create:gate_pass)
+  const canCreateGatePass = can('create', 'gate_pass');
+  // ...and who may use one on a roofing order (allocate:gate_pass_order)
+  const canAllocateGatePass = can('allocate', 'gate_pass_order');
 
   const place = usePlaceRoofingOrder();
   const update = useUpdateRoofingOrder(orderId ?? '');
@@ -333,7 +332,8 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
 
   const showGlobalCoil = roofing.allow_single_coil && (materialSource === MaterialSource.BRANCH || items.some((i) => i.material_source === MaterialSource.BRANCH));
   const usesCustomer = materialSource === MaterialSource.CUSTOMER || items.some((i) => i.material_source === MaterialSource.CUSTOMER);
-  const showGatePass = gatePassOn && usesCustomer;
+  // An order that already uses a pass keeps showing it, even to someone who can't allocate
+  const showGatePass = gatePassOn && usesCustomer && (canAllocateGatePass || !!assigned);
   const orderCoil = useGlobalCoil && showGlobalCoil && globalCoil ? globalCoil : undefined;
 
   const accessory = !!draft.category && isAccessoryCategory(draft.category);
@@ -501,7 +501,11 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
       return setError('Some items have no coil selected. Please edit them and choose a coil.');
     }
     if (general.require_gate_pass && gatePassOn && usesCustomer && !assigned) {
-      return setError('This branch requires a gate pass for customer-supplied material. Please create the gate pass first.');
+      return setError(
+        canAllocateGatePass
+          ? 'This branch requires a gate pass for customer-supplied material. Please create the gate pass first.'
+          : "This branch requires a gate pass for customer-supplied material, and your role can't use gate passes on orders. Ask someone who can.",
+      );
     }
     if (missingRates.length > 0) return setError(`No rate set for: ${missingRates.join(', ')}. Ask the branch manager to add it in Order Settings.`);
     if (discount > maxDiscount) return setError(`The discount can't be more than ${policy.max_discount_pct}% (${formatRs(maxDiscount)}).`);

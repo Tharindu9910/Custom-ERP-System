@@ -90,8 +90,8 @@ export function GatePassPage() {
           gatePass={selected}
           hideColor={hideColor}
           canAllocateJobCard={canTransact && hasWorkshop && can('create', 'job_card')}
-          // Prototype: supervisor, cashier and manager allocate to order forms (not chief)
-          canAllocateOrder={canTransact && hasRoofing && role !== Role.CHIEF && can('create', 'roofing_order')}
+          // Who may use a pass on a roofing order is set on Role Permissions (allocate:gate_pass_order)
+          canAllocateOrder={canTransact && hasRoofing && can('create', 'roofing_order') && can('allocate', 'gate_pass_order')}
           onAllocateJobCard={goToJobCard}
           onAllocateOrder={goToOrder}
           onClose={() => setSelected(null)}

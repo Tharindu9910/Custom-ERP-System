@@ -64,6 +64,26 @@ export async function sql<T = any>(query: string, params: unknown[] = []): Promi
   return (await pool.query(query, params)).rows as T[];
 }
 
+/** Ticks or unticks one permission for a role on Role Permissions, as the Super Admin. */
+export async function setGrant(role: string, action: string, granted: boolean) {
+  const [perm] = await sql<{ permission_id: string }>(`SELECT permission_id FROM permission WHERE action = $1`, [action]);
+  return ok(call(SA, 'PATCH', '/permissions/roles', { role, updates: [{ permission_id: perm.permission_id, granted }] }), `grant ${action} to ${role}`);
+}
+
+/** Runs `fn` while `role` holds `action`, then restores what the role had. */
+export async function withGrant<T>(role: string, action: string, fn: () => Promise<T>): Promise<T> {
+  const [had] = await sql<{ granted: boolean }>(
+    `SELECT rp.granted FROM role_permission rp JOIN permission p ON p.permission_id = rp.permission_id WHERE rp.role = $1 AND p.action = $2`,
+    [role, action],
+  );
+  await setGrant(role, action, true);
+  try {
+    return await fn();
+  } finally {
+    await setGrant(role, action, had?.granted ?? false);
+  }
+}
+
 export async function stock(branch: BranchKey, sku: string): Promise<number> {
   const rows = await sql(`SELECT s.quantity FROM branch_stock s JOIN item i ON i.item_id = s.item_id WHERE s.branch_id = $1 AND i.sku = $2`, [BRANCH[branch], sku]);
   return rows.length ? Number(rows[0].quantity) : 0;

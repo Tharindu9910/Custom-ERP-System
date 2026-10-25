@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { BranchType, DEFAULT_BRANCH_SETTINGS, Role, isGlobalRole, type BranchSettings } from '@erp/shared';
+import { BranchType, DEFAULT_BRANCH_SETTINGS, isGlobalRole, type BranchSettings } from '@erp/shared';
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog';
 import { Icon } from '@/shared/components/Icon';
 import { MainBadge } from '@/shared/components/MainBadge';
 import { Modal } from '@/shared/components/Modal';
 import { apiError } from '@/shared/api/errors';
 import { useAuthStore } from '@/shared/stores/auth.store';
+import { usePermission } from '@/shared/hooks/usePermission';
 import {
   useBranchConfig,
   useBranches,
@@ -52,12 +53,13 @@ const toDetails = (b: BranchDto): BranchDetails => ({
 
 /**
  * Branch Configuration (prototype: admin/BranchSettings). A global page: head office
- * (Super Admin, Admin) picks any branch from the list. Only Super Admin adds branches,
- * changes details or moves the main branch; Admin edits settings.
+ * (Super Admin, Admin) picks any branch from the list. Adding branches, changing details
+ * or moving the main branch needs manage:branches; settings need configure:branch.
  */
 export function BranchConfigPanel() {
   const user = useAuthStore((s) => s.user);
-  const isSuperAdmin = user?.role === Role.SUPER_ADMIN;
+  const { can } = usePermission();
+  const canManageBranches = can('manage', 'branches');
   const isGlobal = !!user && isGlobalRole(user.role);
   const { data: branches = [], isLoading } = useBranches();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -74,13 +76,13 @@ export function BranchConfigPanel() {
       <BranchEditor
         key={branch.branch_id}
         branch={branch}
-        canEditDetails={isSuperAdmin}
+        canEditDetails={canManageBranches}
         onBack={isGlobal ? () => setEditingId(null) : undefined}
       />
     );
   }
   if (!isGlobal) return <p className="text-sm text-gray-500">Your account is not linked to a branch.</p>;
-  return <BranchTable branches={branches} canCreate={isSuperAdmin} onOpen={setEditingId} />;
+  return <BranchTable branches={branches} canCreate={canManageBranches} onOpen={setEditingId} />;
 }
 
 // ── Branch list (Super Admin) ────────────────────────────────────────────────

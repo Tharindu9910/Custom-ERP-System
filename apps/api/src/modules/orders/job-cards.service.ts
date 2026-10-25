@@ -59,7 +59,7 @@ export class JobCardsService {
   /** Live price preview for the form — the same pricing the save uses. */
   async quote(lines: WorkshopLineInput[], actor: Actor) {
     const settings = (await this.branches.get(actor.branch_id)).settings;
-    const data = await this.pricing.load(this.ds.manager, actor.branch_id);
+    const data = await this.pricing.load(this.ds.manager);
     const priced = lines.map((l) => priceWorkshopLine(l, this.pricingCtx(data)));
     const subtotal = priced.reduce((s, p) => s + p.line_total, 0);
     return {
@@ -79,7 +79,7 @@ export class JobCardsService {
 
     const orderId = await this.ds.transaction(async (em) => {
       await this.assertWorkers(em, dto.worker_ids, actor.branch_id);
-      const priced = await this.priceAll(em, dto.lines, actor.branch_id);
+      const priced = await this.priceAll(em, dto.lines);
       const customerId = await this.customers.findOrCreateForIntake(em, dto.customer, actor.branch_id, actor.user_id);
       const orderNumber = await this.numbers.next(em, 'JOB_CARD', settings.number_prefixes);
       const total = priced.reduce((s, p) => s + p.priced.line_total, 0);
@@ -157,7 +157,7 @@ export class JobCardsService {
       if (lines.some((l) => lineHasStarted(l.status))) throw new ConflictException(ERR.ORDER_LOCKED);
 
       await this.assertWorkers(em, dto.worker_ids, actor.branch_id);
-      const priced = await this.priceAll(em, dto.lines, actor.branch_id);
+      const priced = await this.priceAll(em, dto.lines);
       const customerId = await this.customers.findOrCreateForIntake(em, dto.customer, actor.branch_id, actor.user_id);
 
       const byId = new Map(lines.map((l) => [l.line_id, l]));
@@ -325,8 +325,8 @@ export class JobCardsService {
   }
 
   /** Prices every line; a line without a standard rate needs a custom price (BR23). */
-  private async priceAll(em: EntityManager, lines: WorkshopLineInput[], branchId: string): Promise<PricedInput[]> {
-    const data = await this.pricing.load(em, branchId);
+  private async priceAll(em: EntityManager, lines: WorkshopLineInput[]): Promise<PricedInput[]> {
+    const data = await this.pricing.load(em);
     const result = lines.map((input) => {
       const priced = priceWorkshopLine(input, this.pricingCtx(data));
       const deducts = input.job_type === 'CUT_BEND' && !isCustomMode(input) && input.material_source === MaterialSource.BRANCH;

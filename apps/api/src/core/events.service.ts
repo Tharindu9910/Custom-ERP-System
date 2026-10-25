@@ -3,10 +3,11 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomBytes } from 'crypto';
 
 /** What changed — screens refetch the matching queries. */
-export type LiveTopic = 'orders' | 'gate_passes' | 'stock' | 'transfers' | 'payments';
+export type LiveTopic = 'orders' | 'gate_passes' | 'stock' | 'transfers' | 'payments' | 'permissions' | 'prices';
 
 export interface BranchChangedEvent {
-  branch_id: string;
+  /** null = everyone, whatever branch they watch (e.g. role permissions changed) */
+  branch_id: string | null;
   topic: LiveTopic;
 }
 
@@ -31,6 +32,11 @@ export class EventsService {
 
   changed(branchId: string, ...topics: LiveTopic[]): void {
     for (const topic of topics) this.emitter.emit(BRANCH_CHANGED, { branch_id: branchId, topic } satisfies BranchChangedEvent);
+  }
+
+  /** Nudge every open stream, not just one branch's. */
+  changedEverywhere(...topics: LiveTopic[]): void {
+    for (const topic of topics) this.emitter.emit(BRANCH_CHANGED, { branch_id: null, topic } satisfies BranchChangedEvent);
   }
 
   issueTicket(userId: string, branchId: string | null): { ticket: string; expires_in: number } {

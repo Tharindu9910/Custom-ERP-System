@@ -43,6 +43,9 @@ export function WorkOrderModal({ orderId, onClose, onEdit, readOnly = false }: {
   const canVoid = canTransact && !!order && order.status === OrderStatus.DRAFT && order.paid_amount === 0 && can('cancel', 'job_card_draft');
   // BR05: work starts only once the cashier has taken the minimum advance
   const awaitingAdvance = order?.status === OrderStatus.DRAFT;
+  const canStart = canTransact && can('update', 'job_card_status');
+  const canComplete = canTransact && can('complete', 'work_order');
+  const canEdit = canTransact && can('create', 'job_card');
 
   const confirmVoid = async () => {
     if (!order || !voidReason || voidReason.trim().length < 3) return;
@@ -114,7 +117,7 @@ export function WorkOrderModal({ orderId, onClose, onEdit, readOnly = false }: {
                 </button>
               </div>
             )}
-            {canTransact && order?.can_edit && onEdit && (
+            {canEdit && order?.can_edit && onEdit && (
               <button onClick={onEdit} className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
                 Edit
               </button>
@@ -221,7 +224,7 @@ export function WorkOrderModal({ orderId, onClose, onEdit, readOnly = false }: {
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-semibold text-gray-700">{formatRs(l.line_total)}</span>
                       <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold leading-5 ${statusPill(l.status)}`}>{l.status_label}</span>
-                      {canTransact && !awaitingAdvance && l.status === LineStatus.ASSIGNED && (
+                      {canStart && !awaitingAdvance && l.status === LineStatus.ASSIGNED && (
                         <button
                           disabled={action.isPending}
                           onClick={() => void run(l, 'start')}
@@ -230,7 +233,7 @@ export function WorkOrderModal({ orderId, onClose, onEdit, readOnly = false }: {
                           <Icon name="play" className="mr-1 h-3 w-3" /> Start
                         </button>
                       )}
-                      {canTransact && l.status === LineStatus.IN_PROGRESS && (
+                      {canComplete && l.status === LineStatus.IN_PROGRESS && (
                         <button
                           disabled={action.isPending}
                           onClick={() => void run(l, 'complete')}

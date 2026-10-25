@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import {
@@ -33,6 +33,7 @@ import { AuditService } from '../../core/audit.service';
 import { BranchContextService } from '../../core/branch-context.service';
 import { EventsService } from '../../core/events.service';
 import { NumberService } from '../../core/number.service';
+import { RolePermissionsService } from '../../core/role-permissions.service';
 import { StockService, type StockReservationInput } from '../../core/stock.service';
 import type { OrderEntity } from '../../database/entities/order.entity';
 import type { OrderLineEntity } from '../../database/entities/order-line.entity';
@@ -87,6 +88,7 @@ export class RoofingOrdersService {
     private readonly queries: OrderQueriesService,
     private readonly audit: AuditService,
     private readonly events: EventsService,
+    private readonly rolePermissions: RolePermissionsService,
   ) {}
 
   /** Live price preview for the form — the same pricing the save uses. Incomplete items are priced as far as possible. */
@@ -110,6 +112,7 @@ export class RoofingOrdersService {
 
     const settings = (await this.branches.get(actor.branch_id)).settings;
     this.checkMaterialRules(dto, settings);
+    if (dto.gate_pass_id && dto.allocations) await this.assertMayAllocateGatePass(actor);
 
     const orderId = await this.ds.transaction(async (em) => {
       const p = await this.prepare(em, dto.lines, dto.global_coil_item_id, dto.discount, settings, actor.branch_id, true);
@@ -234,6 +237,8 @@ export class RoofingOrdersService {
       await this.stock.reserveMany(em, actor.branch_id, orderId, holds, actor, { override: dto.override });
 
       const previousGatePass = order.header?.gate_pass_id;
+      // Keeping the pass the order already uses is not a new allocation
+      if (dto.gate_pass_id && dto.allocations && dto.gate_pass_id !== previousGatePass) await this.assertMayAllocateGatePass(actor);
       await em.query(
         `UPDATE "order" SET customer_id = $2, subtotal = $3, discount = $4, total = $5, header = $6::jsonb, version = version + 1, updated_at = now()
          WHERE order_id = $1`,
@@ -453,7 +458,7 @@ export class RoofingOrdersService {
     const orderCoilId = roofing.allow_single_coil && globalCoilId ? globalCoilId : null;
     if (strict && orderCoilId && !coils.has(orderCoilId)) throw new BadRequestException(ERR.ORDER_COIL_INVALID);
 
-    const data = await this.pricing.load(em, branchId);
+    const data = await this.pricing.load(em);
     const ctx = { rates: data.rates, surcharge_pct: settings.orders.customized_surcharge_pct, coilThickness: data.coilThickness };
 
     const prepared = lines.map((raw, i): PreparedLine => {
@@ -536,6 +541,13 @@ export class RoofingOrdersService {
       ],
     );
     return line_id;
+  }
+
+  /** Using a gate pass's material on a roofing order is set on Role Permissions (allocate:gate_pass_order). */
+  private async assertMayAllocateGatePass(actor: Actor): Promise<void> {
+    if (!(await this.rolePermissions.has(actor.role, 'allocate:gate_pass_order'))) {
+      throw new ForbiddenException(ERR.AUTH_INSUFFICIENT_PERMISSION);
+    }
   }
 
   private async updateLine(em: EntityManager, lineId: string, line: PreparedLine): Promise<void> {

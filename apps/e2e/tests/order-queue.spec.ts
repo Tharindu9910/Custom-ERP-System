@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { OVERRIDE_PASSWORD, SA, SUP, call, coil, newPhone, payBalance, readyRoofingOrder, reserved, roofingOrder, sheetLine, sql, stock } from '../support/api';
+import { OVERRIDE_PASSWORD, SA, SUP, call, coil, newPhone, payBalance, readyRoofingOrder, reserved, roofingOrder, sheetLine, sql, stock, withGrant } from '../support/api';
 import { expect, test } from '../support/fixtures';
 import { choose, dialog, field, row } from '../support/ui';
 
@@ -91,37 +91,40 @@ test.describe('supervisor', () => {
   });
 
   test('OQ-24 short coil on Place Order: override dialog; wrong password refused; right password places; Start then asks nothing', async ({ page }) => {
-    const coils = (await call(SUP.thangalla, 'GET', '/items/coils')).data;
-    const low = coils.find((c: any) => c.stock_ft > 0 && c.stock_ft < 1000);
-    const name = `Short Coil ${Date.now() % 1_000_000}`;
-    await page.goto('/orders/new');
-    await field(page, 'Customer Phone').fill(newPhone());
-    await field(page, 'Customer Name').fill(name);
-    await choose(page, 'Select worker');
-    await page.getByRole('button', { name: 'Roofing', exact: true }).click();
-    await choose(page, /Search coil no\./, low.sku);
-    if (await page.getByRole('button', { name: 'Search pattern…' }).count()) await choose(page, 'Search pattern…');
-    await field(page, 'Length (ft)').fill(String(low.stock_ft + 50));
-    await field(page, 'No. of Pieces').fill('1');
-    await page.getByRole('button', { name: /^Add to Order|^Add \d+ Items to Order/ }).click();
-    await page.getByRole('button', { name: /% advance/ }).click();
-    await page.getByRole('button', { name: 'Place Order' }).click();
+    // override:stock is MANAGER-only by default; the Super Admin lets supervisors use it here
+    await withGrant('SUPERVISOR', 'override:stock', async () => {
+      const coils = (await call(SUP.thangalla, 'GET', '/items/coils')).data;
+      const low = coils.find((c: any) => c.stock_ft > 0 && c.stock_ft < 1000);
+      const name = `Short Coil ${Date.now() % 1_000_000}`;
+      await page.goto('/orders/new');
+      await field(page, 'Customer Phone').fill(newPhone());
+      await field(page, 'Customer Name').fill(name);
+      await choose(page, 'Select worker');
+      await page.getByRole('button', { name: 'Roofing', exact: true }).click();
+      await choose(page, /Search coil no\./, low.sku);
+      if (await page.getByRole('button', { name: 'Search pattern…' }).count()) await choose(page, 'Search pattern…');
+      await field(page, 'Length (ft)').fill(String(low.stock_ft + 50));
+      await field(page, 'No. of Pieces').fill('1');
+      await page.getByRole('button', { name: /^Add to Order|^Add \d+ Items to Order/ }).click();
+      await page.getByRole('button', { name: /% advance/ }).click();
+      await page.getByRole('button', { name: 'Place Order' }).click();
 
-    const ov = page.getByRole('dialog').filter({ hasText: 'Not enough stock' });
-    await ov.locator('input[type="password"]').fill('wrong');
-    await ov.getByPlaceholder('e.g. Sheets received today, not yet entered').fill('Urgent roof');
-    await ov.getByRole('button', { name: 'Override and save' }).click();
-    await expect(ov.getByText('The stock override password is incorrect')).toBeVisible();
-    await ov.locator('input[type="password"]').fill(OVERRIDE_PASSWORD);
-    await ov.getByRole('button', { name: 'Override and save' }).click();
-    await expect(page.getByText(/Order WO-FORM-\d+ placed/)).toBeVisible();
+      const ov = page.getByRole('dialog').filter({ hasText: 'Not enough stock' });
+      await ov.locator('input[type="password"]').fill('wrong');
+      await ov.getByPlaceholder('e.g. Sheets received today, not yet entered').fill('Urgent roof');
+      await ov.getByRole('button', { name: 'Override and save' }).click();
+      await expect(ov.getByText('The stock override password is incorrect')).toBeVisible();
+      await ov.locator('input[type="password"]').fill(OVERRIDE_PASSWORD);
+      await ov.getByRole('button', { name: 'Override and save' }).click();
+      await expect(page.getByText(/Order WO-FORM-\d+ placed/)).toBeVisible();
 
-    const [o] = await sql(`SELECT o.order_number FROM "order" o JOIN customer c ON c.customer_id = o.customer_id WHERE c.name = $1`, [name]);
-    const r = await find(page, o.order_number, 'Placed');
-    await r.getByRole('button', { name: 'Start' }).click();
-    await expect(page.getByText(`Order ${o.order_number} started.`)).toBeVisible();
-    // All free coil is used; other open orders' holds stay for them
-    expect(await stock('thangalla', low.sku)).toBe(await reserved('thangalla', low.sku));
+      const [o] = await sql(`SELECT o.order_number FROM "order" o JOIN customer c ON c.customer_id = o.customer_id WHERE c.name = $1`, [name]);
+      const r = await find(page, o.order_number, 'Placed');
+      await r.getByRole('button', { name: 'Start' }).click();
+      await expect(page.getByText(`Order ${o.order_number} started.`)).toBeVisible();
+      // All free coil is used; other open orders' holds stay for them
+      expect(await stock('thangalla', low.sku)).toBe(await reserved('thangalla', low.sku));
+    });
   });
 
   test('OQ-25 a fully paid ready order releases straight away', async ({ page }) => {

@@ -65,6 +65,10 @@ export const queryKeys = {
     transfers: (params?: object) => withParams(['network', 'stock-transfers'] as const, params),
   },
   stockAlerts: (params?: object) => withParams(['stock-alerts'] as const, params),
+  priceList: {
+    rates: (params?: object) => withParams(['price-list', 'rates'] as const, params),
+    items: (params?: object) => withParams(['price-list', 'items'] as const, params),
+  },
   stockTransfers: {
     list: (params?: object) => withParams(['stock-transfers', 'list'] as const, params),
     detail: (id: string) => ['stock-transfers', 'detail', id] as const,
@@ -79,4 +83,8 @@ export const LIVE_TOPIC_KEYS: Record<string, readonly (readonly string[])[]> = {
   gate_passes: [['gate-passes']],
   stock: [['inventory'], ['stock-alerts'], ['items'], ['network']],
   transfers: [['stock-transfers'], ['inventory'], ['stock-alerts'], ['network']],
+  // Role Permissions saved: refresh my grants (menu, route guards) and any open matrix
+  permissions: [['auth', 'me'], ['permissions']],
+  // Price List saved: refresh the list and re-quote any open order form
+  prices: [['price-list'], ['orders', 'quote']],
 };

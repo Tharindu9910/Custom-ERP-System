@@ -154,10 +154,12 @@ describe('RSV stock reservation', () => {
     expect(await t.reserved('thangalla', sku)).toBe(before);
 
     const free = (await tha().get('/items/coils')).data.find((x: any) => x.item_id === coil.item_id).stock_ft;
-    const short = await roofingOrder(t, {
-      lines: [sheetLine(coil.item_id, { length_ft: free + 5, pieces: 1 })],
-      override: { password: OVERRIDE_PASSWORD, reason: 'Coil arriving today' },
-    });
+    const short = await t.withGrant('SUPERVISOR', 'override:stock', () =>
+      roofingOrder(t, {
+        lines: [sheetLine(coil.item_id, { length_ft: free + 5, pieces: 1 })],
+        override: { password: OVERRIDE_PASSWORD, reason: 'Coil arriving today' },
+      }),
+    );
     const [res] = await t.sql(`SELECT quantity, shortfall, override_reason FROM stock_reservation WHERE order_id = $1`, [short.order_id]);
     expect([Number(res.quantity), Number(res.shortfall), res.override_reason]).toEqual([free, 5, 'Coil arriving today']);
     expect((await tha().get('/items/coils')).data.find((x: any) => x.item_id === coil.item_id).stock_ft).toBe(0);

@@ -377,20 +377,28 @@ describe('WQ workshop queue and floor actions', () => {
       required: m.quantity + 5,
       available: m.quantity,
     });
-    const wrong = await tha().post('/job-cards', {
+    // override:stock is MANAGER-only by default: the right password alone is not enough
+    const noPerm = await tha().post('/job-cards', {
       ...body(),
-      override: { password: 'wrong', reason: 'Urgent customer' },
+      override: { password: OVERRIDE_PASSWORD, reason: 'Urgent customer' },
     });
-    expect([wrong.status, wrong.code]).toEqual([400, 'STK_002']);
+    expect([noPerm.status, noPerm.code]).toEqual([403, 'AUTH_004']);
 
     const before = await t.reserved('thangalla', m.sku);
-    const card = await jobCard(t, {
-      lines,
-      paid: true,
-      override: {
-        password: OVERRIDE_PASSWORD,
-        reason: 'Sheets arrived, not entered yet',
-      },
+    const card = await t.withGrant('SUPERVISOR', 'override:stock', async () => {
+      const wrong = await tha().post('/job-cards', {
+        ...body(),
+        override: { password: 'wrong', reason: 'Urgent customer' },
+      });
+      expect([wrong.status, wrong.code]).toEqual([400, 'STK_002']);
+      return jobCard(t, {
+        lines,
+        paid: true,
+        override: {
+          password: OVERRIDE_PASSWORD,
+          reason: 'Sheets arrived, not entered yet',
+        },
+      });
     });
     // Only what was free is held; the 5 short are authorised, not held
     expect(await t.reserved('thangalla', m.sku)).toBe(before + m.quantity);
@@ -434,9 +442,11 @@ describe('WQ workshop queue and floor actions', () => {
       'STK_001',
       false,
     ]);
-    const r = await t.as(SUP.veyangoda).post(
-      '/job-cards',
-      body({ override: { password: OVERRIDE_PASSWORD, reason: 'Trying anyway' } }),
+    const r = await t.withGrant('SUPERVISOR', 'override:stock', () =>
+      t.as(SUP.veyangoda).post(
+        '/job-cards',
+        body({ override: { password: OVERRIDE_PASSWORD, reason: 'Trying anyway' } }),
+      ),
     );
     expect(r.code).toBe('STK_004');
   });

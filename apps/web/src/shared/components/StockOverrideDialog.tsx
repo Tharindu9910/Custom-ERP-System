@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { StockOverride } from '@erp/shared';
+import { usePermission } from '@/shared/hooks/usePermission';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
 import { Notice } from './Notice';
@@ -33,10 +34,13 @@ interface Props {
 /**
  * Shown when saving an order or starting work needs more branch stock than is
  * available (409 STK_001). Available excludes what other open orders hold
- * (Docs/decisions/0003). If the branch allows it, the supervisor can override with
- * the branch password and a reason (audited); otherwise stock must be transferred in first.
+ * (Docs/decisions/0003). If the branch allows it and the role has override:stock, the
+ * user can override with the branch password and a reason (audited); otherwise stock
+ * must be transferred in first.
  */
 export function StockOverrideDialog({ details, mode = 'start', pending, error, onConfirm, onClose }: Props) {
+  const { can } = usePermission();
+  const mayOverride = details.override_allowed && can('override', 'stock');
   const [password, setPassword] = useState('');
   const [reason, setReason] = useState('');
   const canSubmit = password.length > 0 && reason.trim().length >= 3;
@@ -57,7 +61,7 @@ export function StockOverrideDialog({ details, mode = 'start', pending, error, o
           <button type="button" onClick={onClose} className="btn-secondary">
             Cancel
           </button>
-          {details.override_allowed && (
+          {mayOverride && (
             <button
               type="button"
               disabled={!canSubmit || pending}
@@ -104,7 +108,7 @@ export function StockOverrideDialog({ details, mode = 'start', pending, error, o
           </tbody>
         </table>
 
-        {details.override_allowed ? (
+        {mayOverride ? (
           <>
             <Notice tone="warning">
               {mode === 'save'
@@ -126,6 +130,8 @@ export function StockOverrideDialog({ details, mode = 'start', pending, error, o
               />
             </div>
           </>
+        ) : details.override_allowed ? (
+          <Notice tone="info">Your role can't override stock. Ask someone who can, or request stock from another branch first.</Notice>
         ) : (
           <Notice tone="info">Stock override is turned off for this branch. Request stock from another branch first.</Notice>
         )}

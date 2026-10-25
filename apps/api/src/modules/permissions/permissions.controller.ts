@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Patch } from '@nestjs/common';
+import { UpdateRolePermissionsSchema, type UpdateRolePermissionsDto } from '@erp/shared';
 import { CurrentUser, RequirePermissions } from '../../common/decorators';
 import { RequestUser } from '../../common/types';
-import { PermissionsService, UpdateRolePermissionsDto } from './permissions.service';
+import { ZodPipe } from '../../common/zod.pipe';
+import { PermissionsService } from './permissions.service';
 
 @Controller('permissions')
 export class PermissionsController {
@@ -22,9 +24,9 @@ export class PermissionsController {
   @Patch('roles')
   @RequirePermissions('configure:permissions')
   updateRolePermissions(
-    @Body() dto: UpdateRolePermissionsDto,
+    @Body(new ZodPipe(UpdateRolePermissionsSchema)) dto: UpdateRolePermissionsDto,
     @CurrentUser() actor: RequestUser,
   ) {
-    return this.permissionsService.updateRolePermissions(dto, actor.user_id);
+    return this.permissionsService.updateRolePermissions(dto, actor);
   }
 }

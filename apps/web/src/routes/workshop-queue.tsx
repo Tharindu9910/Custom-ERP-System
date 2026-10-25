@@ -10,6 +10,7 @@ import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 import { WorkOrderModal } from '@/modules/job-cards/components/WorkOrderModal';
 import { useWorkshopQueue, type WorkshopQueueRow } from '@/modules/orders/hooks/useOrders';
 import { useCanTransact } from '@/shared/hooks/useCanTransact';
+import { usePermission } from '@/shared/hooks/usePermission';
 
 const STATUS_PILL: Record<string, string> = {
   AWAITING_PAYMENT: 'bg-slate-100 text-slate-700',
@@ -28,6 +29,9 @@ const PAYMENT_PILL: Record<string, string> = {
 export function WorkshopQueuePage() {
   const navigate = useNavigate();
   const canTransact = useCanTransact();
+  const { can } = usePermission();
+  // Editing a card is creating it again (same form and permission)
+  const canEdit = canTransact && can('create', 'job_card');
   const { notice } = useSearch({ strict: false }) as { notice?: string };
   const [status, setStatus] = useState<WorkshopQueueFilter>('ALL');
   const [search, setSearch] = useState('');
@@ -165,7 +169,7 @@ export function WorkshopQueuePage() {
                           {PAYMENT_STATE_LABEL[job.payment_state]} {job.paid_amount > 0 ? `(${formatRs(job.paid_amount)})` : ''}
                         </span>
                         <div className="flex items-center gap-2">
-                          {canTransact && job.can_edit && (
+                          {canEdit && job.can_edit && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();

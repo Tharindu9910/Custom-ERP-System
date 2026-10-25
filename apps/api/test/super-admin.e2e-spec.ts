@@ -169,29 +169,32 @@ describe('SA-CFG branch config drives supervisor access', () => {
       CUSTOM_LINE,
     ];
     const workers = await workerIds(t, SUP.thangalla, 1);
-    try {
-      await sa().patch(`/branches/${BRANCH.thangalla}/config`, {
-        stock_override_password: 'NewOverride@1',
-      });
-      const old = await t.as(SUP.thangalla).post(
-        '/job-cards',
-        jobCardBody(newPhone(), workers, lines, {
-          override: { password: OVERRIDE_PASSWORD, reason: 'Old password' },
-        }),
-      );
-      expect(old.code).toBe('STK_002');
-      const ok = await t.as(SUP.thangalla).post(
-        '/job-cards',
-        jobCardBody(newPhone(), workers, lines, {
-          override: { password: 'NewOverride@1', reason: 'New password' },
-        }),
-      );
-      expect(ok.status).toBe(201);
-    } finally {
-      await sa().patch(`/branches/${BRANCH.thangalla}/config`, {
-        stock_override_password: OVERRIDE_PASSWORD,
-      });
-    }
+    // override:stock is MANAGER-only by default; the Super Admin lets supervisors use it here
+    await t.withGrant('SUPERVISOR', 'override:stock', async () => {
+      try {
+        await sa().patch(`/branches/${BRANCH.thangalla}/config`, {
+          stock_override_password: 'NewOverride@1',
+        });
+        const old = await t.as(SUP.thangalla).post(
+          '/job-cards',
+          jobCardBody(newPhone(), workers, lines, {
+            override: { password: OVERRIDE_PASSWORD, reason: 'Old password' },
+          }),
+        );
+        expect(old.code).toBe('STK_002');
+        const ok = await t.as(SUP.thangalla).post(
+          '/job-cards',
+          jobCardBody(newPhone(), workers, lines, {
+            override: { password: 'NewOverride@1', reason: 'New password' },
+          }),
+        );
+        expect(ok.status).toBe(201);
+      } finally {
+        await sa().patch(`/branches/${BRANCH.thangalla}/config`, {
+          stock_override_password: OVERRIDE_PASSWORD,
+        });
+      }
+    });
   });
 });
 
@@ -408,6 +411,63 @@ describe('SA-PRM role permissions', () => {
       });
     }
     expect((await t.as(SUP.thangalla).get('/inventory')).status).toBe(200);
+  });
+
+  it('SA-PRM-03 refuses grants that would have no effect or escalate: SUPER_ADMIN role, Super-Admin-only permissions, branch writes for head office, unknown ids', async () => {
+    const id = async (action: string) =>
+      (await t.sql(`SELECT permission_id FROM permission WHERE action = $1`, [action]))[0].permission_id;
+    const patch = (role: string, permission_id: string, granted = true) =>
+      sa().patch('/permissions/roles', { role, updates: [{ permission_id, granted }] });
+
+    expect((await patch('SUPER_ADMIN', await id('view:inventory'))).code).toBe('VAL_001');
+    expect((await patch('MANAGER', await id('configure:permissions'))).code).toBe('PRM_002');
+    expect((await patch('ADMIN', await id('create:job_card'))).code).toBe('PRM_003');
+    expect((await patch('AUDITOR', await id('process:payment'))).code).toBe('PRM_003');
+    expect((await patch('MANAGER', randomUUID())).code).toBe('PRM_001');
+    // Removing a branch write from head office is always allowed (nothing to grant)
+    expect((await patch('ADMIN', await id('create:job_card'), false)).status).toBe(200);
+    // Nothing was granted along the way
+    expect((await t.as('admin').get('/auth/me')).data.permissions).not.toContain('create:job_card');
+  });
+
+  it('SA-PRM-04 manage:branches decides who adds branches: ADMIN is refused until it is ticked', async () => {
+    const body = () => ({ code: `BR-PRM-${unique()}`, name: `Perm Branch ${unique()}`, branch_type: 'WORKSHOP' });
+    expect((await t.as('admin').post('/branches', body())).code).toBe('AUTH_004');
+    const r = await t.withGrant('ADMIN', 'manage:branches', () => t.as('admin').post('/branches', body()));
+    expect(r.status).toBe(201);
+    expect((await t.as('admin').post('/branches', body())).code).toBe('AUTH_004');
+    // Keep it out of other specs' transfer targets
+    await sa().patch(`/branches/${r.data.branch_id}`, { is_active: false });
+  });
+
+  it('SA-PRM-05 view:job_cards opens the workshop queue: revoking it from SUPERVISOR closes it; head office reads it', async () => {
+    const queue = '/workshop-queue';
+    expect((await t.as(SUP.thangalla).get(queue)).status).toBe(200);
+    expect((await t.as('admin', { branch: 'thangalla' }).get(queue)).status).toBe(200);
+    expect((await t.as('auditor1', { branch: 'thangalla' }).get(queue)).status).toBe(200);
+    try {
+      expect((await t.setGrant('SUPERVISOR', 'view:job_cards', false)).status).toBe(200);
+      expect((await t.as(SUP.thangalla).get(queue)).code).toBe('AUTH_004');
+    } finally {
+      await t.setGrant('SUPERVISOR', 'view:job_cards', true);
+    }
+    expect((await t.as(SUP.thangalla).get(queue)).status).toBe(200);
+  });
+
+  it('SA-PRM-06 a save is audited with what was granted and revoked', async () => {
+    await t.setGrant('CASHIER', 'view:stock_alerts', true);
+    await t.setGrant('CASHIER', 'view:stock_alerts', false);
+    // The audit write is asynchronous (never blocks the save)
+    let rows: any[] = [];
+    for (let i = 0; i < 20 && rows.length < 2; i++) {
+      rows = await t.sql(
+        `SELECT new_value FROM audit_log WHERE action = 'UPDATE_ROLE_PERMISSIONS' AND new_value->>'role' = 'CASHIER'
+         ORDER BY logged_at DESC LIMIT 2`,
+      );
+      if (rows.length < 2) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(rows[0].new_value).toMatchObject({ revoked: ['view:stock_alerts'], granted: [] });
+    expect(rows[1].new_value).toMatchObject({ granted: ['view:stock_alerts'], revoked: [] });
   });
 });
 

@@ -159,6 +159,30 @@ describe('RO create order', () => {
     expect(payments).toHaveLength(1);
   });
 
+  it('RO-08 using a gate pass on an order follows allocate:gate_pass_order: a chief may by default; unticked, it is refused', async () => {
+    const line = { category: 'Gutter', job_type: 'STANDARD', material_source: 'CUSTOMER', length_ft: 10, pieces: 1 };
+    const q = await quote([line]);
+    const place = async () => {
+      const gp = await gatePass(t, SUP.thangalla, { items: [{ material_type: 'Zinc Coated', thickness: '1.5', quantity: 2 }] });
+      return t.as(CHIEF).post(
+        '/roofing-orders',
+        body([line], { amount: q.min_to_place, mode: 'CASH' }, {
+          customer: { phone: gp.phone, name: 'Chief Gate Pass' },
+          material_source: 'CUSTOMER',
+          gate_pass_id: gp.gate_pass_id,
+          allocations: [{ gp_item_id: gp.items[0].gp_item_id, quantity: 1 }],
+        }),
+      );
+    };
+    expect((await place()).status).toBe(201);
+    try {
+      expect((await t.setGrant('CHIEF', 'allocate:gate_pass_order', false)).status).toBe(200);
+      expect((await place()).code).toBe('AUTH_004');
+    } finally {
+      await t.setGrant('CHIEF', 'allocate:gate_pass_order', true);
+    }
+  });
+
   it('RO-06 customer material from a gate pass is committed to the order', async () => {
     const gp = await gatePass(t, SUP.thangalla, {
       items: [{ material_type: 'Zinc Coated', thickness: '1.5', quantity: 5 }],
@@ -276,20 +300,34 @@ describe('OQ order queue', () => {
     expect([short.status, short.code, short.details?.override_allowed]).toEqual(
       [409, 'STK_001', true],
     );
+    // override:stock is MANAGER-only by default: the right password alone is not enough
     expect(
       (
         await tha().post(
           '/roofing-orders',
           await roofingOrderBody(t, {
             lines,
-            override: { password: 'nope', reason: 'Urgent job' },
+            override: { password: OVERRIDE_PASSWORD, reason: 'Urgent job' },
           }),
         )
       ).code,
-    ).toBe('STK_002');
-    const o = await roofingOrder(t, {
-      lines,
-      override: { password: OVERRIDE_PASSWORD, reason: 'Urgent job' },
+    ).toBe('AUTH_004');
+    const o = await t.withGrant('SUPERVISOR', 'override:stock', async () => {
+      expect(
+        (
+          await tha().post(
+            '/roofing-orders',
+            await roofingOrderBody(t, {
+              lines,
+              override: { password: 'nope', reason: 'Urgent job' },
+            }),
+          )
+        ).code,
+      ).toBe('STK_002');
+      return roofingOrder(t, {
+        lines,
+        override: { password: OVERRIDE_PASSWORD, reason: 'Urgent job' },
+      });
     });
     const ok = await tha().post(`/roofing-orders/${o.order_id}/start`, {
       version: o.version,

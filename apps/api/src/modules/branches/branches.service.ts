@@ -83,7 +83,6 @@ export class BranchesService {
   }
 
   async createBranch(dto: CreateBranchDto, actor: BranchActor): Promise<BranchEntity> {
-    this.assertSuperAdmin(actor);
     const existing = await this.branchesRepo.findByCode(dto.code);
     if (existing) throw new ConflictException(ERR.BRANCH_CODE_EXISTS);
 
@@ -107,8 +106,7 @@ export class BranchesService {
     dto: UpdateBranchDto,
     actor: BranchActor,
   ): Promise<BranchEntity> {
-    // Name, code, type and active state change what the whole branch runs
-    this.assertSuperAdmin(actor);
+    // Name, code, type and active state change what the whole branch runs (manage:branches)
     const branch = await this.branchesRepo.findById(branchId);
     if (!branch) throw new NotFoundException(ERR.BRANCH_NOT_FOUND);
     const before = { code: branch.code, name: branch.name, branch_type: branch.branch_type, location: branch.location, phone: branch.phone, is_active: branch.is_active, is_main: branch.is_main };
@@ -193,10 +191,6 @@ export class BranchesService {
     if (actor.branch_id !== null && actor.branch_id !== branchId) {
       throw new ForbiddenException(ERR.AUTH_INSUFFICIENT_PERMISSION);
     }
-  }
-
-  private assertSuperAdmin(actor: BranchActor): void {
-    if (actor.role !== Role.SUPER_ADMIN) throw new ForbiddenException(ERR.AUTH_INSUFFICIENT_PERMISSION);
   }
 
   private toConfig(branch: BranchEntity, overrideConfigured: boolean): BranchConfig {

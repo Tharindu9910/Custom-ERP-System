@@ -1,14 +1,11 @@
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { LineSubType, LineType, MaterialSource, PriceBasis } from '@erp/shared';
 
-// Workshop and roofing rates. branch_id null = master rate used when a branch has none.
+// Workshop and roofing rates — one price list for every branch (Docs/decisions/0004).
 @Entity('price_rate')
 export class PriceRateEntity {
   @PrimaryGeneratedColumn('uuid')
   rate_id: string;
-
-  @Column({ type: 'uuid', nullable: true })
-  branch_id: string | null;
 
   @Column({ type: 'enum', enum: LineType, enumName: 'line_type_enum' })
   line_type: LineType;
@@ -41,6 +38,9 @@ export class PriceRateEntity {
 
   @Column({ type: 'uuid', nullable: true })
   created_by: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  updated_by: string | null;
 
   @CreateDateColumn()
   created_at: Date;

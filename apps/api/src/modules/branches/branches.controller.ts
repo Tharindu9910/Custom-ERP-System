@@ -27,13 +27,13 @@ export class BranchesController {
   }
 
   @Post()
-  @RequirePermissions('configure:branch')
+  @RequirePermissions('manage:branches')
   createBranch(@Body() dto: CreateBranchDto, @CurrentUser() actor: RequestUser) {
     return this.branchesService.createBranch(dto, actor);
   }
 
   @Patch(':id')
-  @RequirePermissions('configure:branch')
+  @RequirePermissions('manage:branches')
   updateBranch(
     @Param('id') id: string,
     @Body() dto: UpdateBranchDto,

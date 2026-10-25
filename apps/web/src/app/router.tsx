@@ -4,7 +4,7 @@ import {
   createRoute,
   redirect,
 } from '@tanstack/react-router';
-import { Role } from '@erp/shared';
+import { Role, isGlobalRole } from '@erp/shared';
 import { Root } from '@/routes/__root';
 import { LoginPage } from '@/routes/login';
 import { Layout } from '@/routes/_layout';
@@ -15,6 +15,7 @@ import { UsersSettingsPage } from '@/routes/settings/users';
 import { WorkersSettingsPage } from '@/routes/settings/workers';
 import { PermissionsSettingsPage } from '@/routes/settings/permissions';
 import { BranchConfigPage } from '@/routes/settings/branch-config';
+import { PriceListSettingsPage } from '@/routes/settings/price-list';
 import { GatePassPage } from '@/routes/gate-pass';
 import { JobCardFormPage } from '@/routes/job-card-form';
 import { WorkshopQueuePage } from '@/routes/workshop-queue';
@@ -47,14 +48,17 @@ function isAuthenticated() {
  * Returns a beforeLoad guard that redirects to / if the logged-in user lacks
  * the given permission. SUPER_ADMIN always passes (mirrors backend guard).
  * Mirror of usePermission() but synchronous for router beforeLoad context.
+ * `globalAlt` is what a head-office role needs instead (same as the menu's
+ * globalPermission), when the branch permission is a write they can't use.
  */
-function requirePermission(action: string, subject: string) {
+function requirePermission(action: string, subject: string, globalAlt?: { action: string; subject: string }) {
   return () => {
     const user = useAuthStore.getState().user;
     if (!user) throw redirect({ to: '/login' });
     if (user.role === Role.SUPER_ADMIN) return;
     const ability = buildAbility(user.permissions ?? []);
-    if (ability.cannot(action, subject)) throw redirect({ to: '/' });
+    const need = globalAlt && isGlobalRole(user.role) ? globalAlt : { action, subject };
+    if (ability.cannot(need.action, need.subject)) throw redirect({ to: '/' });
   };
 }
 
@@ -182,7 +186,7 @@ const workshopQueueRoute = createRoute({
   path: '/workshop-queue',
   component: WorkshopQueuePage,
   validateSearch: validateWorkshopQueueSearch,
-  beforeLoad: requirePermission('update', 'job_card_status'),
+  beforeLoad: requirePermission('view', 'job_cards'),
 });
 
 const cashierQueueRoute = createRoute({
@@ -220,7 +224,7 @@ const stockRequestsRoute = createRoute({
   path: '/stock-requests',
   component: StockRequestsPage,
   validateSearch: validateStockRequestSearch,
-  beforeLoad: requirePermission('request', 'stock'),
+  beforeLoad: requirePermission('request', 'stock', { action: 'view', subject: 'inventory' }),
 });
 
 // ── Phase 3 settings routes ───────────────────────────────────────────────────
@@ -230,6 +234,13 @@ const settingsBranchConfigRoute = createRoute({
   path: '/settings/branch-config',
   component: BranchConfigPage,
   beforeLoad: requirePermission('configure', 'branch'),
+});
+
+const settingsPriceListRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/price-list',
+  component: PriceListSettingsPage,
+  beforeLoad: requirePermission('view', 'price_list'),
 });
 
 const settingsUsersRoute = createRoute({
@@ -285,6 +296,7 @@ export const routeTree = rootRoute.addChildren([
     customersRoute,
     workersRoute,
     settingsBranchConfigRoute,
+    settingsPriceListRoute,
     settingsUsersRoute,
     settingsWorkersRoute,
     settingsPermissionsRoute,

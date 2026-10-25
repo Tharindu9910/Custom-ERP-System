@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { BRANCH, OVERRIDE_PASSWORD, SA, SUP, call, colomboToday, jobCard, login, material, newPhone, roofingOrder, workerIds } from '../support/api';
+import { BRANCH, OVERRIDE_PASSWORD, SA, SUP, call, colomboToday, jobCard, login, material, newPhone, roofingOrder, withGrant, workerIds } from '../support/api';
 import { expect, signIn, test } from '../support/fixtures';
 import { dialog, menuLabels, pickBranch, row } from '../support/ui';
 
@@ -113,11 +113,14 @@ test.describe('branch config', () => {
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByText('Saved.')).toBeVisible();
     try {
-      // Saving a short card is where the override is asked for (Docs/decisions/0003)
-      const old = await call(SUP.thangalla, 'POST', '/job-cards', { ...body({ password: OVERRIDE_PASSWORD, reason: 'Old password' }), worker_ids: workers });
-      expect(old.code).toBe('STK_002');
-      const ok = await call(SUP.thangalla, 'POST', '/job-cards', { ...body({ password: 'Browser@99', reason: 'New password' }), worker_ids: workers });
-      expect(ok.status).toBe(201);
+      // Saving a short card is where the override is asked for (Docs/decisions/0003);
+      // override:stock is MANAGER-only by default, so the Super Admin lets supervisors use it here
+      await withGrant('SUPERVISOR', 'override:stock', async () => {
+        const old = await call(SUP.thangalla, 'POST', '/job-cards', { ...body({ password: OVERRIDE_PASSWORD, reason: 'Old password' }), worker_ids: workers });
+        expect(old.code).toBe('STK_002');
+        const ok = await call(SUP.thangalla, 'POST', '/job-cards', { ...body({ password: 'Browser@99', reason: 'New password' }), worker_ids: workers });
+        expect(ok.status).toBe(201);
+      });
     } finally {
       await call(SA, 'PATCH', `/branches/${BRANCH.thangalla}/config`, { stock_override_password: OVERRIDE_PASSWORD });
     }

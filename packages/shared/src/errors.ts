@@ -46,7 +46,10 @@ export const ERR = {
 
   // ── Pricing ─────────────────────────────────────────────────────────────
   PRICE_MISSING_RATE: { code: 'PRC_001', message: 'No standard rate found — enter a custom price' },
-  PRICE_ROOFING_RATE_MISSING: { code: 'PRC_002', message: 'A rate is missing — ask the branch manager to add it in Order Settings' },
+  PRICE_ROOFING_RATE_MISSING: { code: 'PRC_002', message: 'A rate is missing — ask a manager to add it in Settings → Price List' },
+  PRICE_RATE_DUPLICATE: { code: 'PRC_003', message: 'An active rate with the same details already exists' },
+  PRICE_RATE_NOT_FOUND: { code: 'PRC_004', message: 'Rate not found' },
+  PRICE_ITEM_NOT_FOUND: { code: 'PRC_005', message: 'Item not found' },
 
   // ── Payments ────────────────────────────────────────────────────────────
   PAYMENT_OFFLINE_BLOCKED: { code: 'PAY_001', message: 'Payments cannot be processed offline' },
@@ -108,6 +111,8 @@ export const ERR = {
 
   // ── Permissions ─────────────────────────────────────────────────────────
   PERMISSION_NOT_FOUND: { code: 'PRM_001', message: 'Permission not found' },
+  PERMISSION_SUPER_ADMIN_ONLY: { code: 'PRM_002', message: 'This permission belongs to the Super Admin and cannot be granted' },
+  PERMISSION_GLOBAL_VIEW_ONLY: { code: 'PRM_003', message: 'Head-office roles only view branch work, so this permission cannot be granted to them' },
 
   // ── Attachments ─────────────────────────────────────────────────────────
   ATTACHMENT_NOT_FOUND: { code: 'ATT_001', message: 'Attachment not found' },
