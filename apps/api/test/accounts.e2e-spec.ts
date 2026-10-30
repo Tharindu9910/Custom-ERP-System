@@ -61,6 +61,8 @@ describe('AUTH login', () => {
         'request:stock',
         'send:stock',
         'create:chief_profile',
+        'create:hardware_sale',
+        'cancel:hardware_sale',
       ]),
     );
   });

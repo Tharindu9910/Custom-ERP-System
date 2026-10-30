@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { CUSTOM_LINE, OVERRIDE_PASSWORD, ROLLING_LINE, SA, SUP, call, jobCard, material, newPhone, payAdvance, reserved, sql, stock, withGrant } from '../support/api';
 import { expect, test } from '../support/fixtures';
-import { dialog, field, row } from '../support/ui';
+import { dialog, field, pick, row } from '../support/ui';
 
 /** WQ: Workshop Queue and the job card modal (Docs/testing/role-capabilities.md). */
 
@@ -20,13 +20,13 @@ async function openCard(page: Page, orderNumber: string, tabLabel = 'All Jobs') 
 async function fillShortCard(page: Page, m: { material_type: string; thickness: string }, qty: number) {
   const name = `Short Stock ${Date.now() % 1_000_000}`;
   await page.goto('/job-cards/new');
-  await field(page, 'Phone Number').fill(newPhone());
+  await field(page, 'Customer Phone').fill(newPhone());
   await field(page, 'Customer Name').fill(name);
   await page.getByPlaceholder('Select worker(s)').click();
   await page.locator('ul li button').first().click();
   await page.getByRole('button', { name: 'Cut / Bend', exact: true }).click();
-  await field(page, 'Material Type').selectOption(m.material_type);
-  await field(page, 'Thickness').selectOption(m.thickness);
+  await pick(page, 'Material Type', m.material_type);
+  await pick(page, 'Thickness', m.thickness);
   await field(page, 'Material Qty').fill(String(qty));
   await field(page, 'Total Cut Count').fill('1');
   await page.getByRole('button', { name: 'Add Sub-Job' }).click();

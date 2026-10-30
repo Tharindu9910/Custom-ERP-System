@@ -12,6 +12,9 @@ export interface SubJobForm {
   material_source: MaterialSource;
   custom: boolean;
   customized_reason_code: string;
+  // Customer material: the gate pass item this sub-job uses and how many pieces (Docs/decisions/0007)
+  gp_item_id: string;
+  gp_quantity: string;
   // Cut / Bend
   material_type: string;
   thickness: string;
@@ -42,6 +45,8 @@ export interface SubJobForm {
   roll_qty: string;
 }
 
+export const JOB_TYPE_LABEL: Record<WorkshopJobType, string> = { CUT_BEND: 'Cut / Bend', COIL_CUTTING: 'Coil Cutting', ROLLING: 'Rolling' };
+
 /** Reasons offered when a supervisor marks a job customized by hand (BR24). */
 export const CUSTOMIZED_REASONS = ['Non-standard size', 'Special design', 'Material not in price list', 'Rush job', 'Other'];
 
@@ -52,6 +57,8 @@ export function emptySubJob(jobType: WorkshopJobType, source: MaterialSource, de
     material_source: source,
     custom: false,
     customized_reason_code: '',
+    gp_item_id: '',
+    gp_quantity: '',
     material_type: defaults.material ?? '',
     thickness: '',
     inches: '',
@@ -99,6 +106,8 @@ export function toLineInput(f: SubJobForm): WorkshopLineInput {
     material_source: f.material_source,
     custom: f.custom,
     customized_reason_code: f.custom ? f.customized_reason_code || undefined : undefined,
+    customer_material:
+      f.material_source === MaterialSource.CUSTOMER && f.gp_item_id ? { gp_item_id: f.gp_item_id, quantity: int(f.gp_quantity) ?? 0 } : undefined,
   };
   if (f.job_type === 'CUT_BEND') {
     return {
@@ -147,6 +156,8 @@ export function fromLineSpec(spec: Record<string, unknown>, lineId: string): Sub
   f.line_id = lineId;
   f.custom = !!s.custom;
   f.customized_reason_code = (s.customized_reason_code as string) ?? '';
+  const cm = s.customer_material as { gp_item_id: string; quantity: number } | null | undefined;
+  if (cm) [f.gp_item_id, f.gp_quantity] = [cm.gp_item_id, String(cm.quantity)];
   const str = (v: unknown) => (v === undefined || v === null ? '' : String(v));
   const charges = ((s.custom_charges as CustomCharge[]) ?? []).slice();
   const take = (kind: CustomCharge['kind'], desc?: string) => {

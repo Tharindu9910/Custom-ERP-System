@@ -121,6 +121,7 @@ erDiagram
   ORDER {
     uuid order_id PK
     uuid branch_id FK
+    uuid origin_branch_id FK "nullable; HARDWARE_SALE placed by another branch's cashier (Docs/decisions/0006)"
     uuid customer_id FK "nullable only when order_type = HARDWARE_SALE"
     enum order_type "JOB_CARD|ROOFING_ORDER|HARDWARE_SALE"
     enum section_type "WORKSHOP|HARDWARE|ROOFING"
@@ -225,6 +226,7 @@ erDiagram
     string receipt_no UK
     uuid reverses_payment_id FK "nullable"
     uuid received_by FK "cashier"
+    uuid received_branch_id FK "branch where the money was taken (Docs/decisions/0006)"
     timestamp paid_at
   }
  

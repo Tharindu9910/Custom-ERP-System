@@ -48,8 +48,9 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'view:stock_alerts',
     'view:orders',
     'view:job_cards',
+    'view:hardware_queue',
   ],
-  AUDITOR: ['view:price_list', 'view:audit_log', 'view:financial_report', 'view:inventory', 'view:stock_alerts', 'view:orders', 'view:job_cards'],
+  AUDITOR: ['view:price_list', 'view:audit_log', 'view:financial_report', 'view:inventory', 'view:stock_alerts', 'view:orders', 'view:job_cards', 'view:hardware_queue'],
   // process:payment = cashier-queue payments; the roofing placement payment is
   // part of create:roofing_order (Docs/decisions/0001)
   SUPERVISOR: [
@@ -74,6 +75,9 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'request:stock',
     'send:stock',
     'create:chief_profile',
+    // Hardware Store for own branch only; the cashier takes the money (Docs/decisions/0006)
+    'create:hardware_sale',
+    'cancel:hardware_sale',
   ],
   CHIEF: [
     'create:job_card',
@@ -96,6 +100,7 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
   CASHIER: [
     'verify_price:standard',
     'process:payment',
+    'close:job_card',
     'generate:invoice',
     'complete:customer_profile',
     'create:roofing_order',
@@ -103,6 +108,10 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'view:orders',
     'edit:order',
     'cancel:order',
+    'create:hardware_sale',
+    'create:cross_branch_hardware_sale',
+    'view:hardware_queue',
+    'cancel:hardware_sale',
   ],
   MANAGER: [
     // The price list is one for every branch (Docs/decisions/0004); managers keep it
@@ -113,6 +122,7 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'update:job_card_status',
     'cancel:job_card_draft',
     'cancel:job_card_any',
+    'close:job_card',
     'manage:workers',
     'override:stock',
     'resolve:conflict_queue',
@@ -121,6 +131,7 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'view:orders',
     'view:inventory',
     'view:stock_alerts',
+    'view:hardware_queue',
   ],
 };
 

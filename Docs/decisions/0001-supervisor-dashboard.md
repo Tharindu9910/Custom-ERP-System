@@ -31,7 +31,7 @@ The three sources disagree in several places. This record lists how each conflic
 - **Overrides and stock:** `branch_stock.quantity` keeps its `CHECK >= 0` (ER-v6). An override deducts down to 0 and records the shortfall on the OVERRIDE movement and in the audit log.
 - **Material allocation:** `material_allocation` has an extra `order_id` column, because customer material is reserved for a whole order. `line_id` stays nullable.
 - **Stock transfer:** `stock_transfer` has extra `reject_reason` and `receive_notes` columns.
-- **Order status mapping:** "Completed" (workshop) and "Ready" (roofing) are derived, not stored. They mean IN_PROGRESS with every active line COMPLETED.
+- **Order status mapping:** "Completed" (workshop) and "Ready" (roofing) are derived, not stored. They mean IN_PROGRESS with every active line COMPLETED. *Superseded for job cards by [0005](0005-role-queues.md): COMPLETED is now stored, set by Mark Completed.*
 
   | Workshop label | Stored status | Roofing label | Stored status |
   |---|---|---|---|
@@ -61,7 +61,7 @@ The three sources disagree in several places. This record lists how each conflic
 
 These go beyond or adjust the prototype. Each one closes a gap found while building the real flow.
 
-- **"Awaiting Payment" tab in the Workshop Queue.** A job card stays DRAFT until the cashier takes the minimum advance, and the prototype gave the supervisor no way to find it there. The tab lets them check, edit or void such a card (BR14). "All Jobs" still means the paid queue.
+- *Superseded by [0005](0005-role-queues.md): the Workshop Queue is now a board and drafts live on the Cashier Queue.* **"Awaiting Payment" tab in the Workshop Queue.** A job card stays DRAFT until the cashier takes the minimum advance, and the prototype gave the supervisor no way to find it there. The tab lets them check, edit or void such a card (BR14). "All Jobs" still means the paid queue.
 - **Zero advance means straight to the queue.** If the minimum advance is 0 (for example, all-standard work at the default 0% standard rate), nothing is due, so the job card goes into the Workshop Queue as soon as it is created or edited. The balance is still collected at the cashier.
 - **BR21 "active session" window.** A supervisor counts as active if they have a live session created in the last 30 minutes. While the app is open it refreshes its token every 15 minutes, and each refresh creates a new session row. Sessions alone last 7 days, so they can't be used for this.
 - **Removed lines are cancelled, not deleted.** Editing a job card marks removed sub-jobs CANCELLED, so their history is kept.

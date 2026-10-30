@@ -43,6 +43,9 @@ export const MAIN_NAV: NavItem[] = [
   { label: 'Order Queue', to: '/order-queue', icon: 'listOrdered', scope: 'branch', permission: { action: 'view', subject: 'orders' }, section: 'roofing' },
   { label: 'Create Job Card', to: '/job-cards/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'job_card' }, section: 'workshop' },
   { label: 'Workshop Queue', to: '/workshop-queue', icon: 'clipboardList', scope: 'branch', permission: { action: 'view', subject: 'job_cards' }, section: 'workshop' },
+  // Hardware sales (Docs/decisions/0006): role permission says who, the branch switch says where
+  { label: 'Hardware Store', to: '/hardware-store', icon: 'wrench', scope: 'branch', transact: true, permission: { action: 'create', subject: 'hardware_sale' }, feature: 'hardwareStore' },
+  { label: 'Hardware Queue', to: '/hardware-queue', icon: 'wallet', scope: 'branch', permission: { action: 'view', subject: 'hardware_queue' }, feature: 'hardwareQueue' },
   { label: 'Inventory', to: '/inventory', icon: 'package', scope: 'network', permission: { action: 'view', subject: 'inventory' }, feature: 'inventory' },
   { label: 'Stock Alerts', to: '/stock-alerts', icon: 'packageOpen', scope: 'network', permission: { action: 'view', subject: 'stock_alerts' }, feature: 'stockAlerts' },
   { label: 'Stock Request', to: '/stock-requests', icon: 'arrowRightLeft', scope: 'network', permission: { action: 'request', subject: 'stock' }, globalPermission: { action: 'view', subject: 'inventory' }, feature: 'stockRequest' },

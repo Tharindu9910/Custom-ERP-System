@@ -81,7 +81,7 @@ export function GatePassPage() {
             onCreated={onCreated}
           />
         ) : (
-          <GatePassQueue hideColor={hideColor} onOpen={setSelected} />
+          <GatePassQueue onOpen={setSelected} />
         )}
       </div>
 

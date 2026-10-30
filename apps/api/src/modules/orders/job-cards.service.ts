@@ -24,6 +24,7 @@ import { BranchContextService } from '../../core/branch-context.service';
 import { EventsService } from '../../core/events.service';
 import { NumberService } from '../../core/number.service';
 import { StockService, type StockReservationInput } from '../../core/stock.service';
+import type { OrderHeader } from '../../database/entities/order.entity';
 import type { OrderLineEntity } from '../../database/entities/order-line.entity';
 import { CustomersService } from '../customers/customers.service';
 import { AllocationsService } from '../gate-passes/allocations.service';
@@ -36,6 +37,18 @@ interface PricedInput {
   input: WorkshopLineInput;
   priced: PricedWorkshopLine;
   item_id: string | null;
+}
+
+interface CustomerMaterialLine {
+  line_id: string;
+  gp_item_id: string;
+  quantity: number;
+}
+
+/** Older cards kept the material source and one gate pass on the header; lines carry them now. */
+function withoutOrderMaterial(header: OrderHeader | null): OrderHeader {
+  const { material_source: _s, gate_pass_id: _g, ...rest } = header ?? {};
+  return rest;
 }
 
 /** Workshop job cards: one order (JOB_CARD) per customer visit, one line per sub-job. */
@@ -94,7 +107,7 @@ export class JobCardsService {
           customerId,
           orderNumber,
           total,
-          JSON.stringify({ job_date: dto.job_date, material_source: dto.material_source, gate_pass_id: dto.gate_pass_id, notes: dto.notes }),
+          JSON.stringify({ job_date: dto.job_date, notes: dto.notes }),
           actor.user_id,
           actor.role,
           dto.client_request_id,
@@ -102,22 +115,19 @@ export class JobCardsService {
       );
 
       const holds: StockReservationInput[] = [];
+      const materials: CustomerMaterialLine[] = [];
       for (const [i, p] of priced.entries()) {
         const lineId = await this.insertLine(em, order_id, i + 1, p, settings, actor);
         await this.assignWorkers(em, lineId, dto.worker_ids, actor);
         holds.push(...this.hold(p, lineId));
+        materials.push(...this.material(p, lineId));
       }
       // Branch material is held from now until the line starts (Docs/decisions/0003)
       await this.stock.reserveMany(em, actor.branch_id, order_id, holds, actor, { override: dto.override });
 
-      if (dto.gate_pass_id && dto.allocations) {
-        await this.allocations.commit(
-          em,
-          { order_id, gate_pass_id: dto.gate_pass_id, customer_id: customerId, items: dto.allocations, replace: false },
-          actor,
-        );
-        await this.gatePasses.syncStoredStatus(em, [dto.gate_pass_id], actor.branch_id);
-      }
+      // Customer material: each line takes its gate pass item (Docs/decisions/0007)
+      const passes = await this.allocations.commitLines(em, { order_id, customer_id: customerId, lines: materials, replace: false }, actor);
+      if (passes.length) await this.gatePasses.syncStoredStatus(em, passes, actor.branch_id);
 
       await this.access.history(em, actor, {
         order_id,
@@ -183,6 +193,7 @@ export class JobCardsService {
 
       await this.stock.releaseForOrder(em, orderId, 'replaced_in_edit');
       const holds: StockReservationInput[] = [];
+      const materials: CustomerMaterialLine[] = [];
       for (const p of priced) {
         let lineId = p.input.line_id;
         if (lineId) {
@@ -193,11 +204,12 @@ export class JobCardsService {
         await em.query(`DELETE FROM line_assignment WHERE line_id = $1`, [lineId]);
         await this.assignWorkers(em, lineId, dto.worker_ids, actor);
         holds.push(...this.hold(p, lineId));
+        materials.push(...this.material(p, lineId));
       }
       await this.stock.reserveMany(em, actor.branch_id, orderId, holds, actor, { override: dto.override });
 
       const total = priced.reduce((s, p) => s + p.priced.line_total, 0);
-      const previousGatePass = order.header?.gate_pass_id;
+      const previousPasses = await this.allocations.gatePassIdsForOrder(em, orderId);
       await em.query(
         `UPDATE "order" SET customer_id = $2, subtotal = $3, total = $3, header = $4::jsonb, version = version + 1, updated_at = now()
          WHERE order_id = $1`,
@@ -205,21 +217,13 @@ export class JobCardsService {
           orderId,
           customerId,
           total,
-          JSON.stringify({ ...order.header, job_date: dto.job_date, material_source: dto.material_source, gate_pass_id: dto.gate_pass_id, notes: dto.notes }),
+          JSON.stringify({ ...withoutOrderMaterial(order.header), job_date: dto.job_date, notes: dto.notes }),
         ],
       );
 
-      // Customer material: new allocation replaces the old; no gate pass releases it
-      const touched = [previousGatePass, dto.gate_pass_id].filter((x): x is string => !!x);
-      if (dto.gate_pass_id && dto.allocations) {
-        await this.allocations.commit(
-          em,
-          { order_id: orderId, gate_pass_id: dto.gate_pass_id, customer_id: customerId, items: dto.allocations, replace: true },
-          actor,
-        );
-      } else if (!dto.gate_pass_id && previousGatePass) {
-        await this.allocations.releaseForOrder(em, orderId, 'unassigned_by_user');
-      }
+      // Customer material: the lines' gate pass items replace what the card held before
+      const passes = await this.allocations.commitLines(em, { order_id: orderId, customer_id: customerId, lines: materials, replace: true }, actor);
+      const touched = [...new Set([...previousPasses, ...passes])];
       if (touched.length) await this.gatePasses.syncStoredStatus(em, touched, actor.branch_id);
 
       await this.access.history(em, actor, {
@@ -298,12 +302,10 @@ export class JobCardsService {
 
   /** Rules the form offers from branch settings are enforced here too. */
   private checkAgainstSettings(dto: CreateJobCardDto | UpdateJobCardDto, settings: BranchSettings): void {
-    const usesCustomer =
-      dto.material_source === MaterialSource.CUSTOMER || dto.lines.some((l) => l.material_source === MaterialSource.CUSTOMER);
+    // Customer material always comes from a gate pass item (schema), so the branch needs both on (Docs/decisions/0007)
+    const usesCustomer = dto.lines.some((l) => l.material_source === MaterialSource.CUSTOMER);
     if (usesCustomer && !settings.general.allow_customer_material) throw new BadRequestException(ERR.ORDER_CUSTOMER_MATERIAL_DISABLED);
-    if (usesCustomer && settings.general.require_gate_pass && settings.features.gatePass && !dto.gate_pass_id) {
-      throw new BadRequestException(ERR.ORDER_GATE_PASS_REQUIRED);
-    }
+    if (usesCustomer && !settings.features.gatePass) throw new BadRequestException(ERR.ORDER_GATE_PASS_REQUIRED);
     for (const line of dto.lines) {
       if (!settings.workshop.job_types.includes(line.job_type)) {
         throw new BadRequestException(errWith(ERR.VALIDATION_FAILED, { job_type: line.job_type }, 'This job type is turned off for the branch'));
@@ -318,6 +320,12 @@ export class JobCardsService {
   private hold(p: PricedInput, lineId: string): StockReservationInput[] {
     const quantity = Number(p.priced.quantity ?? 0);
     return p.item_id && quantity > 0 ? [{ item_id: p.item_id, quantity, line_id: lineId }] : [];
+  }
+
+  /** The gate pass item a customer line uses. */
+  private material(p: PricedInput, lineId: string): CustomerMaterialLine[] {
+    const m = p.input.material_source === MaterialSource.CUSTOMER ? p.input.customer_material : null;
+    return m ? [{ line_id: lineId, gp_item_id: m.gp_item_id, quantity: m.quantity }] : [];
   }
 
   private pricingCtx(data: PricingData) {

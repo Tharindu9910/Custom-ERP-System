@@ -76,6 +76,59 @@ export class AllocationsService {
     return p.items;
   }
 
+  /**
+   * Saves customer material per line (job cards, Docs/decisions/0007): each line uses one
+   * gate pass item, and a card may draw on several of the customer's passes. All items are
+   * locked together and checked on the total each item gives across the lines. In edit mode
+   * the order's earlier commits are released first. Returns the gate passes touched.
+   */
+  async commitLines(
+    em: EntityManager,
+    p: { order_id: string; customer_id: string; lines: { line_id: string; gp_item_id: string; quantity: number }[]; replace: boolean },
+    actor: Actor,
+  ): Promise<string[]> {
+    if (p.replace) await this.releaseForOrder(em, p.order_id, 'replaced_in_edit');
+    if (p.lines.length === 0) return [];
+
+    const ids = [...new Set(p.lines.map((l) => l.gp_item_id))];
+    // One lock order across passes, so two cards on the same passes can't deadlock
+    const items: (LockedItem & { customer_id: string })[] = await em.query(
+      `SELECT i.gp_item_id, i.gate_pass_id, i.material_type, i.thickness, i.length::float AS length, i.length_unit, i.color,
+              i.quantity, i.condition_note, gp.customer_id
+       FROM gate_pass_item i JOIN gate_pass gp ON gp.gate_pass_id = i.gate_pass_id
+       WHERE i.gp_item_id = ANY($1::uuid[]) AND gp.branch_id = $2
+       ORDER BY i.gp_item_id FOR UPDATE OF i`,
+      [ids, actor.branch_id],
+    );
+    if (items.length !== ids.length) throw new NotFoundException(ERR.GATE_PASS_ITEM_NOT_FOUND);
+    if (items.some((i) => i.customer_id !== p.customer_id)) throw new BadRequestException(ERR.GATE_PASS_CUSTOMER_MISMATCH);
+
+    const now = new Date();
+    const all = await this.activeAllocations(em, ids);
+    for (const item of items) {
+      const requested = p.lines.filter((l) => l.gp_item_id === item.gp_item_id).reduce((s, l) => s + l.quantity, 0);
+      const { available } = itemBalance(item, all, { now });
+      if (requested > available) {
+        throw new ConflictException(
+          errWith(
+            ERR.ALLOCATION_INSUFFICIENT,
+            { gp_item_id: item.gp_item_id, requested, available },
+            `Not enough ${item.material_type} left on the gate pass. Requested ${requested}, available ${available}.`,
+          ),
+        );
+      }
+    }
+
+    for (const l of p.lines) {
+      await em.query(
+        `INSERT INTO material_allocation (gp_item_id, order_id, line_id, quantity, status, accepted_by)
+         VALUES ($1, $2, $3, $4, 'COMMITTED', $5)`,
+        [l.gp_item_id, p.order_id, l.line_id, l.quantity, actor.user_id],
+      );
+    }
+    return [...new Set(items.map((i) => i.gate_pass_id))];
+  }
+
   /** Frees everything committed to an order (void, cancel, gate pass unassigned on edit). */
   async releaseForOrder(em: EntityManager, orderId: string, reason: string): Promise<number> {
     const rows: unknown[] = await em.query(

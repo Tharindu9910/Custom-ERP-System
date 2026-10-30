@@ -111,6 +111,19 @@ export class GatePassesService {
     };
   }
 
+  /** Distinct material names already recorded at the branch (one spelling per name, case-insensitive). */
+  async materials(branchId: string): Promise<string[]> {
+    const rows: { material_type: string }[] = await this.ds.query(
+      `SELECT DISTINCT ON (lower(i.material_type)) i.material_type
+         FROM gate_pass_item i JOIN gate_pass gp ON gp.gate_pass_id = i.gate_pass_id
+        WHERE gp.branch_id = $1
+        ORDER BY lower(i.material_type), i.material_type
+        LIMIT 200`,
+      [branchId],
+    );
+    return rows.map((r) => r.material_type);
+  }
+
   async get(gatePassId: string, branchId: string, em: EntityManager = this.ds.manager): Promise<GatePassView> {
     const rows: GatePassRow[] = await em.query(`${ROW_SELECT} WHERE gp.gate_pass_id = $1 AND gp.branch_id = $2`, [gatePassId, branchId]);
     if (rows.length === 0) throw new NotFoundException(ERR.GATE_PASS_NOT_FOUND);
@@ -119,17 +132,26 @@ export class GatePassesService {
   }
 
   /** The customer's passes that still have material to allocate (plus one already assigned). */
-  async available(phone: string, branchId: string, includeId?: string): Promise<GatePassView[]> {
+  /**
+   * The customer's passes that still have material. `includeId` keeps one pass even when
+   * used up (roofing edit); `orderId` keeps every pass that order already draws on (job
+   * card edit, where the form adds the order's own quantities back).
+   */
+  async available(phone: string, branchId: string, includeId?: string, orderId?: string): Promise<GatePassView[]> {
     const key = phoneKey(phone);
-    if (key.length < 7 && !includeId) return [];
+    if (key.length < 7 && !includeId && !orderId) return [];
     const rows: GatePassRow[] = await this.ds.query(
       `${ROW_SELECT}
-       WHERE gp.branch_id = $1 AND (right(regexp_replace(c.phone, '\\D', '', 'g'), 9) = $2 OR gp.gate_pass_id = $3)
+       WHERE gp.branch_id = $1 AND (right(regexp_replace(c.phone, '\\D', '', 'g'), 9) = $2 OR gp.gate_pass_id = $3
+         OR gp.gate_pass_id IN (SELECT i.gate_pass_id FROM material_allocation a JOIN gate_pass_item i ON i.gp_item_id = a.gp_item_id
+                                WHERE a.order_id = $4 AND a.status = 'COMMITTED'))
        ORDER BY gp.created_at DESC`,
-      [branchId, key, includeId ?? null],
+      [branchId, key, includeId ?? null, orderId ?? null],
     );
     const views = await buildGatePassViews(this.ds.manager, rows);
-    return views.filter((v) => v.summary.has_available || v.gate_pass_id === includeId);
+    const kept = new Set(includeId ? [includeId] : []);
+    if (orderId) views.filter((v) => v.linked_documents.some((d) => d.order_id === orderId)).forEach((v) => kept.add(v.gate_pass_id));
+    return views.filter((v) => v.summary.has_available || kept.has(v.gate_pass_id));
   }
 
   /**

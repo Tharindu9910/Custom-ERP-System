@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import {
+  HARDWARE_STATUS_LABEL,
   LINE_STATUS_LABEL,
   LineStatus,
   OrderStatus,
@@ -10,6 +11,7 @@ import {
   WORKSHOP_STATUS_LABEL,
   HISTORY_PAGE_SIZE,
   balanceDue,
+  hardwareDisplayStatus,
   jobCardMinAdvance,
   lineHasStarted,
   paymentStateFor,
@@ -41,6 +43,7 @@ export interface OrderLineView {
   item_id: string | null;
   item_name: string | null;
   item_unit: string | null;
+  item_sku: string | null;
   spec: Record<string, unknown>;
   quantity: number | null;
   price_basis: string | null;
@@ -56,6 +59,20 @@ export interface OrderLineView {
   started_at: string | null;
   started_by: string | null;
   inspected_by: string | null;
+  /** The gate pass item a customer-material line uses (job cards, Docs/decisions/0007) */
+  customer_material: LineCustomerMaterial | null;
+}
+
+export interface LineCustomerMaterial {
+  gp_item_id: string;
+  gate_pass_id: string;
+  pass_number: string;
+  material_type: string;
+  thickness: string | null;
+  length: number | null;
+  length_unit: string | null;
+  color: string | null;
+  quantity: number;
 }
 
 export interface OrderDetail {
@@ -84,6 +101,8 @@ export interface OrderDetail {
   released_by_name: string | null;
   release_notes: string | null;
   can_edit: boolean;
+  /** Hardware sale placed by another branch's cashier (Docs/decisions/0006) */
+  origin_branch_name: string | null;
   /** Roofing timeline (prototype OrderTimeline); null for job cards */
   milestones: OrderMilestones | null;
   workers: { employee_id: string; full_name: string; employee_code: string }[];
@@ -98,6 +117,8 @@ export interface OrderDetail {
     color: string | null;
     quantity: number;
     pass_number: string;
+    /** Set on job cards (per-line material); null on roofing orders and older cards */
+    line_id: string | null;
   }[];
   payments: {
     payment_id: string;
@@ -108,6 +129,7 @@ export interface OrderDetail {
     receipt_no: string;
     paid_at: string;
     received_by_name: string | null;
+    received_branch_name: string | null;
   }[];
   history: {
     history_id: string;
@@ -174,13 +196,18 @@ export interface WorkshopQueueRow {
   display_label: string;
   line_count: number;
   completed_count: number;
+  /** Sub-jobs started or done; Mark Completed needs every one started */
+  started_count: number;
   total: number;
   paid_amount: number;
+  balance: number;
   min_advance: number;
   payment_state: OrderPaymentState;
   version: number;
   can_edit: boolean;
 }
+
+export type CashierColumn = 'AWAITING_PAYMENT' | 'READY_FOR_COLLECTION' | 'ROOFING_BALANCE';
 
 /** One job card or roofing order in the History popup. */
 export interface OrderHistoryRow {
@@ -220,9 +247,10 @@ export class OrderQueriesService {
   async detail(orderId: string, branchId: string): Promise<OrderDetail> {
     const rows = await this.ds.query(
       `SELECT o.*, c.customer_id AS c_id, c.name AS c_name, c.phone AS c_phone,
-              cu.full_name AS created_by_name, ru.full_name AS released_by_name
+              cu.full_name AS created_by_name, ru.full_name AS released_by_name, ob.name AS origin_branch_name
        FROM "order" o
        LEFT JOIN customer c ON c.customer_id = o.customer_id
+       LEFT JOIN branch ob ON ob.branch_id = o.origin_branch_id
        LEFT JOIN "user" cu ON cu.user_id = o.created_by
        LEFT JOIN "user" ru ON ru.user_id = o.released_by
        WHERE o.order_id = $1 AND o.branch_id = $2`,
@@ -233,7 +261,7 @@ export class OrderQueriesService {
 
     const [lines, assignments, history, payments, materials, settings] = await Promise.all([
       this.ds.query(
-        `SELECT l.*, i.name AS item_name, i.unit AS item_unit FROM order_line l LEFT JOIN item i ON i.item_id = l.item_id
+        `SELECT l.*, i.name AS item_name, i.unit AS item_unit, i.sku AS item_sku FROM order_line l LEFT JOIN item i ON i.item_id = l.item_id
          WHERE l.order_id = $1 ORDER BY l.line_no`,
         [orderId],
       ),
@@ -251,14 +279,15 @@ export class OrderQueriesService {
         [orderId],
       ),
       this.ds.query(
-        `SELECT p.payment_id, p.kind, p.mode, p.amount, p.reference_number, p.receipt_no, p.paid_at, u.full_name AS received_by_name
-         FROM payment p LEFT JOIN "user" u ON u.user_id = p.received_by
+        `SELECT p.payment_id, p.kind, p.mode, p.amount, p.reference_number, p.receipt_no, p.paid_at, u.full_name AS received_by_name,
+                rb.name AS received_branch_name
+         FROM payment p LEFT JOIN "user" u ON u.user_id = p.received_by LEFT JOIN branch rb ON rb.branch_id = p.received_branch_id
          WHERE p.order_id = $1 AND p.status = 'COMPLETED' ORDER BY p.paid_at`,
         [orderId],
       ),
       this.ds.query(
         `SELECT i.gp_item_id, i.material_type, i.thickness, i.length::float AS length, i.length_unit, i.color,
-                a.quantity, gp.pass_number, gp.gate_pass_id
+                a.quantity, a.line_id, gp.pass_number, gp.gate_pass_id
          FROM material_allocation a JOIN gate_pass_item i ON i.gp_item_id = a.gp_item_id
          JOIN gate_pass gp ON gp.gate_pass_id = i.gate_pass_id
          WHERE a.order_id = $1 AND a.status = 'COMMITTED' ORDER BY i.material_type`,
@@ -284,6 +313,7 @@ export class OrderQueriesService {
         item_id: l.item_id,
         item_name: l.item_name,
         item_unit: l.item_unit,
+        item_sku: l.item_sku,
         spec: l.spec,
         quantity: l.quantity === null ? null : Number(l.quantity),
         price_basis: l.price_basis,
@@ -301,16 +331,24 @@ export class OrderQueriesService {
         started_at: iso(started?.created_at ?? null),
         started_by: started?.actor_name ?? null,
         inspected_by: inspected?.actor_name ?? null,
+        customer_material: lineMaterial(materials, l.line_id),
       };
     });
 
     const active = lineViews.filter((l) => l.status !== LineStatus.CANCELLED);
     const statuses = active.map((l) => l.status);
     const isRoofing = o.order_type === OrderType.ROOFING_ORDER;
-    const display = isRoofing ? roofingDisplayStatus(o.status, statuses) : workshopDisplayStatus(o.status, statuses);
-    const label = isRoofing
-      ? ROOFING_STATUS_LABEL[display as keyof typeof ROOFING_STATUS_LABEL]
-      : WORKSHOP_STATUS_LABEL[display as keyof typeof WORKSHOP_STATUS_LABEL];
+    const isHardware = o.order_type === OrderType.HARDWARE_SALE;
+    const display = isHardware
+      ? hardwareDisplayStatus(o.status)
+      : isRoofing
+        ? roofingDisplayStatus(o.status, statuses)
+        : workshopDisplayStatus(o.status);
+    const label = isHardware
+      ? HARDWARE_STATUS_LABEL[display as keyof typeof HARDWARE_STATUS_LABEL]
+      : isRoofing
+        ? ROOFING_STATUS_LABEL[display as keyof typeof ROOFING_STATUS_LABEL]
+        : WORKSHOP_STATUS_LABEL[display as keyof typeof WORKSHOP_STATUS_LABEL];
     const workerMap = new Map<string, OrderDetail['workers'][number]>();
     active.forEach((l) => l.workers.forEach((w) => workerMap.set(w.employee_id, w)));
     const gp = materials[0];
@@ -331,7 +369,7 @@ export class OrderQueriesService {
       paid_amount: o.paid_amount,
       balance: balanceDue(o.total, o.paid_amount),
       payment_state: paymentStateFor(o.total, o.paid_amount),
-      min_advance: isRoofing ? 0 : jobCardMinAdvance(active, settings),
+      min_advance: isRoofing || isHardware ? 0 : jobCardMinAdvance(active, settings),
       created_at: iso(o.created_at)!,
       created_by: o.created_by,
       created_by_name: o.created_by_name,
@@ -340,9 +378,12 @@ export class OrderQueriesService {
       released_at: iso(o.released_at),
       released_by_name: o.released_by_name,
       release_notes: o.release_notes,
-      can_edit: isRoofing
+      can_edit: isHardware
+        ? false
+        : isRoofing
         ? o.status === OrderStatus.IN_QUEUE && settings.orders.allow_cashier_edit_before_start && !active.some((l) => lineHasStarted(l.status))
         : (o.status === OrderStatus.DRAFT || o.status === OrderStatus.IN_QUEUE) && !active.some((l) => lineHasStarted(l.status)),
+      origin_branch_name: o.origin_branch_name ?? null,
       milestones: isRoofing ? milestones(o, hist, active) : null,
       workers: [...workerMap.values()],
       lines: lineViews,
@@ -376,7 +417,7 @@ export class OrderQueriesService {
     const select = (statusClause: string, limit?: number) =>
       this.ds.query(
         `SELECT o.order_id, o.order_number, o.status, o.total, o.paid_amount, o.version, o.created_at, o.released_at,
-                o.header->>'technician' AS technician, (o.header->>'gate_pass_id') IS NOT NULL AS has_customer_material,
+                o.header->>'technician' AS technician, EXISTS (SELECT 1 FROM material_allocation ma WHERE ma.order_id = o.order_id AND ma.status = 'COMMITTED') AS has_customer_material,
                 c.name AS customer_name, c.phone AS customer_phone,
                 array_agg(l.status ORDER BY l.line_no) FILTER (WHERE l.status <> 'CANCELLED') AS line_statuses,
                 count(l.line_id) FILTER (WHERE l.status <> 'CANCELLED' OR o.status = 'VOIDED')::int AS item_count,
@@ -488,7 +529,7 @@ export class OrderQueriesService {
           status: r.status,
           display_label:
             type === OrderType.JOB_CARD
-              ? WORKSHOP_STATUS_LABEL[workshopDisplayStatus(r.status, statuses)]
+              ? WORKSHOP_STATUS_LABEL[workshopDisplayStatus(r.status)]
               : ROOFING_STATUS_LABEL[roofingDisplayStatus(r.status, statuses)],
         };
       }),
@@ -500,21 +541,16 @@ export class OrderQueriesService {
   }
 
   /**
-   * Workshop Queue: paid job cards (IN_QUEUE / IN_PROGRESS, incl. derived Completed),
-   * plus an "Awaiting Payment" tab for DRAFT cards still at the cashier.
-   * Counts are taken over the same date/search filter as the list, so a tab's
-   * count always equals the rows it shows.
+   * Workshop Queue board (Docs/decisions/0005): the supervisor's columns side by side,
+   * In Queue → In Progress → Completed. Unpaid (DRAFT) cards belong to the cashier.
+   * Counts are taken over the same search as the rows, so a column count equals its cards.
    */
   async workshopQueue(q: WorkshopQueueQuery, branchId: string) {
     const params: unknown[] = [branchId];
-    const where = [`o.branch_id = $1`, `o.order_type = 'JOB_CARD'`, `o.status IN ('DRAFT', 'IN_QUEUE', 'IN_PROGRESS')`];
+    const where = [`o.branch_id = $1`, `o.order_type = 'JOB_CARD'`, `o.status IN ('IN_QUEUE', 'IN_PROGRESS', 'COMPLETED')`];
     if (q.search) {
       params.push(`%${q.search}%`);
       where.push(`(o.order_number ILIKE $${params.length} OR c.name ILIKE $${params.length} OR c.phone ILIKE $${params.length})`);
-    }
-    if (q.date) {
-      params.push(q.date);
-      where.push(`COALESCE(o.header->>'job_date', ${localDate('o.created_at')}) = $${params.length}`);
     }
     const rows = await this.ds.query(
       `SELECT o.order_id, o.order_number, o.status, o.total, o.paid_amount, o.version, o.created_at, o.header->>'job_date' AS job_date,
@@ -526,7 +562,7 @@ export class OrderQueriesService {
        LEFT JOIN order_line l ON l.order_id = o.order_id
        WHERE ${where.join(' AND ')}
        GROUP BY o.order_id, c.name, c.phone
-       ORDER BY o.created_at DESC`,
+       ORDER BY o.created_at`,
       params,
     );
     const settings = (await this.branches.get(branchId)).settings;
@@ -535,7 +571,7 @@ export class OrderQueriesService {
       const statuses = parsePgArray(r.line_statuses) as LineStatus[];
       const totals = (r.line_totals ?? []) as number[];
       const custom = (r.line_custom ?? []) as boolean[];
-      const display = workshopDisplayStatus(r.status, statuses);
+      const display = workshopDisplayStatus(r.status);
       return {
         order_id: r.order_id,
         order_number: r.order_number,
@@ -548,8 +584,10 @@ export class OrderQueriesService {
         display_label: WORKSHOP_STATUS_LABEL[display],
         line_count: statuses.length,
         completed_count: statuses.filter((s) => s === LineStatus.COMPLETED).length,
+        started_count: statuses.filter((s) => lineHasStarted(s)).length,
         total: r.total,
         paid_amount: r.paid_amount,
+        balance: balanceDue(r.total, r.paid_amount),
         min_advance: jobCardMinAdvance(totals.map((t, i) => ({ line_total: t, is_customized: custom[i] })), settings),
         payment_state: paymentStateFor(r.total, r.paid_amount),
         version: r.version,
@@ -557,22 +595,17 @@ export class OrderQueriesService {
       };
     });
 
-    // "All" is the paid queue (prototype); job cards awaiting the advance have their own tab
-    const queue = all.filter((r) => r.display_status !== 'AWAITING_PAYMENT');
     const counts = {
-      total: queue.length,
-      awaiting_payment: all.length - queue.length,
       pending: all.filter((r) => r.display_status === 'PENDING').length,
       in_progress: all.filter((r) => r.display_status === 'IN_PROGRESS').length,
       completed: all.filter((r) => r.display_status === 'COMPLETED').length,
     };
-    const filtered = q.status === 'ALL' ? queue : all.filter((r) => r.display_status === q.status);
-    return { rows: filtered, counts };
+    return { rows: all, counts };
   }
 
   /**
-   * Minimal Cashier Queue (full cashier UI comes later): job cards waiting for the
-   * advance, and active orders with a balance due.
+   * Cashier Queue board (Docs/decisions/0005): job cards waiting for the advance,
+   * completed job cards waiting for collection, and roofing orders with a balance due.
    */
   async cashierQueue(branchId: string) {
     const rows = await this.ds.query(
@@ -583,9 +616,11 @@ export class OrderQueriesService {
               array_agg(l.is_customized) FILTER (WHERE l.status <> 'CANCELLED') AS line_custom
        FROM "order" o LEFT JOIN customer c ON c.customer_id = o.customer_id
        LEFT JOIN order_line l ON l.order_id = o.order_id
-       WHERE o.branch_id = $1 AND (o.status = 'DRAFT' OR (o.status IN ('IN_QUEUE', 'IN_PROGRESS') AND o.paid_amount < o.total))
+       WHERE o.branch_id = $1
+         AND ((o.order_type = 'JOB_CARD' AND o.status IN ('DRAFT', 'COMPLETED'))
+           OR (o.order_type = 'ROOFING_ORDER' AND o.status IN ('IN_QUEUE', 'IN_PROGRESS') AND o.paid_amount < o.total))
        GROUP BY o.order_id, c.name, c.phone
-       ORDER BY (o.status = 'DRAFT') DESC, o.created_at`,
+       ORDER BY o.created_at`,
       [branchId],
     );
     const settings = (await this.branches.get(branchId)).settings;
@@ -594,13 +629,15 @@ export class OrderQueriesService {
       const totals = (r.line_totals ?? []) as number[];
       const custom = (r.line_custom ?? []) as boolean[];
       const isRoofing = r.order_type === OrderType.ROOFING_ORDER;
-      const display = isRoofing ? roofingDisplayStatus(r.status, statuses) : workshopDisplayStatus(r.status, statuses);
+      const display = isRoofing ? roofingDisplayStatus(r.status, statuses) : workshopDisplayStatus(r.status);
+      const column: CashierColumn = isRoofing ? 'ROOFING_BALANCE' : r.status === OrderStatus.DRAFT ? 'AWAITING_PAYMENT' : 'READY_FOR_COLLECTION';
       const minAdvance = isRoofing ? 0 : jobCardMinAdvance(totals.map((t, i) => ({ line_total: t, is_customized: custom[i] })), settings);
       return {
         order_id: r.order_id,
         order_number: r.order_number,
         order_type: r.order_type,
         status: r.status,
+        column,
         display_label: isRoofing ? ROOFING_STATUS_LABEL[display as keyof typeof ROOFING_STATUS_LABEL] : WORKSHOP_STATUS_LABEL[display as keyof typeof WORKSHOP_STATUS_LABEL],
         customer_name: r.customer_name,
         customer_phone: r.customer_phone,
@@ -618,7 +655,7 @@ export class OrderQueriesService {
 }
 
 /** A timestamp column as a YYYY-MM-DD date in the branch timezone (stored as UTC). */
-const localDate = (col: string) => `to_char((${col} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Colombo', 'YYYY-MM-DD')`;
+export const localDate = (col: string) => `to_char((${col} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Colombo', 'YYYY-MM-DD')`;
 
 function roofingRow(r: Record<string, any>): RoofingQueueRow {
   const statuses = parsePgArray(r.line_statuses) as LineStatus[];
@@ -667,4 +704,21 @@ function milestones(
     },
     cancelled: cancelled ? { at: iso(cancelled.created_at), by: cancelled.actor_name, note: cancelled.note } : null,
   };
+}
+
+function lineMaterial(materials: Record<string, any>[], lineId: string): LineCustomerMaterial | null {
+  const m = materials.find((x) => x.line_id === lineId);
+  return m
+    ? {
+        gp_item_id: m.gp_item_id,
+        gate_pass_id: m.gate_pass_id,
+        pass_number: m.pass_number,
+        material_type: m.material_type,
+        thickness: m.thickness,
+        length: m.length,
+        length_unit: m.length_unit,
+        color: m.color,
+        quantity: m.quantity,
+      }
+    : null;
 }

@@ -207,6 +207,17 @@ function OrdersSection({ config, type, update, overridePassword, setOverridePass
         </FieldGroup>
       )}
 
+      {config.features.hardwareStore && config.features.hardwareQueue && (
+        <FieldGroup title="Hardware orders from other branches" hint="Advance another branch's cashier takes; the balance is collected here.">
+          <div className="max-w-xs">
+            <label className={labelClass}>Minimum advance</label>
+            <div className="mt-1">
+              <PercentInput value={value.hardware_remote_min_advance_pct} onChange={(v) => set('hardware_remote_min_advance_pct', v)} />
+            </div>
+          </div>
+        </FieldGroup>
+      )}
+
       <FieldGroup title="Cashier">
         <div className="max-w-xs">
           <label className={labelClass}>Maximum discount</label>

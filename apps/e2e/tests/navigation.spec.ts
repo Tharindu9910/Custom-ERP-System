@@ -6,8 +6,8 @@ import { menuLabels, navLink, pickBranch, scopeSelect, sidebar } from '../suppor
 
 const ROOFING = ['Create Order', 'Order Queue'];
 const WORKSHOP = ['Create Job Card', 'Workshop Queue'];
-const COMMON = ['Gate Pass', 'Inventory', 'Stock Alerts', 'Stock Request', 'Create Chief Profile'];
-const NEVER_FOR_SUPERVISOR = ['Dashboard', 'Cashier Queue', 'Customers', 'Finance', 'Audit Log', 'Branch Config', 'Price List', 'Users', 'Workers', 'Role Permissions'];
+const COMMON = ['Gate Pass', 'Inventory', 'Stock Alerts', 'Stock Request', 'Create Chief Profile', 'Hardware Store'];
+const NEVER_FOR_SUPERVISOR = ['Dashboard', 'Cashier Queue', 'Hardware Queue', 'Customers', 'Finance', 'Audit Log', 'Branch Config', 'Price List', 'Users', 'Workers', 'Role Permissions'];
 
 for (const [branch, has, hasNot] of [
   ['thangalla', [...ROOFING, ...WORKSHOP], []],
@@ -29,7 +29,7 @@ for (const [branch, has, hasNot] of [
 }
 
 test.describe('supervisor URL guards', () => {
-  for (const url of ['/cashier-queue', '/customers', '/workers', '/settings/branch-config', '/settings/price-list', '/settings/users', '/settings/workers', '/settings/permissions']) {
+  for (const url of ['/cashier-queue', '/hardware-queue', '/customers', '/workers', '/settings/branch-config', '/settings/price-list', '/settings/users', '/settings/workers', '/settings/permissions']) {
     test(`NAV-02 ${url} redirects a supervisor away`, async ({ page }) => {
       await page.goto(url);
       await expect(page).toHaveURL(/\/gate-pass$/);
@@ -150,6 +150,7 @@ test.describe('feature switches (Branch Config → supervisor menu)', () => {
     ['stockAlerts', 'Stock Alerts', '/stock-alerts'],
     ['stockRequest', 'Stock Request', '/stock-requests'],
     ['chiefProfiles', 'Create Chief Profile', '/chiefs/new'],
+    ['hardwareStore', 'Hardware Store', '/hardware-store'],
   ] as const) {
     test(`NAV-20 ${feature} off hides "${label}" and blocks its URL; on brings it back`, async ({ page }) => {
       try {

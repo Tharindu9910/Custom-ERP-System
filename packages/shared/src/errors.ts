@@ -43,6 +43,14 @@ export const ERR = {
   ORDER_EDIT_DISABLED: { code: 'ORD_015', message: 'The branch manager has turned off editing placed orders' },
   ORDER_COIL_INVALID: { code: 'ORD_016', message: 'The selected coil is not available at this branch' },
   ORDER_NOT_READY: { code: 'ORD_017', message: 'The order is not ready yet — complete the work first' },
+  ORDER_NOT_STARTED: { code: 'ORD_018', message: 'Start the job card first — press Start Job on the queue' },
+  ORDER_LINES_NOT_STARTED: { code: 'ORD_019', message: 'Some sub-jobs have not started yet — start them before marking the job completed' },
+  HARDWARE_PAYMENT_NOT_FULL: { code: 'ORD_020', message: 'Collect the full balance to complete this hardware order' },
+  HARDWARE_ADVANCE_RANGE: { code: 'ORD_021', message: 'An order for another branch takes an advance only — between the minimum and less than the total' },
+  HARDWARE_BRANCH_UNAVAILABLE: { code: 'ORD_022', message: 'That branch does not take hardware orders' },
+  HARDWARE_ITEM_INVALID: { code: 'ORD_023', message: 'An item is not an active hardware item' },
+  HARDWARE_CROSS_BRANCH_DENIED: { code: 'ORD_024', message: 'You can only place hardware orders for your own branch' },
+  HARDWARE_PAYMENT_DENIED: { code: 'ORD_025', message: 'Only the cashier can take payment — place the order without one' },
 
   // ── Pricing ─────────────────────────────────────────────────────────────
   PRICE_MISSING_RATE: { code: 'PRC_001', message: 'No standard rate found — enter a custom price' },

@@ -10,12 +10,14 @@ interface ModalProps {
   children: ReactNode;
   footer?: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  /** Keep one height whatever the content (popups with filters or tabs), so it doesn't jump as the list changes */
+  fixedHeight?: boolean;
 }
 
 const WIDTH = { sm: 'max-w-md', md: 'max-w-2xl', lg: 'max-w-4xl', xl: 'max-w-6xl' };
 
 /** Prototype popup: dimmed blurred backdrop, header bar, scrollable body, optional footer. */
-export function Modal({ open, onClose, title, subtitle, children, footer, size = 'lg' }: ModalProps) {
+export function Modal({ open, onClose, title, subtitle, children, footer, size = 'lg', fixedHeight = false }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -29,7 +31,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
       <div
         role="dialog"
         aria-modal="true"
-        className={cn('flex max-h-[90vh] w-full flex-col rounded-lg bg-white shadow-xl', WIDTH[size])}
+        className={cn('flex max-h-[90vh] w-full flex-col rounded-lg bg-white shadow-xl', WIDTH[size], fixedHeight && 'h-[85vh]')}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 rounded-t-lg border-b border-gray-200 bg-gray-50 px-6 py-4">
@@ -41,7 +43,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
             <Icon name="x" className="h-6 w-6" />
           </button>
         </div>
-        <div className="overflow-y-auto p-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">{children}</div>
         {footer && <div className="flex justify-end gap-3 rounded-b-lg border-t border-gray-200 bg-gray-50 px-6 py-4">{footer}</div>}
       </div>
     </div>

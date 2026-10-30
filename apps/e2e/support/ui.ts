@@ -52,3 +52,11 @@ export async function choose(scope: Page | Locator, opener: string | RegExp, opt
   const items = scope.locator('ul li[class*="cursor-pointer"]');
   await (option ? items.filter({ hasText: option }).first() : items.first()).click();
 }
+
+/** Pick an option in the SearchableSelect under a visible label (the first option when none is named). */
+export async function pick(scope: Page | Locator, label: string, option?: string | RegExp): Promise<void> {
+  const box = scope.locator('label').filter({ hasText: new RegExp(`^\\s*${escape(label)}`, 'i') }).first().locator('xpath=..');
+  await box.locator('button').first().click();
+  const items = box.locator('ul li[class*="cursor-pointer"]');
+  await (option ? items.filter({ hasText: option }).first() : items.first()).click();
+}

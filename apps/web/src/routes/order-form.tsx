@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   DEFAULT_BRANCH_SETTINGS,
@@ -18,6 +18,7 @@ import {
 } from '@erp/shared';
 import type { OrderFormSearch } from '@/app/search-params';
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog';
+import { ChoiceTiles, SectionHeader, Segmented } from '@/shared/components/FormSection';
 import { Icon, type IconName } from '@/shared/components/Icon';
 import { Notice } from '@/shared/components/Notice';
 import { PaymentCapture } from '@/shared/components/PaymentCapture';
@@ -771,25 +772,12 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
             />
 
             <p className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-700">a. What is being made?</p>
-            <div className="mb-6 grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9">
-              {categories.map((c) => {
-                const active = draft.category === c;
-                const count = items.filter((i) => i.category === c).length;
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => selectCategory(c)}
-                    className={`relative flex flex-col items-center justify-center rounded-lg border px-2 py-3 text-center transition-colors ${
-                      active ? 'border-blue-600 bg-blue-50 text-blue-700 ring-1 ring-blue-600' : 'border-gray-200 text-gray-700 hover:border-blue-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <Icon name={CATEGORY_ICONS[c]} className="mb-1.5 h-5 w-5" />
-                    <span className="text-xs font-semibold leading-tight">{c}</span>
-                    {count > 0 && <span className="absolute right-1 top-1 rounded-full bg-gray-900 px-1.5 text-[10px] font-bold text-white">{count}</span>}
-                  </button>
-                );
-              })}
+            <div className="mb-6">
+              <ChoiceTiles
+                tiles={categories.map((c) => ({ value: c, label: c, icon: CATEGORY_ICONS[c], count: items.filter((i) => i.category === c).length }))}
+                value={draft.category}
+                onChange={selectCategory}
+              />
             </div>
 
             {draft.category && (
@@ -1250,35 +1238,6 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
           onClose={() => setShortage(null)}
         />
       )}
-    </div>
-  );
-}
-
-function SectionHeader({ step, title, hint }: { step: number; title: string; hint?: string }) {
-  return (
-    <div className="mb-4 flex items-start">
-      <span className="mr-3 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0033A0] text-sm font-bold text-white">{step}</span>
-      <div>
-        <h3 className="text-base font-bold text-gray-900">{title}</h3>
-        {hint && <p className="mt-0.5 text-xs text-gray-500">{hint}</p>}
-      </div>
-    </div>
-  );
-}
-
-function Segmented<T extends string>({ value, options, onChange }: { value: T; options: { value: T; label: ReactNode }[]; onChange: (v: T) => void }) {
-  return (
-    <div className="inline-flex flex-wrap rounded-lg bg-gray-200 p-1">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${value === o.value ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-        >
-          {o.label}
-        </button>
-      ))}
     </div>
   );
 }

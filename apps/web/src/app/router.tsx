@@ -33,6 +33,8 @@ import {
   validateWorkshopQueueSearch,
 } from '@/app/search-params';
 import { CashierQueuePage } from '@/routes/cashier-queue';
+import { HardwareQueuePage } from '@/routes/hardware-queue';
+import { HardwareStorePage } from '@/routes/hardware-store';
 import { ChiefProfilePage } from '@/routes/chief-profile';
 import { ChangePasswordPage } from '@/routes/change-password';
 import { useAuthStore } from '@/shared/stores/auth.store';
@@ -196,6 +198,20 @@ const cashierQueueRoute = createRoute({
   beforeLoad: requirePermission('process', 'payment'),
 });
 
+const hardwareStoreRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/hardware-store',
+  component: HardwareStorePage,
+  beforeLoad: requirePermission('create', 'hardware_sale'),
+});
+
+const hardwareQueueRoute = createRoute({
+  getParentRoute: () => layoutRoute,
+  path: '/hardware-queue',
+  component: HardwareQueuePage,
+  beforeLoad: requirePermission('view', 'hardware_queue'),
+});
+
 const chiefProfileRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/chiefs/new',
@@ -289,6 +305,8 @@ export const routeTree = rootRoute.addChildren([
     jobCardEditRoute,
     workshopQueueRoute,
     cashierQueueRoute,
+    hardwareStoreRoute,
+    hardwareQueueRoute,
     chiefProfileRoute,
     inventoryRoute,
     stockAlertsRoute,

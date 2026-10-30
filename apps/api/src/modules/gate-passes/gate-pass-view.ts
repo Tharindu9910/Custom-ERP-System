@@ -5,6 +5,7 @@ import {
   OrderType,
   ROOFING_STATUS_LABEL,
   WORKSHOP_STATUS_LABEL,
+  allActiveLinesCompleted,
   gatePassSummary,
   isReservationActive,
   roofingDisplayStatus,
@@ -102,14 +103,15 @@ export async function buildGatePassViews(em: EntityManager, passes: GatePassRow[
         closed_at: o.released_at,
       });
     } else {
-      const d = workshopDisplayStatus(o.status, statuses);
+      const d = workshopDisplayStatus(o.status);
       linked.set(o.order_id, {
         order_id: o.order_id,
         order_number: o.order_number,
         order_type: o.order_type,
         status_label: WORKSHOP_STATUS_LABEL[d],
-        // The material is used once the work is completed (prototype rule)
-        terminal: d === 'COMPLETED' || d === 'CLOSED',
+        // The material is used once the work is completed (prototype rule): every sub-job
+        // done counts, even before the supervisor marks the card Completed
+        terminal: d === 'COMPLETED' || d === 'CLOSED' || allActiveLinesCompleted(statuses),
         closed_at: o.last_completed,
       });
     }

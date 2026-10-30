@@ -11,3 +11,4 @@ export * from './account.schema';
 export * from './offline-event.schema';
 export * from './order-history.schema';
 export * from './price-list.schema';
+export * from './hardware-sale.schema';

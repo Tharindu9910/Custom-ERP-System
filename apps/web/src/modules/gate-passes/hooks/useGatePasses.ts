@@ -91,13 +91,26 @@ export function useGatePass(id: string | null | undefined) {
   });
 }
 
-/** The customer's passes with material still to allocate (order forms). */
-export function useAvailableGatePasses(phone: string, include?: string | null, enabled = true) {
+/** Material names used on earlier passes at this branch (Material Type suggestions). */
+export function useGatePassMaterials() {
   return useQuery({
-    queryKey: queryKeys.gatePasses.available(`${phone}|${include ?? ''}`),
+    queryKey: queryKeys.gatePasses.materials(),
+    queryFn: async () => (await apiClient.get<{ data: string[] }>('/gate-passes/materials')).data.data,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** The customer's passes with material still to allocate (order forms). */
+/**
+ * The customer's passes that still have material. `include` keeps one pass even when used up
+ * (roofing edit); `orderId` keeps every pass that order draws on (job card edit).
+ */
+export function useAvailableGatePasses(phone: string, include?: string | null, enabled = true, orderId?: string) {
+  return useQuery({
+    queryKey: queryKeys.gatePasses.available(`${phone}|${include ?? ''}|${orderId ?? ''}`),
     queryFn: async () => {
       const { data } = await apiClient.get<{ data: GatePassDto[] }>('/gate-passes/available', {
-        params: { phone, include: include || undefined },
+        params: { phone, include: include || undefined, order_id: orderId || undefined },
       });
       return data.data;
     },

@@ -23,7 +23,8 @@ const COLOR_MAP: Record<string, string> = {
 
 const LABEL_MAP: Record<string, string> = {
   IN_QUEUE: 'In Queue',
-  IN_PROGRESS: 'In Progress',
+  IN_PROGRESS: 'Ongoing',
+  COMPLETED: 'Finished',
   CANCELLATION_PENDING: 'Cancel Pending',
 };
 

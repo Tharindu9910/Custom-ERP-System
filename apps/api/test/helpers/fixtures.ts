@@ -131,13 +131,38 @@ export const ROLLING_LINE = {
   size: '1"',
   quantity: 3,
 };
+/** A customized line (manual Custom on branch material, BR24), so the card needs an advance. */
 export const CUSTOM_LINE = {
   job_type: 'CUT_BEND',
-  material_source: 'CUSTOMER',
+  material_source: 'BRANCH',
+  custom: true,
+  customized_reason_code: 'Special design',
   custom_charges: [
-    { kind: 'CUT', description: 'Cut customer sheet', rate: 5000, quantity: 4 },
+    {
+      kind: 'CUT',
+      description: 'Cut sheet to design',
+      rate: 5000,
+      quantity: 4,
+    },
   ],
 };
+
+/** A line on the customer's own material: one gate pass item (Docs/decisions/0007). */
+export function customerLine(gpItemId: string, quantity: number) {
+  return {
+    job_type: 'CUT_BEND',
+    material_source: 'CUSTOMER',
+    custom_charges: [
+      {
+        kind: 'CUT',
+        description: 'Cut customer sheet',
+        rate: 5000,
+        quantity: 4,
+      },
+    ],
+    customer_material: { gp_item_id: gpItemId, quantity },
+  };
+}
 
 export function jobCardBody(
   phone: string,
@@ -150,7 +175,6 @@ export function jobCardBody(
     customer: { phone, name: 'E2E Job Customer' },
     job_date: colomboToday(),
     worker_ids: workers,
-    material_source: 'BRANCH',
     lines,
     ...over,
   };
@@ -177,7 +201,12 @@ export async function jobCard(
     .as(user)
     .post(
       '/job-cards',
-      jobCardBody(newPhone(), workers, opts.lines ?? [CUSTOM_LINE], opts.override ? { override: opts.override } : {}),
+      jobCardBody(
+        newPhone(),
+        workers,
+        opts.lines ?? [CUSTOM_LINE],
+        opts.override ? { override: opts.override } : {},
+      ),
     );
   if (r.status !== 201)
     throw new Error(`jobCard ${r.status} ${JSON.stringify(r.body)}`);
@@ -250,9 +279,16 @@ export function sheetLine(coilId: string, over: Record<string, unknown> = {}) {
 /** A placed roofing order paying the minimum (so a balance is due). */
 export async function roofingOrder(
   t: TestApp,
-  opts: { user?: string; lines?: unknown[]; payFull?: boolean; override?: { password: string; reason: string } } = {},
+  opts: {
+    user?: string;
+    lines?: unknown[];
+    payFull?: boolean;
+    override?: { password: string; reason: string };
+  } = {},
 ) {
-  const r = await t.as(opts.user ?? SUP.thangalla).post('/roofing-orders', await roofingOrderBody(t, opts));
+  const r = await t
+    .as(opts.user ?? SUP.thangalla)
+    .post('/roofing-orders', await roofingOrderBody(t, opts));
   if (r.status !== 201)
     throw new Error(`roofingOrder ${r.status} ${JSON.stringify(r.body)}`);
   return r.data;
@@ -261,7 +297,12 @@ export async function roofingOrder(
 /** The body roofingOrder() posts, for tests that need the raw response (e.g. a 409 on placing). */
 export async function roofingOrderBody(
   t: TestApp,
-  opts: { user?: string; lines?: unknown[]; payFull?: boolean; override?: { password: string; reason: string } } = {},
+  opts: {
+    user?: string;
+    lines?: unknown[];
+    payFull?: boolean;
+    override?: { password: string; reason: string };
+  } = {},
 ) {
   const user = opts.user ?? SUP.thangalla;
   const lines = opts.lines ?? [sheetLine((await richCoil(t, user)).item_id)];

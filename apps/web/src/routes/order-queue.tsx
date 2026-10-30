@@ -143,7 +143,7 @@ export function OrderQueuePage() {
     if (canWork && o.display_status === 'IN_PROGRESS') {
       items.push(
         <button key="complete" disabled={action.isPending} onClick={() => void run(o, 'complete')} className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700`}>
-          <Icon name="checkCircle" className="h-3.5 w-3.5" /> Complete
+          <Icon name="checkCircle" className="h-3.5 w-3.5" /> Finish
         </button>,
       );
     }
@@ -176,7 +176,7 @@ export function OrderQueuePage() {
 
   const kpis: { label: string; value: ReactNode; tone: string; tab: RoofingQueueTab; sub?: string }[] = [
     { label: 'Placed', value: c?.placed ?? '–', tone: c?.placed ? 'text-amber-600' : 'text-slate-900', tab: 'PLACED' },
-    { label: 'In Progress', value: c?.in_progress ?? '–', tone: c?.in_progress ? 'text-blue-600' : 'text-slate-900', tab: 'IN_PROGRESS' },
+    { label: 'Ongoing', value: c?.in_progress ?? '–', tone: c?.in_progress ? 'text-blue-600' : 'text-slate-900', tab: 'IN_PROGRESS' },
     { label: 'Ready', value: c?.ready ?? '–', tone: c?.ready ? 'text-emerald-600' : 'text-slate-900', tab: 'READY', sub: c?.ready_unpaid ? `${c.ready_unpaid} unpaid` : undefined },
     { label: 'Released today', value: c?.released_today ?? '–', tone: 'text-teal-700', tab: 'RELEASED' },
     { label: 'Balance due', value: formatRs(c?.balance_due ?? 0), tone: c?.balance_due ? 'text-red-600' : 'text-slate-900', tab: 'ACTIVE' },
@@ -237,7 +237,7 @@ export function OrderQueuePage() {
                   tabs={[
                     { key: 'ACTIVE', label: 'Active', count: c?.active },
                     { key: 'PLACED', label: 'Placed', count: c?.placed },
-                    { key: 'IN_PROGRESS', label: 'In Progress', count: c?.in_progress },
+                    { key: 'IN_PROGRESS', label: 'Ongoing', count: c?.in_progress },
                     { key: 'READY', label: 'Ready', count: c?.ready },
                     { key: 'RELEASED', label: 'Released', count: c?.released },
                     { key: 'CANCELLED', label: 'Cancelled', count: c?.cancelled },

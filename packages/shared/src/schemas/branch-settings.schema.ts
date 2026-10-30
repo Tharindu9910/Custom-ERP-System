@@ -124,6 +124,8 @@ export const OrderPolicySchema = z.object({
   min_advance_pct: z.number().min(0).max(100).default(30),
   max_discount_pct: z.number().min(0).max(100).default(5),
   allow_cashier_edit_before_start: z.boolean().default(true),
+  // Hardware order placed by another branch's cashier: minimum advance taken there (Docs/decisions/0006)
+  hardware_remote_min_advance_pct: z.number().min(0).max(100).default(30),
 });
 
 export const GatePassConfigSchema = z.object({

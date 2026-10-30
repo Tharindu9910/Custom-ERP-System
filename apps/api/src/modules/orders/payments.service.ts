@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import {
@@ -6,9 +6,11 @@ import {
   OrderStatus,
   OrderType,
   PaymentMode,
+  Role,
   jobCardMinAdvance,
   paymentKindFor,
   type BranchSettings,
+  type CloseJobCardDto,
   type RecordPaymentDto,
 } from '@erp/shared';
 import type { Actor } from '../../common/actor';
@@ -17,6 +19,7 @@ import { AuditService } from '../../core/audit.service';
 import { BranchContextService } from '../../core/branch-context.service';
 import { EventsService } from '../../core/events.service';
 import { NumberService } from '../../core/number.service';
+import { RolePermissionsService } from '../../core/role-permissions.service';
 import type { OrderEntity } from '../../database/entities/order.entity';
 import { LedgerService } from '../ledger/ledger.service';
 import { OrderAccessService } from './order-access.service';
@@ -38,6 +41,7 @@ export class PaymentsService {
     private readonly queries: OrderQueriesService,
     private readonly audit: AuditService,
     private readonly events: EventsService,
+    private readonly rolePermissions: RolePermissionsService,
   ) {}
 
   async record(orderId: string, dto: RecordPaymentDto, actor: Actor): Promise<OrderDetail> {
@@ -46,10 +50,16 @@ export class PaymentsService {
     ]);
     if (duplicate[0]) return this.queries.detail(duplicate[0].order_id, actor.branch_id);
 
+    // Collect & Close also closes the card, which needs its own permission
+    if (dto.close && !(await this.mayClose(actor))) throw new ForbiddenException(ERR.AUTH_INSUFFICIENT_PERMISSION);
+
     const settings = (await this.branches.get(actor.branch_id)).settings;
     let paymentId = '';
+    let closed = false;
     await this.ds.transaction(async (em) => {
       const order = await this.access.lockOrder(em, orderId, actor.branch_id);
+      // Hardware sales are paid in full through /hardware-sales/:id/pay, which also deducts stock
+      if (order.order_type === OrderType.HARDWARE_SALE) throw new BadRequestException(ERR.ORDER_WRONG_TYPE);
       if (order.status === OrderStatus.CLOSED || order.status === OrderStatus.VOIDED) {
         throw new ConflictException(ERR.PAYMENT_ORDER_CLOSED);
       }
@@ -72,13 +82,58 @@ export class PaymentsService {
           });
         }
       }
+
+      // Collect & Close: the balance is now 0, so the completed card is handed over in the same transaction
+      if (dto.close && order.order_type === OrderType.JOB_CARD && order.status === OrderStatus.COMPLETED && order.paid_amount + dto.amount >= order.total) {
+        await this.closeLocked(em, order, { released_to: dto.released_to }, actor);
+        closed = true;
+      }
     });
 
     this.audit.record(actor, { type: 'payment', id: paymentId }, 'RECORD_PAYMENT', {
       after: { order_id: orderId, amount: dto.amount, mode: dto.mode },
     });
+    if (closed) this.audit.record(actor, { type: 'order', id: orderId }, 'CLOSE_JOB_CARD', { after: { released_to: dto.released_to ?? null } });
     this.events.changed(actor.branch_id, 'orders', 'payments');
     return this.queries.detail(orderId, actor.branch_id);
+  }
+
+  /** Close & Hand Over: a completed job card with nothing owed becomes CLOSED (Docs/decisions/0005). */
+  async close(orderId: string, dto: CloseJobCardDto, actor: Actor): Promise<OrderDetail> {
+    await this.ds.transaction(async (em) => {
+      const order = await this.access.lockOrder(em, orderId, actor.branch_id, OrderType.JOB_CARD);
+      this.access.assertVersion(order.version, dto.version);
+      await this.closeLocked(em, order, dto, actor);
+    });
+    this.audit.record(actor, { type: 'order', id: orderId }, 'CLOSE_JOB_CARD', { after: { released_to: dto.released_to ?? null } });
+    this.events.changed(actor.branch_id, 'orders');
+    return this.queries.detail(orderId, actor.branch_id);
+  }
+
+  private async mayClose(actor: Actor): Promise<boolean> {
+    return actor.role === Role.SUPER_ADMIN || this.rolePermissions.has(actor.role, 'close:job_card');
+  }
+
+  /** Closes a locked job card. Paid amount is re-read so a payment earlier in the transaction counts. */
+  private async closeLocked(em: EntityManager, order: OrderEntity, dto: { released_to?: string; notes?: string }, actor: Actor): Promise<void> {
+    if (order.status !== OrderStatus.COMPLETED) throw new ConflictException(ERR.ORDER_INVALID_TRANSITION);
+    const [{ total, paid_amount }]: { total: number; paid_amount: number }[] = await em.query(`SELECT total, paid_amount FROM "order" WHERE order_id = $1`, [
+      order.order_id,
+    ]);
+    if (paid_amount < total) throw new ConflictException(errWith(ERR.ORDER_BALANCE_DUE, { balance: total - paid_amount }));
+    await em.query(
+      `UPDATE "order" SET status = 'CLOSED', released_to = $2, released_by = $3, released_at = now(), release_notes = $4,
+              version = version + 1, updated_at = now()
+       WHERE order_id = $1`,
+      [order.order_id, dto.released_to?.trim() || null, actor.user_id, dto.notes?.trim() || null],
+    );
+    await this.access.history(em, actor, {
+      order_id: order.order_id,
+      event_type: HistoryEventType.STATUS_CHANGE,
+      from_status: OrderStatus.COMPLETED,
+      to_status: OrderStatus.CLOSED,
+      note: dto.released_to?.trim() ? `Handed over to ${dto.released_to.trim()}${dto.notes?.trim() ? ` · ${dto.notes.trim()}` : ''}` : (dto.notes?.trim() ?? null),
+    });
   }
 
   /**
@@ -87,7 +142,7 @@ export class PaymentsService {
    */
   async insertPayment(
     em: EntityManager,
-    order: Pick<OrderEntity, 'order_id' | 'total' | 'paid_amount'>,
+    order: Pick<OrderEntity, 'order_id' | 'total' | 'paid_amount'> & { order_type?: OrderType },
     dto: { client_request_id?: string; amount: number; mode: PaymentMode; reference?: string },
     settings: BranchSettings,
     actor: Actor,
@@ -103,11 +158,11 @@ export class PaymentsService {
     const receiptNo = await this.numbers.next(em, 'RECEIPT', settings.number_prefixes);
     const kind = paymentKindFor(order.paid_amount, dto.amount, order.total);
     const [{ payment_id }]: { payment_id: string }[] = await em.query(
-      `INSERT INTO payment (order_id, kind, mode, amount, reference_number, receipt_no, received_by, client_request_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING payment_id`,
-      [order.order_id, kind, dto.mode, dto.amount, dto.reference?.trim() || null, receiptNo, actor.user_id, dto.client_request_id ?? null],
+      `INSERT INTO payment (order_id, kind, mode, amount, reference_number, receipt_no, received_by, received_branch_id, client_request_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING payment_id`,
+      [order.order_id, kind, dto.mode, dto.amount, dto.reference?.trim() || null, receiptNo, actor.user_id, actor.branch_id, dto.client_request_id ?? null],
     );
-    await this.ledger.recordPayment({ payment_id, order_id: order.order_id, amount: dto.amount, kind }, actor, em);
+    await this.ledger.recordPayment({ payment_id, order_id: order.order_id, amount: dto.amount, kind, order_type: order.order_type }, actor, em);
     await em.query(`UPDATE "order" SET paid_amount = paid_amount + $2, version = version + 1, updated_at = now() WHERE order_id = $1`, [
       order.order_id,
       dto.amount,

@@ -34,6 +34,10 @@ export class PaymentEntity {
   @Column({ type: 'uuid' })
   received_by: string;
 
+  // Branch where the money was taken — differs from the order's branch for a cross-branch hardware advance
+  @Column({ type: 'uuid' })
+  received_branch_id: string;
+
   @Column({ type: 'timestamp', default: () => 'now()' })
   paid_at: Date;
 

@@ -38,3 +38,21 @@ export function paymentKindFor(alreadyPaid: number, amount: number, total: numbe
   if (alreadyPaid + amount >= total) return 'FINAL';
   return alreadyPaid === 0 ? 'ADVANCE' : 'PARTIAL';
 }
+
+/**
+ * Line total for a hardware item: unit price (cents) × quantity (up to 3 decimals for kg / length).
+ * Worked in thousandths of a unit so 0.1 + 0.2 style float drift can't change a cent.
+ */
+export function hardwareLineTotal(unitPrice: number, quantity: number): number {
+  const milli = Math.round(quantity * 1000);
+  return Math.round((unitPrice * milli) / 1000);
+}
+
+/**
+ * Advance allowed on a hardware order placed for another branch (Docs/decisions/0006):
+ * at least min_pct of the total, and always less than the total so the balance is
+ * collected where the goods are.
+ */
+export function hardwareAdvanceRange(total: number, minPct: number): { min: number; max: number } {
+  return { min: Math.max(1, Math.ceil((total * minPct) / 100)), max: total - 1 };
+}

@@ -77,20 +77,17 @@ async function screens(username: string): Promise<void> {
   ]);
   if (gp) check(`${who} Gate Pass available ≤ total`, gp.available <= gp.total);
 
-  const wq = await tabs<{ total: number; awaiting_payment: number; pending: number; in_progress: number; completed: number }>(
-    who,
-    'Workshop Queue',
-    token,
-    (s) => `/workshop-queue?status=${s}`,
-    [
-      ['total', 'ALL'],
-      ['awaiting_payment', 'AWAITING_PAYMENT'],
-      ['pending', 'PENDING'],
-      ['in_progress', 'IN_PROGRESS'],
-      ['completed', 'COMPLETED'],
-    ],
-  );
-  if (wq) check(`${who} Workshop Queue total = pending + in progress + completed`, wq.total === wq.pending + wq.in_progress + wq.completed);
+  // Workshop Queue is a board (Docs/decisions/0005): each column count = its cards
+  const wq = await api<{ rows: { display_status: string }[]; counts: { pending: number; in_progress: number; completed: number } }>(token, '/workshop-queue');
+  if (wq.status === 200) {
+    for (const [key, status] of [['pending', 'PENDING'], ['in_progress', 'IN_PROGRESS'], ['completed', 'COMPLETED']] as const) {
+      const n = wq.data.rows.filter((r) => r.display_status === status).length;
+      check(`${who} Workshop Queue ${key} = cards in column`, wq.data.counts[key] === n, `${wq.data.counts[key]} vs ${n}`);
+    }
+    check(`${who} Workshop Queue shows only its columns`, wq.data.rows.every((r) => ['PENDING', 'IN_PROGRESS', 'COMPLETED'].includes(r.display_status)));
+  } else if (wq.status !== 403) {
+    check(`${who} Workshop Queue loads`, false, `HTTP ${wq.status}`);
+  }
 
   const rq = await tabs<{ active: number; placed: number; in_progress: number; ready: number; released: number; cancelled: number; all: number }>(
     who,

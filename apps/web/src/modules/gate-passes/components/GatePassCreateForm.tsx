@@ -1,11 +1,12 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { LengthUnit, formatGatePassLength, type GatePassItemInput } from '@erp/shared';
 import { Icon } from '@/shared/components/Icon';
+import { Combobox } from '@/shared/components/Combobox';
 import { ColorDot } from '@/shared/components/Marks';
 import { Notice } from '@/shared/components/Notice';
 import { apiError, newRequestId } from '@/shared/api/errors';
 import { accentFor } from '@/shared/lib/tones';
-import { useCreateGatePass, type GatePassDto } from '../hooks/useGatePasses';
+import { useCreateGatePass, useGatePassMaterials, type GatePassDto } from '../hooks/useGatePasses';
 
 interface DraftItem extends GatePassItemInput {
   key: string;
@@ -39,6 +40,17 @@ export function GatePassCreateForm({ materials, colors, hideColor, initialPhone 
   const [qty, setQty] = useState('');
   const [remarks, setRemarks] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Branch list first, then names already used on earlier passes (one spelling each)
+  const { data: usedMaterials } = useGatePassMaterials();
+  const materialOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return [...materials, ...(usedMaterials ?? [])].filter((m) => {
+      const k = m.trim().toLowerCase();
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [materials, usedMaterials]);
 
   const canAdd = !!materialType.trim() && (!!thickness.trim() || !!length.trim() || qty !== '');
 
@@ -118,12 +130,14 @@ export function GatePassCreateForm({ materials, colors, hideColor, initialPhone 
               <label className="field-label">
                 Material Type <span className="text-red-500">*</span>
               </label>
-              <input list="gp-material-options" value={materialType} onChange={(e) => setMaterialType(e.target.value)} className={inputCls} />
-              <datalist id="gp-material-options">
-                {materials.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
+              <Combobox
+                value={materialType}
+                onChange={setMaterialType}
+                suggestions={materialOptions}
+                noun="material"
+                placeholder="Type or pick a material"
+                className={inputCls}
+              />
             </div>
             <div className={hideColor ? 'sm:col-span-6 lg:col-span-3' : 'sm:col-span-4 lg:col-span-2'}>
               <label className="field-label">Thickness (mm)</label>

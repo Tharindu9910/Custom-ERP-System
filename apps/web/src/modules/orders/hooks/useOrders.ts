@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  CloseJobCardDto,
   CreateJobCardDto,
   OrderHistoryQuery,
   LineStatus,
@@ -12,7 +13,6 @@ import type {
   UpdateJobCardDto,
   WorkshopDisplayStatus,
   WorkshopLineInput,
-  WorkshopQueueFilter,
 } from '@erp/shared';
 import { apiClient } from '@/shared/api/client';
 import { queryKeys } from '@/shared/api/query-keys';
@@ -36,6 +36,7 @@ export interface OrderLineDto {
   item_id: string | null;
   item_name: string | null;
   item_unit: string | null;
+  item_sku: string | null;
   spec: Record<string, unknown>;
   quantity: number | null;
   price_basis: string | null;
@@ -51,6 +52,20 @@ export interface OrderLineDto {
   started_at: string | null;
   started_by: string | null;
   inspected_by: string | null;
+  /** The gate pass item a customer-material line uses (job cards, Docs/decisions/0007) */
+  customer_material: LineCustomerMaterial | null;
+}
+
+export interface LineCustomerMaterial {
+  gp_item_id: string;
+  gate_pass_id: string;
+  pass_number: string;
+  material_type: string;
+  thickness: string | null;
+  length: number | null;
+  length_unit: string | null;
+  color: string | null;
+  quantity: number;
 }
 
 export interface Milestone {
@@ -92,6 +107,8 @@ export interface OrderDetailDto {
   released_by_name: string | null;
   release_notes: string | null;
   can_edit: boolean;
+  /** Hardware sale placed by another branch's cashier */
+  origin_branch_name: string | null;
   /** Roofing timeline; null for job cards */
   milestones: OrderMilestones | null;
   workers: WorkerRef[];
@@ -106,6 +123,8 @@ export interface OrderDetailDto {
     color: string | null;
     quantity: number;
     pass_number: string;
+    /** Set on job cards (per-line material); null on roofing orders and older cards */
+    line_id: string | null;
   }[];
   payments: {
     payment_id: string;
@@ -116,6 +135,7 @@ export interface OrderDetailDto {
     receipt_no: string;
     paid_at: string;
     received_by_name: string | null;
+    received_branch_name: string | null;
   }[];
   history: {
     history_id: string;
@@ -144,8 +164,11 @@ export interface WorkshopQueueRow {
   display_label: string;
   line_count: number;
   completed_count: number;
+  /** Sub-jobs started or done; Mark Completed needs every one started */
+  started_count: number;
   total: number;
   paid_amount: number;
+  balance: number;
   min_advance: number;
   payment_state: OrderPaymentState;
   version: number;
@@ -159,11 +182,14 @@ export interface QuoteResult {
   missing_rates: { line_index: number; missing: string }[];
 }
 
+export type CashierColumn = 'AWAITING_PAYMENT' | 'READY_FOR_COLLECTION' | 'ROOFING_BALANCE';
+
 export interface CashierQueueRow {
   order_id: string;
   order_number: string;
   order_type: OrderType;
   status: OrderStatus;
+  column: CashierColumn;
   display_label: string;
   customer_name: string | null;
   customer_phone: string | null;
@@ -179,7 +205,7 @@ export interface CashierQueueRow {
 
 export const invalidateOrders = (qc: ReturnType<typeof useQueryClient>) => {
   // order-history is only marked stale here; it refetches when the History popup is next open
-  for (const key of [['orders'], ['workshop-queue'], ['roofing-queue'], ['cashier-queue'], ['gate-passes'], ['inventory'], ['stock-alerts'], ['order-history']]) {
+  for (const key of [['orders'], ['workshop-queue'], ['roofing-queue'], ['cashier-queue'], ['hardware-queue'], ['hardware-store'], ['gate-passes'], ['inventory'], ['stock-alerts'], ['order-history']]) {
     void qc.invalidateQueries({ queryKey: key });
   }
 };
@@ -269,17 +295,37 @@ export function useVoidJobCard() {
   });
 }
 
-export function useWorkshopQueue(params: { status: WorkshopQueueFilter; date?: string; search?: string }) {
+export function useWorkshopQueue(params: { search?: string }) {
   return useQuery({
     queryKey: queryKeys.workshopQueue(params),
     queryFn: async () =>
       (
         await apiClient.get<{
-          data: { rows: WorkshopQueueRow[]; counts: { total: number; awaiting_payment: number; pending: number; in_progress: number; completed: number } };
+          data: { rows: WorkshopQueueRow[]; counts: { pending: number; in_progress: number; completed: number } };
         }>('/workshop-queue', { params })
       ).data.data,
     placeholderData: keepPreviousData,
     ...LIVE_QUERY_OPTIONS,
+  });
+}
+
+/** Card-level moves on the queue boards (Docs/decisions/0005). */
+export function useJobCardAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      p:
+        | { orderId: string; action: 'start'; version: number; line_ids: string[]; override?: StockOverride }
+        | { orderId: string; action: 'complete'; version: number; note?: string }
+        | ({ orderId: string; action: 'close' } & CloseJobCardDto),
+    ) => {
+      const { orderId, action, ...body } = p;
+      return (await apiClient.post<{ data: OrderDetailDto }>(`/job-cards/${orderId}/${action}`, body)).data.data;
+    },
+    onSuccess: (detail) => {
+      qc.setQueryData(queryKeys.orders.detail(detail.order_id), detail);
+      invalidateOrders(qc);
+    },
   });
 }
 

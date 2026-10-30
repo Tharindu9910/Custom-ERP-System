@@ -22,11 +22,12 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   // Job cards and work orders
   p('create:job_card', 'job-cards', 'Create and edit job cards', { branchWrite: true }),
   p('view:job_cards', 'job-cards', 'View the workshop queue'),
-  p('update:job_card_status', 'job-cards', 'Start work on job card lines', { branchWrite: true }),
+  p('update:job_card_status', 'job-cards', 'Start job cards and their sub-jobs', { branchWrite: true }),
   p('cancel:job_card_draft', 'job-cards', 'Void an unpaid DRAFT job card', { branchWrite: true }),
+  p('close:job_card', 'job-cards', 'Close and hand over a completed, fully paid job card', { branchWrite: true }),
   p('cancel:job_card_any', 'job-cards', 'Cancel a job card in any status', { planned: true, branchWrite: true }),
   p('create:work_order', 'work-orders', 'Add a work order to a job card', { planned: true, branchWrite: true }),
-  p('complete:work_order', 'work-orders', 'Mark a work order as completed', { branchWrite: true }),
+  p('complete:work_order', 'work-orders', 'Mark sub-jobs and job cards as completed', { branchWrite: true }),
   p('assign:worker', 'work-orders', 'Assign workers to a work order', { planned: true, branchWrite: true }),
   p('enter_price:customized', 'work-orders', 'Enter customised price on work order', { planned: true, branchWrite: true }),
   p('enter_price:standard', 'work-orders', 'Enter standard price on work order', { planned: true, branchWrite: true }),
@@ -48,6 +49,11 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   p('release:order', 'orders', 'Release a ready, fully paid order to the customer', { branchWrite: true }),
   p('edit:order', 'orders', 'Edit a placed roofing order before work starts', { branchWrite: true }),
   p('cancel:order', 'orders', 'Cancel a placed roofing order', { branchWrite: true }),
+  // Hardware sales (Docs/decisions/0006)
+  p('create:hardware_sale', 'hardware', 'Use the Hardware Store and place hardware orders for own branch', { branchWrite: true }),
+  p('create:cross_branch_hardware_sale', 'hardware', "Place advance-paid hardware orders on another branch (sees that branch's hardware stock)", { branchWrite: true }),
+  p('view:hardware_queue', 'hardware', 'View the hardware queue'),
+  p('cancel:hardware_sale', 'hardware', 'Cancel a hardware order that is awaiting payment', { branchWrite: true }),
   // Inventory and stock transfers
   p('view:inventory', 'inventory', 'View branch stock levels'),
   p('view:stock_alerts', 'inventory', 'View low and out-of-stock alerts'),

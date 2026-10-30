@@ -1,5 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import {
+  CloseJobCardSchema,
+  CompleteJobCardSchema,
   CompleteWorkSchema,
   CreateJobCardSchema,
   CreateRoofingOrderSchema,
@@ -11,10 +13,13 @@ import {
   RecordPaymentSchema,
   ReleaseOrderSchema,
   RoofingQueueQuerySchema,
+  StartJobCardSchema,
   StartWorkSchema,
   UpdateJobCardSchema,
   UpdateRoofingOrderSchema,
   WorkshopQueueQuerySchema,
+  type CloseJobCardDto,
+  type CompleteJobCardDto,
   type CompleteWorkDto,
   type CreateJobCardDto,
   type CreateRoofingOrderDto,
@@ -25,6 +30,7 @@ import {
   type ReleaseOrderDto,
   type OrderHistoryQuery,
   type RoofingQueueQuery,
+  type StartJobCardDto,
   type StartWorkDto,
   type UpdateJobCardDto,
   type UpdateRoofingOrderDto,
@@ -98,6 +104,40 @@ export class OrdersController {
   @RequireFeature({ section: 'workshop' })
   workshopQueue(@Query(new ZodPipe(WorkshopQueueQuerySchema)) q: WorkshopQueueQuery, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.queries.workshopQueue(q, toActor(u, b).branch_id);
+  }
+
+  // Card-level moves on the Workshop Queue board (Docs/decisions/0005)
+  @Post('job-cards/:id/start')
+  @RequirePermissions('update:job_card_status')
+  startJobCard(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(StartJobCardSchema)) dto: StartJobCardDto,
+    @CurrentUser() u: RequestUser,
+    @BranchId() b: string | null,
+  ) {
+    return this.lines.startCard(id, dto, toActor(u, b));
+  }
+
+  @Post('job-cards/:id/complete')
+  @RequirePermissions('complete:work_order')
+  completeJobCard(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(CompleteJobCardSchema)) dto: CompleteJobCardDto,
+    @CurrentUser() u: RequestUser,
+    @BranchId() b: string | null,
+  ) {
+    return this.lines.completeCard(id, dto, toActor(u, b));
+  }
+
+  @Post('job-cards/:id/close')
+  @RequirePermissions('close:job_card')
+  closeJobCard(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(CloseJobCardSchema)) dto: CloseJobCardDto,
+    @CurrentUser() u: RequestUser,
+    @BranchId() b: string | null,
+  ) {
+    return this.payments.close(id, dto, toActor(u, b));
   }
 
   @Post('order-lines/:id/start')
@@ -202,7 +242,7 @@ export class OrdersController {
     return this.queries.detail(id, toActor(u, b).branch_id);
   }
 
-  // ── Cashier (minimal) ─────────────────────────────────────────────────────
+  // ── Cashier ─────────────────────────────────────────────────────
 
   @Get('cashier-queue')
   @RequirePermissions('process:payment')

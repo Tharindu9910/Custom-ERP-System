@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import { LedgerEntryEntity } from '../../database/entities/ledger-entry.entity';
 import { FinancialAccountEntity } from '../../database/entities/financial-account.entity';
-import { EntryType, AccountType, Role } from '@erp/shared';
+import { EntryType, AccountType, OrderType, Role } from '@erp/shared';
 import { SYSTEM_ACCOUNTS } from '@erp/shared';
 
 type Actor = { user_id: string; role: Role | null; branch_id: string };
@@ -23,6 +23,7 @@ export class LedgerService {
       order_id: string;
       amount: number;
       kind: 'ADVANCE' | 'PARTIAL' | 'FINAL';
+      order_type?: OrderType;
     },
     actor: Actor,
     em?: EntityManager,
@@ -49,7 +50,9 @@ export class LedgerService {
       // The caller provides total_amount; advance_paid is resolved from ledger
       await repo.save([
         { ...base, account_id: accounts['1200'], entry_type: EntryType.DEBIT,  amount: payment.amount, description: 'Cash received (final)' },
-        { ...base, account_id: accounts['4000'], entry_type: EntryType.CREDIT, amount: payment.amount, description: 'Service revenue recognised' },
+        payment.order_type === OrderType.HARDWARE_SALE
+          ? { ...base, account_id: accounts['4100'], entry_type: EntryType.CREDIT, amount: payment.amount, description: 'Hardware sale revenue recognised' }
+          : { ...base, account_id: accounts['4000'], entry_type: EntryType.CREDIT, amount: payment.amount, description: 'Service revenue recognised' },
       ]);
     }
   }

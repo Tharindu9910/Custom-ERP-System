@@ -193,7 +193,7 @@ function OrderTimeline({ m }: { m: NonNullable<OrderDetailDto['milestones']> }) 
     : [
         { label: 'Placed', ...m.placed },
         { label: 'Started', ...m.started },
-        { label: 'Completed', ...m.completed },
+        { label: 'Finished', ...m.completed },
         { label: 'Released', ...m.released },
       ];
   return (

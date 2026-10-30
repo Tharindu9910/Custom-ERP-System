@@ -9,6 +9,11 @@ import { formatDate, formatDateTime, formatRs } from '@/shared/lib/format';
 import { usePermission } from '@/shared/hooks/usePermission';
 import { useCanTransact } from '@/shared/hooks/useCanTransact';
 import { useLineAction, useOrderDetail, useVoidJobCard, type OrderLineDto } from '@/modules/orders/hooks/useOrders';
+import { thicknessLabel } from '../lib/customer-material';
+import { CompleteJobDialog, StartJobDialog } from './JobCardMoveDialogs';
+
+// Sub-job status pill and its action button share one size so the rows line up
+const LINE_CHIP = 'inline-flex h-8 w-28 items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-semibold';
 
 const LINE_TYPE_LABEL: Record<string, string> = { CUT_BEND: 'Cut / Bend', COIL_CUTTING: 'Coil Cutting', ROLLING: 'Rolling' };
 
@@ -25,19 +30,36 @@ function lineSummary(l: OrderLineDto): string {
 }
 
 /**
- * Work order (job card) popup from the Workshop Queue: material details and each
- * sub-job with Start / Complete. Start deducts branch material (BR10) and may ask
- * for a stock override. `readOnly` (opened from History) shows the card with no actions.
+ * Work order (job card) popup from the Workshop Queue: material details, each sub-job
+ * with Start / Complete, and the card's own move (Start Job / Mark Completed —
+ * Docs/decisions/0005). A sub-job starts only once the card is Ongoing; Start
+ * deducts branch material (BR10) and may ask for a stock override. `readOnly` (opened
+ * from History) shows the card with no actions, except Edit / Void on an unpaid draft.
  */
-export function WorkOrderModal({ orderId, onClose, onEdit, readOnly = false }: { orderId: string; onClose: () => void; onEdit?: () => void; readOnly?: boolean }) {
+export function WorkOrderModal({
+  orderId,
+  onClose,
+  onEdit,
+  onMoved,
+  readOnly = false,
+}: {
+  orderId: string;
+  onClose: () => void;
+  onEdit?: () => void;
+  /** The card moved to another column; the modal closes and the board shows the message */
+  onMoved?: (message: string) => void;
+  readOnly?: boolean;
+}) {
   const { data: order, isLoading } = useOrderDetail(orderId);
+  const [moving, setMoving] = useState<'start' | 'complete' | null>(null);
   const action = useLineAction();
   const [error, setError] = useState<string | null>(null);
   const [override, setOverride] = useState<{ line: OrderLineDto; details: StockShortageDetails } | null>(null);
   const [overrideError, setOverrideError] = useState<string | null>(null);
   const voidCard = useVoidJobCard();
   const { can } = usePermission();
-  const canTransact = useCanTransact() && !readOnly;
+  // Drafts left the Workshop Queue, so History is where the supervisor edits or voids them
+  const canTransact = useCanTransact() && (!readOnly || order?.status === OrderStatus.DRAFT);
   const [voidReason, setVoidReason] = useState<string | null>(null);
   // BR14: only an unpaid draft can be voided by the supervisor/chief
   const canVoid = canTransact && !!order && order.status === OrderStatus.DRAFT && order.paid_amount === 0 && can('cancel', 'job_card_draft');
@@ -46,6 +68,13 @@ export function WorkOrderModal({ orderId, onClose, onEdit, readOnly = false }: {
   const canStart = canTransact && can('update', 'job_card_status');
   const canComplete = canTransact && can('complete', 'work_order');
   const canEdit = canTransact && can('create', 'job_card');
+  const cardStarted = order?.status === OrderStatus.IN_PROGRESS;
+  const notStarted = order?.lines.filter((l) => l.status === LineStatus.PENDING || l.status === LineStatus.ASSIGNED).length ?? 0;
+  const moved = (msg: string) => {
+    setMoving(null);
+    onClose();
+    onMoved?.(msg);
+  };
 
   const confirmVoid = async () => {
     if (!order || !voidReason || voidReason.trim().length < 3) return;
@@ -117,6 +146,21 @@ export function WorkOrderModal({ orderId, onClose, onEdit, readOnly = false }: {
                 </button>
               </div>
             )}
+            {canStart && order?.status === OrderStatus.IN_QUEUE && (
+              <button onClick={() => setMoving('start')} className="btn-primary">
+                <Icon name="play" className="h-4 w-4" /> Start Job
+              </button>
+            )}
+            {canComplete && cardStarted && (
+              <button
+                onClick={() => setMoving('complete')}
+                disabled={notStarted > 0}
+                title={notStarted > 0 ? 'Start every sub-job first' : undefined}
+                className="btn-primary bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <Icon name="checkCircle" className="h-4 w-4" /> Mark Finished
+              </button>
+            )}
             {canEdit && order?.can_edit && onEdit && (
               <button onClick={onEdit} className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
                 Edit
@@ -136,121 +180,126 @@ export function WorkOrderModal({ orderId, onClose, onEdit, readOnly = false }: {
             {awaitingAdvance && canTransact && (
               <Notice tone="info">Waiting for the minimum advance at the cashier. Work can start once it is paid.</Notice>
             )}
-            <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-5">
-              <Field label="Customer" value={order.customer?.name ?? '—'} />
-              <Field label="Phone" value={order.customer?.phone ?? '—'} />
-              <Field label="Date" value={formatDate(order.header.job_date ?? order.created_at)} />
-              <div>
-                <p className="font-medium text-gray-500">Payment</p>
-                <p className={`font-semibold ${order.payment_state === 'UNPAID' ? 'text-red-600' : 'text-green-600'}`}>
-                  {PAYMENT_STATE_LABEL[order.payment_state]}
-                  {order.paid_amount > 0 ? ` (${formatRs(order.paid_amount)})` : ''}
-                </p>
-              </div>
-              <Field label="Overall Status" value={order.display_label} bold />
-            </div>
-            <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-5">
-              <Field label="Total" value={formatRs(order.total)} />
-              <Field label="Balance" value={formatRs(order.balance)} />
-              <Field label="Workers" value={order.workers.map((w) => w.full_name).join(', ') || '—'} />
-              <Field label="Created by" value={order.created_by_name ?? '—'} />
-            </div>
-
-            <div>
-              <h4 className="mb-3 border-b pb-2 font-semibold text-gray-900">Material Details</h4>
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-500">Material Source</span>
-                  <span className="text-sm font-bold text-blue-700">{source}</span>
+            {order.status === OrderStatus.IN_QUEUE && canStart && (
+              <Notice tone="info">Press Start Job to move this card to Ongoing. Sub-jobs left out can be started here afterwards.</Notice>
+            )}
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-gray-900">
+                    {order.customer?.name ?? '—'}
+                    {order.customer?.phone && <span className="ml-2 font-normal text-gray-500">{order.customer.phone}</span>}
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    {formatDate(order.header.job_date ?? order.created_at)}
+                    {order.created_by_name && ` · Created by ${order.created_by_name}`}
+                  </p>
                 </div>
-                {order.gate_pass && (
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-sm font-medium text-gray-500">Gate Pass ID</span>
-                    <span className="text-sm font-bold text-green-700">{order.gate_pass.pass_number}</span>
-                  </div>
-                )}
-                {branchMaterials.length + order.customer_materials.length > 0 ? (
-                  <div className="mt-3 space-y-2">
-                    {branchMaterials.map((l) => (
-                      <div key={l.line_id} className="flex items-center justify-between rounded border border-gray-200 bg-white p-2 text-sm">
-                        <div>
-                          <span className="font-medium text-gray-900">{l.item_name ?? `${(l.spec as Record<string, string>).material_type} (${(l.spec as Record<string, string>).thickness})`}</span>{' '}
-                          <span className="text-gray-500">(Branch)</span>
-                        </div>
-                        <span className="font-medium text-gray-700">
-                          Qty: {l.quantity ?? '-'} {l.item_unit ?? ''}
-                        </span>
-                      </div>
-                    ))}
-                    {order.customer_materials.map((m) => (
-                      <div key={m.gp_item_id} className="flex items-center justify-between rounded border border-gray-200 bg-white p-2 text-sm">
-                        <div>
-                          <span className="font-medium text-gray-900">
-                            {m.material_type} {m.thickness ? `(${m.thickness})` : ''} {m.length ? `[${formatGatePassLength(m.length, m.length_unit)}]` : ''}{' '}
-                            {m.color ? `{Color: ${m.color}}` : ''}
-                          </span>{' '}
-                          <span className="text-gray-500">(Customer)</span>
-                        </div>
-                        <span className="font-medium text-gray-700">Qty: {m.quantity}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-sm text-gray-500">No materials added.</p>
-                )}
+                <span className="whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{order.display_label}</span>
+              </div>
+              <div className="grid grid-cols-3 divide-x rounded-lg border border-gray-200 text-sm">
+                <Field label="Total" value={formatRs(order.total)} />
+                <div className="px-3 py-2">
+                  <p className="text-xs text-gray-500">{PAYMENT_STATE_LABEL[order.payment_state]}</p>
+                  <p className={`font-semibold ${order.payment_state === 'UNPAID' ? 'text-red-600' : 'text-green-600'}`}>{formatRs(order.paid_amount)}</p>
+                </div>
+                <Field label="Balance" value={formatRs(order.balance)} />
               </div>
             </div>
 
             <div>
-              <h4 className="mb-3 border-b pb-2 font-semibold text-gray-900">Sub Jobs ({active.length})</h4>
-              <div className="space-y-3">
-                {active.map((l) => (
-                  <div key={l.line_id} className="flex flex-col items-start justify-between gap-4 rounded-lg border border-gray-200 bg-white p-4 md:flex-row md:items-center">
-                    <div>
-                      <div className="flex items-center gap-2 font-semibold text-gray-900">
-                        {l.line_number} <span className="text-xs font-normal text-gray-400">| {LINE_TYPE_LABEL[l.line_type] ?? l.line_type}</span>
-                      </div>
-                      <div className="mt-1 text-sm text-gray-600">
-                        {l.is_customized ? <span className="font-medium text-purple-700">Customized Work</span> : lineSummary(l)}
-                        {' • '}Worker: {l.workers.map((w) => w.full_name).join(', ')}
-                      </div>
-                      {(l.started_at || l.inspected_by) && (
-                        <div className="mt-1 text-xs text-gray-400">
-                          {l.started_at && `Started ${formatDateTime(l.started_at)} by ${l.started_by}`}
-                          {l.inspected_by && ` · Inspected by ${l.inspected_by}`}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-semibold text-gray-700">{formatRs(l.line_total)}</span>
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold leading-5 ${statusPill(l.status)}`}>{l.status_label}</span>
-                      {canStart && !awaitingAdvance && l.status === LineStatus.ASSIGNED && (
-                        <button
-                          disabled={action.isPending}
-                          onClick={() => void run(l, 'start')}
-                          className="inline-flex items-center rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-900 disabled:opacity-50"
-                        >
-                          <Icon name="play" className="mr-1 h-3 w-3" /> Start
-                        </button>
-                      )}
-                      {canComplete && l.status === LineStatus.IN_PROGRESS && (
-                        <button
-                          disabled={action.isPending}
-                          onClick={() => void run(l, 'complete')}
-                          className="inline-flex items-center rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-600 hover:text-green-900 disabled:opacity-50"
-                        >
-                          <Icon name="checkCircle" className="mr-1 h-3 w-3" /> Complete
-                        </button>
-                      )}
-                    </div>
-                  </div>
+              <div className="mb-2 flex items-center gap-2">
+                <h4 className="font-semibold text-gray-900">Materials</h4>
+                <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">{source}</span>
+                {[...new Set(order.customer_materials.map((m) => m.pass_number))].map((n) => (
+                  <span key={n} className="rounded bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                    Gate pass {n}
+                  </span>
                 ))}
               </div>
+              {branchMaterials.length + order.customer_materials.length > 0 ? (
+                <ul className="divide-y rounded-lg border border-gray-200 text-sm">
+                  {branchMaterials.map((l) => (
+                    <li key={l.line_id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="text-gray-900">
+                        {l.item_name ?? `${(l.spec as Record<string, string>).material_type} (${(l.spec as Record<string, string>).thickness})`}{' '}
+                        <span className="text-xs text-gray-400">Branch</span>
+                      </span>
+                      <span className="whitespace-nowrap text-gray-600">
+                        {l.quantity ?? '-'} {l.item_unit ?? ''}
+                      </span>
+                    </li>
+                  ))}
+                  {order.customer_materials.map((m) => (
+                    <li key={`${m.gp_item_id}:${m.line_id ?? ''}`} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="text-gray-900">
+                        {m.material_type} {m.thickness ? `(${m.thickness})` : ''} {m.length ? `[${formatGatePassLength(m.length, m.length_unit)}]` : ''}{' '}
+                        {m.color ? `{Color: ${m.color}}` : ''} <span className="text-xs text-gray-400">Customer · {m.pass_number}</span>
+                        {m.line_id && <span className="text-xs text-gray-400"> · for {active.find((l) => l.line_id === m.line_id)?.line_number ?? 'a removed sub-job'}</span>}
+                      </span>
+                      <span className="whitespace-nowrap text-gray-600">{m.quantity}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500">No materials added.</p>
+              )}
+            </div>
+
+            <div>
+              <h4 className="mb-2 font-semibold text-gray-900">Sub Jobs ({active.length})</h4>
+              <ul className="divide-y rounded-lg border border-gray-200">
+                {active.map((l) => (
+                  <li key={l.line_id} className="px-3 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-semibold text-gray-900">
+                        {l.line_number} <span className="text-xs font-normal text-gray-400">· {LINE_TYPE_LABEL[l.line_type] ?? l.line_type}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="whitespace-nowrap text-sm font-semibold text-gray-700">{formatRs(l.line_total)}</span>
+                        <span className={`${LINE_CHIP} ${statusPill(l.status)}`}>{l.status_label}</span>
+                        {canStart && cardStarted && l.status === LineStatus.ASSIGNED && (
+                          <button
+                            disabled={action.isPending}
+                            onClick={() => void run(l, 'start')}
+                            className={`${LINE_CHIP} bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-50`}
+                          >
+                            <Icon name="play" className="h-3.5 w-3.5" /> Start
+                          </button>
+                        )}
+                        {canComplete && cardStarted && l.status === LineStatus.IN_PROGRESS && (
+                          <button
+                            disabled={action.isPending}
+                            onClick={() => void run(l, 'complete')}
+                            className={`${LINE_CHIP} bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50`}
+                          >
+                            <Icon name="checkCircle" className="h-3.5 w-3.5" /> Finish
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-600">{l.is_customized ? <span className="font-medium text-purple-700">Customized Work</span> : lineSummary(l)}</p>
+                    {l.customer_material && (
+                      <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-orange-800">
+                        <Icon name="packageOpen" className="h-4 w-4 shrink-0" />
+                        Customer's {l.customer_material.material_type}
+                        {l.customer_material.thickness ? ` (${thicknessLabel(l.customer_material.thickness)})` : ''} from {l.customer_material.pass_number} ×{' '}
+                        {l.customer_material.quantity}
+                      </p>
+                    )}
+                    <p className="mt-0.5 text-xs text-gray-400">
+                      {l.workers.length > 0 && `Workers: ${l.workers.map((w) => w.full_name).join(', ')}`}
+                      {l.started_at && ` · Started ${formatDateTime(l.started_at)} by ${l.started_by}`}
+                      {l.inspected_by && ` · Inspected by ${l.inspected_by}`}
+                    </p>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             {order.history.length > 0 && (
               <div>
-                <h4 className="mb-3 border-b pb-2 font-semibold text-gray-900">History</h4>
+                <h4 className="mb-2 font-semibold text-gray-900">History</h4>
                 <ol className="space-y-1.5 text-xs text-gray-600">
                   {order.history.map((h) => (
                     <li key={h.history_id} className="flex gap-2">
@@ -283,15 +332,17 @@ export function WorkOrderModal({ orderId, onClose, onEdit, readOnly = false }: {
           onClose={() => setOverride(null)}
         />
       )}
+      {moving === 'start' && <StartJobDialog orderId={orderId} onClose={() => setMoving(null)} onDone={moved} />}
+      {moving === 'complete' && <CompleteJobDialog orderId={orderId} onClose={() => setMoving(null)} onDone={moved} />}
     </>
   );
 }
 
-function Field({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <p className="font-medium text-gray-500">{label}</p>
-      <p className={`text-gray-900 ${bold ? 'font-semibold' : ''}`}>{value}</p>
+    <div className="px-3 py-2">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="font-semibold text-gray-900">{value}</p>
     </div>
   );
 }

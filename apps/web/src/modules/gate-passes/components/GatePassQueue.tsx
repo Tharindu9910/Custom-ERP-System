@@ -1,29 +1,35 @@
 import { useState } from 'react';
-import { formatGatePassLength, type GatePassFilter } from '@erp/shared';
+import type { GatePassFilter } from '@erp/shared';
 import { Icon } from '@/shared/components/Icon';
-import { ColorDot, IdChip } from '@/shared/components/Marks';
+import { IdChip } from '@/shared/components/Marks';
+import { SearchInput } from '@/shared/components/SearchInput';
+import { SegmentedTabs } from '@/shared/components/SegmentedTabs';
 import { formatDateTime } from '@/shared/lib/format';
 import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
-import { statusTone } from '@/shared/lib/tones';
 import { useGatePasses, type GatePassDto } from '../hooks/useGatePasses';
-import { gatePassStatusLabel } from '../lib/labels';
 import { GatePassStatusBadge } from './GatePassStatusBadge';
 
-const STATUS_OPTIONS: { value: GatePassFilter; label: string }[] = [
-  { value: 'ALL', label: 'All Statuses' },
-  { value: 'AVAILABLE', label: 'Available Materials' },
-  { value: 'OPEN', label: 'Open' },
-  { value: 'RESERVED', label: 'Reserved' },
-  { value: 'PARTIALLY_ASSIGNED', label: 'Partially Assigned' },
-  { value: 'FULLY_ASSIGNED', label: 'Fully Assigned' },
-  { value: 'CLOSED', label: 'Closed' },
+const STATUS_TABS: { key: GatePassFilter; label: string }[] = [
+  { key: 'ALL', label: 'All' },
+  { key: 'AVAILABLE', label: 'Available' },
+  { key: 'OPEN', label: 'Open' },
+  { key: 'RESERVED', label: 'Reserved' },
+  { key: 'PARTIALLY_ASSIGNED', label: 'Partially Assigned' },
+  { key: 'FULLY_ASSIGNED', label: 'Fully Assigned' },
+  { key: 'CLOSED', label: 'Closed' },
 ];
 
-const filterCls =
-  'block h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-[#0033A0] focus:outline-none focus:ring-2 focus:ring-[#0033A0]/20';
+const dateCls = 'h-10 w-36 rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-900 focus:border-[#0033A0] focus:outline-none focus:ring-2 focus:ring-[#0033A0]/20';
 
-/** "Gate Pass Queue" tab — ported from the prototype GatePassView. */
-export function GatePassQueue({ hideColor, onOpen }: { hideColor: boolean; onOpen: (gp: GatePassDto) => void }) {
+/** "MS Plain Sheet ×2, Zinc Coated ×3 +1 more" — what came in, at a glance. */
+function materialSummary(gp: GatePassDto): string {
+  const shown = gp.items.slice(0, 2).map((i) => `${i.material_type} ×${i.quantity}`);
+  const more = gp.items.length - shown.length;
+  return `${shown.join(', ')}${more > 0 ? ` +${more} more` : ''}`;
+}
+
+/** "Gate Pass Queue" tab: one compact row per pass; the popup has the full breakdown. */
+export function GatePassQueue({ onOpen }: { onOpen: (gp: GatePassDto) => void }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<GatePassFilter>('ALL');
   const [from, setFrom] = useState('');
@@ -47,90 +53,69 @@ export function GatePassQueue({ hideColor, onOpen }: { hideColor: boolean; onOpe
 
   return (
     <div>
-      <div className="grid grid-cols-1 items-end gap-3.5 border-b border-slate-200 bg-white p-5 sm:grid-cols-2 lg:grid-cols-12">
-        <div className="relative sm:col-span-2 lg:col-span-5">
-          <Icon name="search" className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search gate pass, customer or phone"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className={`${filterCls} pl-9`}
-          />
-        </div>
-        <div className="lg:col-span-3">
-          <label className="field-label">Status</label>
-          <select value={status} onChange={(e) => setStatus(e.target.value as GatePassFilter)} className={`${filterCls} cursor-pointer`}>
-            {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.value === 'AVAILABLE' ? `${o.label} (${data?.counts.available ?? 0})` : o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="sm:col-span-2 lg:col-span-4">
-          <label className="field-label">Date Range</label>
+      <div className="space-y-3 border-b border-slate-200 p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="flex-1">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search gate pass, customer or phone" />
+          </div>
           <div className="flex items-center gap-2">
-            <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={`${filterCls} min-w-0`} />
+            <input type="date" aria-label="From" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={dateCls} />
             <span className="text-xs text-slate-400">to</span>
-            <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={`${filterCls} min-w-0`} />
+            <input type="date" aria-label="To" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={dateCls} />
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+              title="Refresh"
+            >
+              <Icon name="refresh" className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            </button>
           </div>
         </div>
-      </div>
-
-      <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50/70 px-5 py-2 text-xs">
-        <span className="spec-chip">{rows.length}</span>
-        <span className="status-pill" style={{ color: '#047857', background: '#04785718', borderColor: '#04785740' }}>
-          {data?.counts.available ?? 0} available
-        </span>
-        {filtered && (
-          <button type="button" onClick={reset} className="text-xs font-semibold text-[#0033A0]">
-            Reset
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void refetch()}
-          className="ml-auto flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"
-          title="Refresh"
-        >
-          <Icon name="refresh" className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <SegmentedTabs<GatePassFilter>
+            tabs={STATUS_TABS.map((t) => (t.key === 'AVAILABLE' ? { ...t, count: data?.counts.available ?? 0 } : t))}
+            value={status}
+            onChange={setStatus}
+          />
+          {filtered && (
+            <button type="button" onClick={reset} className="text-xs font-semibold text-[#0033A0] hover:underline">
+              Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoading ? (
         <div className="py-12 text-center text-sm text-slate-400">Loading…</div>
       ) : rows.length === 0 ? (
         <div className="px-4 py-12 text-center">
-          <p className="text-sm font-semibold text-slate-600">None</p>
+          <p className="text-sm font-semibold text-slate-600">No gate passes</p>
           {filtered && (
             <button
               type="button"
               onClick={reset}
               className="mt-3.5 inline-flex items-center rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              Clear all filters
+              Clear filters
             </button>
           )}
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-xs">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50">
-              <tr className="text-left font-bold uppercase tracking-wider text-slate-600">
-                <th className="w-36 px-5 py-3">Gate Pass ID</th>
-                <th className="w-44 px-4 py-3">Created</th>
-                <th className="w-48 px-5 py-3">Customer</th>
-                <th className="px-5 py-3">Materials &amp; Balances</th>
-                <th className="w-32 px-4 py-3">Status</th>
-                <th className="w-44 px-4 py-3">Closed</th>
+              <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <th className="px-5 py-3">Gate pass</th>
+                <th className="px-4 py-3">Customer</th>
+                <th className="px-4 py-3">Materials</th>
+                <th className="px-4 py-3 text-right">Available</th>
+                <th className="px-5 py-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {rows.map((gp) => {
-                const balances = gp.summary.item_balances;
-                const remaining = balances.length - 2;
+                const s = gp.summary;
                 return (
                   <tr
                     key={gp.gate_pass_id}
@@ -142,74 +127,29 @@ export function GatePassQueue({ hideColor, onOpen }: { hideColor: boolean; onOpe
                         onOpen(gp);
                       }
                     }}
-                    className="group cursor-pointer transition-colors hover:bg-blue-50/30 focus:outline-none focus-visible:bg-blue-50/40"
-                    style={{ boxShadow: `inset 4px 0 0 ${statusTone(gatePassStatusLabel(gp.summary.status))}` }}
+                    className="cursor-pointer transition-colors hover:bg-blue-50/40 focus:outline-none focus-visible:bg-blue-50/40"
                   >
-                    <td className="whitespace-nowrap px-5 py-3.5 align-top">
+                    <td className="whitespace-nowrap px-5 py-3">
                       <IdChip>#{gp.pass_number}</IdChip>
+                      <span className="mt-1 block text-xs text-slate-400">{formatDateTime(gp.created_at)}</span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3.5 align-top font-medium text-slate-600">{formatDateTime(gp.created_at)}</td>
-                    <td className="px-5 py-3.5 align-top">
-                      <span className="block truncate text-sm font-bold text-slate-900" title={gp.customer_name}>
+                    <td className="px-4 py-3">
+                      <span className="block max-w-[14rem] truncate font-semibold text-slate-900" title={gp.customer_name}>
                         {gp.customer_name}
                       </span>
-                      <span className="mt-0.5 block font-mono text-xs text-slate-500">{gp.customer_phone}</span>
+                      <span className="block font-mono text-xs text-slate-500">{gp.customer_phone}</span>
                     </td>
-                    <td className="px-5 py-3.5 align-top">
-                      <div className="max-w-md space-y-2">
-                        {balances.slice(0, 2).map((bal) => {
-                          const item = gp.items.find((i) => i.gp_item_id === bal.gp_item_id)!;
-                          return (
-                            <div key={bal.gp_item_id}>
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="font-semibold text-slate-900">{item.material_type}</span>
-                                <span className="rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-600">
-                                  Total: {bal.received}
-                                </span>
-                                <span
-                                  className={`rounded border px-1.5 py-0.5 text-[11px] font-bold ${
-                                    bal.available > 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-400'
-                                  }`}
-                                >
-                                  {bal.available} avail
-                                </span>
-                              </div>
-                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
-                                {[
-                                  item.thickness ? `${item.thickness} mm` : null,
-                                  item.length ? formatGatePassLength(item.length, item.length_unit) : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(' · ')}
-                                {!hideColor && item.color && (
-                                  <span className="inline-flex items-center gap-1">
-                                    <ColorDot color={item.color} />
-                                    {item.color}
-                                  </span>
-                                )}
-                                {bal.committed > 0 && <span className="font-semibold text-blue-700">· {bal.committed} allocated</span>}
-                                {bal.reserved > 0 && <span className="font-medium text-purple-700">· {bal.reserved} in draft</span>}
-                              </div>
-                              {item.condition_note && (
-                                <div className="mt-0.5 max-w-sm truncate text-[11px] italic text-slate-500" title={item.condition_note}>
-                                  Note: {item.condition_note}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {remaining > 0 && (
-                          <span className="inline-flex items-center text-[11px] font-semibold text-[#0033A0] group-hover:underline">
-                            +{remaining} more item{remaining !== 1 ? 's' : ''} (click to view)
-                          </span>
-                        )}
-                      </div>
+                    <td className="max-w-sm px-4 py-3">
+                      <span className="block truncate text-slate-700" title={gp.items.map((i) => `${i.material_type} ×${i.quantity}`).join(', ')}>
+                        {materialSummary(gp)}
+                      </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3.5 align-top">
-                      <GatePassStatusBadge summary={gp.summary} />
+                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                      <span className={`font-semibold ${s.total_available > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>{s.total_available}</span>
+                      <span className="text-slate-400"> of {s.total_received}</span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3.5 align-top font-mono text-slate-600">
-                      {gp.summary.closed_at ? formatDateTime(gp.summary.closed_at) : <span className="font-normal italic text-slate-400">—</span>}
+                    <td className="whitespace-nowrap px-5 py-3">
+                      <GatePassStatusBadge summary={s} compact />
                     </td>
                   </tr>
                 );

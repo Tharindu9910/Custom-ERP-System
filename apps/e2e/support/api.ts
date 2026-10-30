@@ -123,7 +123,14 @@ export async function gatePass(user: string = SUP.thangalla, items?: unknown[], 
 }
 
 export const ROLLING_LINE = { job_type: 'ROLLING', rolling_type: 'Pipe Bending', work_type: 'GI Pipe', size: '1"', quantity: 3 };
-export const CUSTOM_LINE = { job_type: 'CUT_BEND', material_source: 'CUSTOMER', custom_charges: [{ kind: 'CUT', description: 'Cut customer sheet', rate: 5000, quantity: 4 }] };
+/** A customized line (manual Custom on branch material), so the card needs an advance. */
+export const CUSTOM_LINE = {
+  job_type: 'CUT_BEND',
+  material_source: 'BRANCH',
+  custom: true,
+  customized_reason_code: 'Special design',
+  custom_charges: [{ kind: 'CUT', description: 'Cut sheet to design', rate: 5000, quantity: 4 }],
+};
 
 export async function workerIds(user: string, n = 1): Promise<string[]> {
   return (await ok(call(user, 'GET', '/workers?active=true'), 'workers')).slice(0, n).map((w: any) => w.employee_id);
@@ -187,7 +194,6 @@ export async function jobCard(opts: { branch?: BranchKey; lines?: unknown[]; pai
       customer: { phone: newPhone(), name: opts.name ?? `JC Customer ${seq + 1}` },
       job_date: colomboToday(),
       worker_ids: await workerIds(user),
-      material_source: 'BRANCH',
       lines: opts.lines ?? [CUSTOM_LINE],
     }),
     'jobCard',

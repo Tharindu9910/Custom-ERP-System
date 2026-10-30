@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MaterialSource } from '../enums/order.enums';
-import { Cents, ClientRequestId, CustomerRefSchema, LocalDate, MaterialAllocationsSchema, OptionalId, StockOverrideSchema } from './common.schema';
+import { Cents, ClientRequestId, CustomerRefSchema, LocalDate, OptionalId, StockOverrideSchema } from './common.schema';
 
 // A manual charge used when a line is customized (manual toggle, customer
 // material, or no standard rate — BR23).
@@ -13,6 +13,13 @@ export const CustomChargeSchema = z.object({
 });
 export type CustomCharge = z.infer<typeof CustomChargeSchema>;
 
+// Customer-supplied material always comes from a gate pass item, one item per line (Docs/decisions/0007)
+export const CustomerMaterialSchema = z.object({
+  gp_item_id: z.string().uuid('Pick the customer\'s material from a gate pass'),
+  quantity: z.number().int().min(1, 'Gate pass quantity must be at least 1'),
+});
+export type CustomerMaterial = z.infer<typeof CustomerMaterialSchema>;
+
 const lineBase = {
   // Present when editing an existing line
   line_id: OptionalId,
@@ -22,6 +29,8 @@ const lineBase = {
   customized_reason_code: z.string().trim().max(60).optional(),
   custom_charges: z.array(CustomChargeSchema).default([]),
   notes: z.string().trim().max(500).optional(),
+  // Customer material: the one gate pass item this line uses (Docs/decisions/0007)
+  customer_material: CustomerMaterialSchema.nullable().optional(),
 };
 
 export const CutBendLineSchema = z.object({
@@ -57,6 +66,12 @@ export const WorkshopLineSchema = z
   .superRefine((line, ctx) => {
     const issue = (message: string, path: string) => ctx.addIssue({ code: 'custom', message, path: [path] });
     const customMode = isCustomMode(line);
+    if (line.material_source === MaterialSource.CUSTOMER && !line.customer_material) {
+      issue("Pick the customer's material from a gate pass", 'customer_material');
+    }
+    if (line.material_source === MaterialSource.BRANCH && line.customer_material) {
+      issue('Branch stock lines cannot use gate pass material', 'customer_material');
+    }
     if (line.custom && !line.customized_reason_code && line.material_source !== MaterialSource.CUSTOMER) {
       issue('Give a reason for marking this job as customized', 'customized_reason_code');
     }
@@ -95,10 +110,8 @@ const jobCardBody = {
   customer: CustomerRefSchema,
   job_date: LocalDate,
   worker_ids: z.array(z.string().uuid()).min(1, 'Assign at least one worker'),
-  material_source: z.nativeEnum(MaterialSource).default(MaterialSource.BRANCH),
-  gate_pass_id: OptionalId,
-  allocations: MaterialAllocationsSchema,
   notes: z.string().trim().max(500).optional(),
+  // Material source and gate pass material are per line (customer_material); nothing order-level
   lines: z.array(WorkshopLineSchema).min(1, 'Add at least one sub-job'),
   // Branch material is reserved on save; given only after a 409 STOCK_INSUFFICIENT (Docs/decisions/0003)
   override: StockOverrideSchema.optional(),
@@ -116,14 +129,8 @@ export const UpdateJobCardSchema = z.object({
 });
 export type UpdateJobCardDto = z.infer<typeof UpdateJobCardSchema>;
 
-// AWAITING_PAYMENT: job cards still at the cashier (DRAFT) — not in the prototype; lets the
-// supervisor find, edit or void a card before the advance is paid (Docs/decisions/0001)
-export const WORKSHOP_QUEUE_FILTERS = ['ALL', 'AWAITING_PAYMENT', 'PENDING', 'IN_PROGRESS', 'COMPLETED'] as const;
-export type WorkshopQueueFilter = (typeof WORKSHOP_QUEUE_FILTERS)[number];
-
+// The board shows every workshop column at once; no status filter (Docs/decisions/0005)
 export const WorkshopQueueQuerySchema = z.object({
-  status: z.enum(WORKSHOP_QUEUE_FILTERS).default('ALL'),
-  date: LocalDate.optional(),
   search: z.string().trim().max(80).optional(),
 });
 export type WorkshopQueueQuery = z.infer<typeof WorkshopQueueQuerySchema>;

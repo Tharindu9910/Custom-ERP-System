@@ -103,6 +103,10 @@ export class OrderEntity {
   @Column({ type: 'uuid', nullable: true, unique: true })
   client_request_id: string | null;
 
+  // Hardware sale placed by another branch's cashier (Docs/decisions/0006); null = same branch
+  @Column({ type: 'uuid', nullable: true })
+  origin_branch_id: string | null;
+
   @OneToMany(() => OrderLineEntity, (l) => l.order)
   lines?: OrderLineEntity[];
 }

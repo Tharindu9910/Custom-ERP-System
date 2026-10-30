@@ -6,6 +6,7 @@ import {
   OVERRIDE_PASSWORD,
   ROLLING_LINE,
   SUP,
+  customerLine,
   gatePass,
   jobCard,
   jobCardBody,
@@ -177,30 +178,153 @@ describe('JC job card', () => {
     expect([r.status, r.code]).toEqual([400, 'PRC_001']);
   });
 
-  it('JC-06 allocating more than the gate pass holds is refused (ALC_001); within it, material is committed', async () => {
+  it('JC-06 a customer line takes its gate pass item; more than the pass holds is refused (ALC_001)', async () => {
     const gp = await gatePass(t);
     const workers = await workerIds(t, SUP.thangalla);
+    const item = gp.items[0].gp_item_id;
     const over = await tha().post(
       '/job-cards',
-      jobCardBody(gp.phone, workers, [CUSTOM_LINE], {
-        material_source: 'CUSTOMER',
-        gate_pass_id: gp.gate_pass_id,
-        allocations: [{ gp_item_id: gp.items[0].gp_item_id, quantity: 11 }],
-      }),
+      jobCardBody(gp.phone, workers, [customerLine(item, 11)]),
     );
     expect([over.status, over.code]).toEqual([409, 'ALC_001']);
     const ok = await tha().post(
       '/job-cards',
-      jobCardBody(gp.phone, workers, [CUSTOM_LINE], {
-        material_source: 'CUSTOMER',
-        gate_pass_id: gp.gate_pass_id,
-        allocations: [{ gp_item_id: gp.items[0].gp_item_id, quantity: 4 }],
-      }),
+      jobCardBody(gp.phone, workers, [customerLine(item, 4), ROLLING_LINE]),
     );
     expect(ok.status).toBe(201);
+    const line = ok.data.lines.find(
+      (l: any) => l.material_source === 'CUSTOMER',
+    );
+    expect(line.customer_material).toMatchObject({
+      gp_item_id: item,
+      pass_number: gp.pass_number,
+      quantity: 4,
+    });
+    expect(
+      ok.data.lines.find((l: any) => l.material_source === 'BRANCH')
+        .customer_material,
+    ).toBeNull();
     const after = await tha().get(`/gate-passes/${gp.gate_pass_id}`);
     expect(after.data.summary.status).toBe('PARTIALLY_ASSIGNED');
     expect(after.data.summary.total_available).toBe(6);
+  });
+
+  it('JC-06b customer material always needs a gate pass item, from that customer', async () => {
+    const workers = await workerIds(t, SUP.thangalla);
+    const { customer_material: _m, ...noItem } = customerLine(randomUUID(), 1);
+    expect(
+      (
+        await tha().post(
+          '/job-cards',
+          jobCardBody(newPhone(), workers, [noItem]),
+        )
+      ).status,
+    ).toBe(400);
+    const gp = await gatePass(t);
+    const r = await tha().post(
+      '/job-cards',
+      jobCardBody(newPhone(), workers, [
+        customerLine(gp.items[0].gp_item_id, 1),
+      ]),
+    );
+    expect([r.status, r.code]).toEqual([400, 'GP_003']);
+  });
+
+  it('JC-06c lines sharing one item are checked on their total', async () => {
+    const gp = await gatePass(t);
+    const workers = await workerIds(t, SUP.thangalla);
+    const item = gp.items[0].gp_item_id;
+    const over = await tha().post(
+      '/job-cards',
+      jobCardBody(gp.phone, workers, [
+        customerLine(item, 6),
+        customerLine(item, 5),
+      ]),
+    );
+    expect([over.status, over.code]).toEqual([409, 'ALC_001']);
+    const ok = await tha().post(
+      '/job-cards',
+      jobCardBody(gp.phone, workers, [
+        customerLine(item, 6),
+        customerLine(item, 4),
+      ]),
+    );
+    expect(ok.status).toBe(201);
+    expect(
+      (await tha().get(`/gate-passes/${gp.gate_pass_id}`)).data.summary
+        .total_available,
+    ).toBe(0);
+  });
+
+  it('JC-06d editing moves material between lines; removing the customer line gives it back', async () => {
+    const gp = await gatePass(t);
+    const workers = await workerIds(t, SUP.thangalla);
+    const item = gp.items[0].gp_item_id;
+    const card = (
+      await tha().post(
+        '/job-cards',
+        jobCardBody(gp.phone, workers, [customerLine(item, 3), ROLLING_LINE]),
+      )
+    ).data;
+    const custLine = card.lines.find(
+      (l: any) => l.material_source === 'CUSTOMER',
+    );
+    const rollLine = card.lines.find(
+      (l: any) => l.material_source === 'BRANCH',
+    );
+    const edit = (lines: unknown[], version: number) =>
+      tha().put(`/job-cards/${card.order_id}`, {
+        ...jobCardBody(gp.phone, workers, lines),
+        client_request_id: undefined,
+        version,
+      });
+
+    const r1 = await edit(
+      [
+        { ...customerLine(item, 7), line_id: custLine.line_id },
+        { ...ROLLING_LINE, line_id: rollLine.line_id },
+      ],
+      card.version,
+    );
+    expect(r1.status).toBe(200);
+    expect(
+      (await tha().get(`/gate-passes/${gp.gate_pass_id}`)).data.summary
+        .total_available,
+    ).toBe(3);
+
+    const r2 = await edit(
+      [{ ...ROLLING_LINE, line_id: rollLine.line_id }],
+      r1.data.version,
+    );
+    expect(r2.status).toBe(200);
+    const after = (await tha().get(`/gate-passes/${gp.gate_pass_id}`)).data
+      .summary;
+    expect([after.status, after.total_available]).toEqual(['OPEN', 10]);
+  });
+
+  it("JC-06e the customer's passes are listed for a card being edited even when it used them up", async () => {
+    const gp = await gatePass(t);
+    const workers = await workerIds(t, SUP.thangalla);
+    const card = (
+      await tha().post(
+        '/job-cards',
+        jobCardBody(gp.phone, workers, [
+          customerLine(gp.items[0].gp_item_id, 10),
+        ]),
+      )
+    ).data;
+    const plain = await tha().get(
+      `/gate-passes/available?phone=${encodeURIComponent(gp.phone)}`,
+    );
+    expect(plain.data.map((x: any) => x.gate_pass_id)).not.toContain(
+      gp.gate_pass_id,
+    );
+    const forEdit = await tha().get(
+      `/gate-passes/available?phone=${encodeURIComponent(gp.phone)}&order_id=${card.order_id}`,
+    );
+    expect(forEdit.data.map((x: any) => x.gate_pass_id)).toContain(
+      gp.gate_pass_id,
+    );
   });
 
   it('JC-07 is idempotent on client_request_id', async () => {
@@ -443,10 +567,14 @@ describe('WQ workshop queue and floor actions', () => {
       false,
     ]);
     const r = await t.withGrant('SUPERVISOR', 'override:stock', () =>
-      t.as(SUP.veyangoda).post(
-        '/job-cards',
-        body({ override: { password: OVERRIDE_PASSWORD, reason: 'Trying anyway' } }),
-      ),
+      t
+        .as(SUP.veyangoda)
+        .post(
+          '/job-cards',
+          body({
+            override: { password: OVERRIDE_PASSWORD, reason: 'Trying anyway' },
+          }),
+        ),
     );
     expect(r.code).toBe('STK_004');
   });

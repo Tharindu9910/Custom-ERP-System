@@ -21,6 +21,8 @@ export enum OrderStatus {
   DRAFT = 'DRAFT',
   IN_QUEUE = 'IN_QUEUE',
   IN_PROGRESS = 'IN_PROGRESS',
+  /** Job cards only: the supervisor marked the work done (Docs/decisions/0005) */
+  COMPLETED = 'COMPLETED',
   CANCELLATION_PENDING = 'CANCELLATION_PENDING',
   CLOSED = 'CLOSED',
   VOIDED = 'VOIDED',

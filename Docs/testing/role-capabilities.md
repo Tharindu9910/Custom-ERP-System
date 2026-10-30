@@ -24,7 +24,7 @@ Browser runs use the installed Google Chrome. Set `E2E_CHANNEL=chromium` to use 
 | | SUPER_ADMIN (`superadmin`) | SUPERVISOR (`supervisor_<branch>`) |
 |---|---|---|
 | Branch | None (head office). Picks a branch in the top bar to view one. | Exactly one. Any `X-Branch-Id` header is ignored. |
-| Permissions | Passes every permission check. | 21 grants by default (`AUTH-03`), all changeable on Role Permissions. |
+| Permissions | Passes every permission check. | 23 grants by default (`AUTH-03`), all changeable on Role Permissions. |
 | Branch work | **View only.** The UI hides the buttons, and the server answers `403 CTX_003` to any write. | Own branch only (BR06). Other branches' records return 404. |
 | Settings | Branch Config, Price List, Users, Role Permissions. | None. |
 
@@ -47,15 +47,18 @@ Seeded branches:
 | | Fully assigned | `supervisor_thangalla` → Full Pass Customer |
 | | Closed (all material used by a completed job) | `supervisor_thangalla` → Closed Pass Customer |
 | | Colour dropped at a workshop-only branch | `supervisor_veyangoda` → Nimal Perera |
-| Workshop Queue | Awaiting payment, nothing paid | Kamal Stores (every workshop branch) |
-| | Awaiting payment, part paid | `supervisor_thangalla` → Part Paid Customer |
+| Cashier Queue · Awaiting Payment | Nothing paid | Kamal Stores (every workshop branch) |
+| | Part paid | `supervisor_thangalla` → Part Paid Customer |
 | | Edited before work (sub-job added, coil cutting line) | `supervisor_thangalla` → Edited Card Customer |
-| | Voided | `supervisor_thangalla` → Voided Card Customer (only in the order's history; voided cards leave the queue) |
-| | In queue (paid), using customer material | Nimal Perera |
-| | In queue, made by the chief | `supervisor_thangalla` → Chief Card Customer |
-| | In progress | Rathna Builders |
-| | In progress after a **stock override**, plus a manually customized line | `supervisor_thangalla` → Override Card Customer |
-| | Completed | Saman Engineering, Closed Pass Customer |
+| | Voided | `supervisor_thangalla` → Voided Card Customer (Create Job Card → History only; voided cards leave the boards) |
+| Workshop Queue · In Queue | Paid, using customer material | Nimal Perera |
+| | Made by the chief | `supervisor_thangalla` → Chief Card Customer |
+| Workshop Queue · In Progress | One sub-job started, one still to start (Mark Completed disabled) | Rathna Builders |
+| | Every sub-job done, ready for **Mark Completed** | Priya Welding |
+| | Started after a **stock override**, plus a manually customized line | `supervisor_thangalla` → Override Card Customer |
+| Workshop Queue · Completed / Cashier · Ready for Collection | Balance due (**Collect & Close**) | Saman Engineering |
+| | Paid in full (**Close & Hand Over**) | Dilan Motors, `supervisor_thangalla` → Closed Pass Customer |
+| Closed | Collected and handed over (History only) | Chaminda Traders |
 | Order Queue | Placed (order coil, accessories) | Ajith Constructions |
 | | Placed: customized item with a design photo + customer-supplied item | Lakmal Perera |
 | | Placed: discount, paid by card | `supervisor_thangalla` → Discount Card Customer |
@@ -67,6 +70,12 @@ Seeded branches:
 | | Ready and fully paid (Release available) | `supervisor_thangalla` → Ready To Release |
 | | Released | Mahesh Fernando |
 | | Cancelled | Ruwan Jayasinghe |
+| Hardware Queue · Awaiting Payment | Supervisor order, walk-in | `cashier_naiwala` (placed by `supervisor_naiwala`) |
+| | Supervisor order with a customer and a note | `cashier_naiwala` → Sunil Hardware |
+| | Placed at Naiwala for Veyangoda, advance paid (balance due here) | `cashier_veyangoda` → Kamal Fernando ("From Naiwala") |
+| Hardware Queue · Paid Today | Counter sale paid in one step | `cashier_naiwala` |
+| Hardware sale · Cancelled | Held stock freed (detail only; leaves the board) | Veyangoda |
+| Hardware Store | Own branch only (supervisor) / own branch + other branches (cashier) | `supervisor_naiwala`, `cashier_naiwala` → Change branch |
 | Inventory / Alerts | Healthy, low and out-of-stock items | Every branch (opening stock); an open request shows on its item |
 | Stock Requests | Waiting (to send) | `supervisor_thangalla`: from Veyangoda (gate pipes); `supervisor_naiwala`: from Thangalla (urgent) |
 | | **Late** (needed by yesterday, still waiting) | `supervisor_naiwala` → Requests to Us, "Overdue example" |
@@ -109,7 +118,7 @@ The e2e suites leave their own test records behind. To get back to just the samp
 | Queue: search, status, date range, Reset or Clear; the available count matches the Available filter | ✅ | ✅ (read) | GP-05, GP-15, GP-16, GP-19, GP-20 |
 | Details, then Allocate to Job Card or to Order Form | ✅ (only what the branch runs) | ❌ (buttons hidden) | GP-14, GP-17, GP-19 |
 | Using a pass on a roofing order needs `allocate:gate_pass_order` (SUPERVISOR, CHIEF and CASHIER by default). Unticked, Allocate to Order Form is hidden, the order form shows no pass, and the API answers `AUTH_004`. An order that already uses a pass can still be saved with it. | ✅ | n/a | RO-08, GP-21 |
-| "Create New Gate Pass" from a form returns to that form with the pass linked | ✅ | n/a | GP-18, JC-33 |
+| "Create New Gate Pass" from a form returns to that form with the pass linked (job card: the next sub-job is on the new pass item) | ✅ | n/a | GP-18, JC-33 |
 | Another branch's pass | 404 | n/a | GP-06 |
 
 ## Job Card (JC)
@@ -121,7 +130,7 @@ The e2e suites leave their own test records behind. To get back to just the samp
 | Edit or delete sub-jobs before submitting; Cancel clears the form | ✅ | n/a | JC-22, JC-25 |
 | No standard rate: the line is flagged and submit is blocked (`PRC_001`) | ✅ | n/a | JC-05, JC-24 |
 | Worker from another branch | `ORD_014` | n/a | JC-04 |
-| Customer material from a gate pass: allocate (capped at what is left), unassign, and the material is committed (`ALC_001` beyond that) | ✅ | n/a | JC-06, JC-30…32 |
+| Customer material per sub-job: each customer sub-job takes one gate pass item and pieces (always needed); items shared by sub-jobs are checked on their total (`ALC_001`); another customer's pass is refused (`GP_003`); edits move material between sub-jobs (Docs/decisions/0007) | ✅ | n/a | JC-06…06e, JC-30…32 |
 | Edit while DRAFT or IN_QUEUE with nothing started; the advance is recalculated and the queue shows a notice | ✅ | ❌ (no Edit button, G1) | JC-08, JC-40, JC-42, WQ-30 |
 | Edit after work started | Opens locked (`ORD_004`) | n/a | JC-41, WQ-08 |
 | Stale version | `ORD_003` | n/a | JC-09, WQ-04 |

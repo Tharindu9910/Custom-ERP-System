@@ -11,6 +11,13 @@ import {
   LineType,
   MaterialSource,
   OrderStatus,
+  canTransitionOrder,
+  canTransitionHardware,
+  canTransitionHardwareLine,
+  hardwareAdvanceRange,
+  hardwareDisplayStatus,
+  hardwareLineTotal,
+  CreateHardwareSaleSchema,
   PriceBasis,
   WorkshopLineSchema,
   findRate,
@@ -146,6 +153,7 @@ describe('workshop pricing', () => {
   ];
   const ctx = { rates, materialPrice: (m: string, t: string) => (m === 'MS Plain Sheet' && t === '2mm' ? 450000 : null) };
   const parse = (v: unknown) => WorkshopLineSchema.parse(v);
+  const GP_ITEM = '7b1c2a4e-5d6f-4a8b-9c0d-1e2f3a4b5c6d';
 
   it('standard cut/bend: cuts + bends + branch material', () => {
     const p = priceWorkshopLine(parse({ job_type: 'CUT_BEND', material_type: 'MS Plain Sheet', thickness: '2mm', material_quantity: 2, cut_count: 4, bend_count: 3 }), ctx);
@@ -166,10 +174,33 @@ describe('workshop pricing', () => {
 
   it('customer material is always customized (prototype rule)', () => {
     const p = priceWorkshopLine(
-      parse({ job_type: 'CUT_BEND', material_source: 'CUSTOMER', custom_charges: [{ kind: 'CUT', description: 'Cut', rate: 5000, quantity: 3 }, { kind: 'BEND', description: 'Bend', rate: 8000, quantity: 2 }] }),
+      parse({
+        job_type: 'CUT_BEND',
+        material_source: 'CUSTOMER',
+        customer_material: { gp_item_id: GP_ITEM, quantity: 2 },
+        custom_charges: [{ kind: 'CUT', description: 'Cut', rate: 5000, quantity: 3 }, { kind: 'BEND', description: 'Bend', rate: 8000, quantity: 2 }],
+      }),
       ctx,
     );
     expect(p).toMatchObject({ is_customized: true, auto_customized: false, line_total: 31000 });
+  });
+
+  it('customer material needs a gate pass item; branch lines must not have one (Docs/decisions/0007)', () => {
+    const charge = [{ kind: 'CUT', description: 'Cut', rate: 5000, quantity: 1 }];
+    const messages = (v: unknown) => {
+      const r = WorkshopLineSchema.safeParse(v);
+      return r.success ? [] : r.error.issues.map((i) => i.message);
+    };
+    expect(messages({ job_type: 'CUT_BEND', material_source: 'CUSTOMER', custom_charges: charge })).toContain("Pick the customer's material from a gate pass");
+    expect(messages({ job_type: 'COIL_CUTTING', material_source: 'CUSTOMER', coil_material: 'GI coil', amount_range: '1-10' })).toContain(
+      "Pick the customer's material from a gate pass",
+    );
+    expect(
+      messages({ job_type: 'COIL_CUTTING', material_source: 'CUSTOMER', coil_material: 'GI coil', amount_range: '1-10', customer_material: { gp_item_id: GP_ITEM, quantity: 1 } }),
+    ).toEqual([]);
+    expect(
+      messages({ job_type: 'ROLLING', material_source: 'BRANCH', rolling_type: 'Pipe Bending', work_type: 'GI Pipe', size: '1"', quantity: 1, customer_material: { gp_item_id: GP_ITEM, quantity: 1 } }),
+    ).toContain('Branch stock lines cannot use gate pass material');
   });
 
   it('rolling is priced per piece by type, work type and size', () => {
@@ -244,12 +275,26 @@ describe('stock status (one definition for Inventory and Alerts)', () => {
   });
 });
 
+describe('job card transitions (Docs/decisions/0005)', () => {
+  it('moves one column at a time', () => {
+    expect(canTransitionOrder(OrderStatus.DRAFT, OrderStatus.IN_QUEUE)).toBe(true);
+    expect(canTransitionOrder(OrderStatus.IN_QUEUE, OrderStatus.IN_PROGRESS)).toBe(true);
+    expect(canTransitionOrder(OrderStatus.IN_PROGRESS, OrderStatus.COMPLETED)).toBe(true);
+    expect(canTransitionOrder(OrderStatus.COMPLETED, OrderStatus.CLOSED)).toBe(true);
+    expect(canTransitionOrder(OrderStatus.DRAFT, OrderStatus.IN_PROGRESS)).toBe(false);
+    expect(canTransitionOrder(OrderStatus.IN_QUEUE, OrderStatus.COMPLETED)).toBe(false);
+    expect(canTransitionOrder(OrderStatus.COMPLETED, OrderStatus.IN_PROGRESS)).toBe(false);
+  });
+});
+
 describe('order display status', () => {
   it('workshop', () => {
-    expect(workshopDisplayStatus(OrderStatus.DRAFT, [])).toBe('AWAITING_PAYMENT');
-    expect(workshopDisplayStatus(OrderStatus.IN_QUEUE, [LineStatus.ASSIGNED])).toBe('PENDING');
-    expect(workshopDisplayStatus(OrderStatus.IN_PROGRESS, [LineStatus.COMPLETED, LineStatus.IN_PROGRESS])).toBe('IN_PROGRESS');
-    expect(workshopDisplayStatus(OrderStatus.IN_PROGRESS, [LineStatus.COMPLETED, LineStatus.CANCELLED])).toBe('COMPLETED');
+    expect(workshopDisplayStatus(OrderStatus.DRAFT)).toBe('AWAITING_PAYMENT');
+    expect(workshopDisplayStatus(OrderStatus.IN_QUEUE)).toBe('PENDING');
+    // The supervisor moves the card: all sub-jobs done is still In Progress until Mark Completed
+    expect(workshopDisplayStatus(OrderStatus.IN_PROGRESS)).toBe('IN_PROGRESS');
+    expect(workshopDisplayStatus(OrderStatus.COMPLETED)).toBe('COMPLETED');
+    expect(workshopDisplayStatus(OrderStatus.CLOSED)).toBe('CLOSED');
   });
   it('roofing', () => {
     expect(roofingDisplayStatus(OrderStatus.IN_QUEUE, [])).toBe('PLACED');
@@ -370,5 +415,57 @@ describe('stock requests (status / who acts / request rules)', () => {
     expect(CreateStockTransferSchema.safeParse({ ...base, lines: [line(A, 0)] }).success).toBe(false);
     expect(CreateStockTransferSchema.safeParse({ ...base, lines: [line(A, 1.2345)] }).success).toBe(false);
     expect(CreateStockTransferSchema.safeParse({ ...base, lines: [] }).success).toBe(false);
+  });
+});
+
+describe('hardware sales (Docs/decisions/0006)', () => {
+  it('awaiting payment either closes when paid or is cancelled — nothing else', () => {
+    expect(canTransitionHardware(OrderStatus.IN_QUEUE, OrderStatus.CLOSED)).toBe(true);
+    expect(canTransitionHardware(OrderStatus.IN_QUEUE, OrderStatus.VOIDED)).toBe(true);
+    expect(canTransitionHardware(OrderStatus.IN_QUEUE, OrderStatus.IN_PROGRESS)).toBe(false);
+    expect(canTransitionHardware(OrderStatus.CLOSED, OrderStatus.VOIDED)).toBe(false);
+    expect(canTransitionHardware(OrderStatus.VOIDED, OrderStatus.CLOSED)).toBe(false);
+    expect(canTransitionHardware(OrderStatus.DRAFT, OrderStatus.CLOSED)).toBe(false);
+    // The job card table is untouched: IN_QUEUE → CLOSED stays closed to job cards
+    expect(canTransitionOrder(OrderStatus.IN_QUEUE, OrderStatus.CLOSED)).toBe(false);
+  });
+
+  it('lines are handed over or dropped with the order', () => {
+    expect(canTransitionHardwareLine(LineStatus.PENDING, LineStatus.COMPLETED)).toBe(true);
+    expect(canTransitionHardwareLine(LineStatus.PENDING, LineStatus.CANCELLED)).toBe(true);
+    expect(canTransitionHardwareLine(LineStatus.COMPLETED, LineStatus.CANCELLED)).toBe(false);
+  });
+
+  it('display status', () => {
+    expect(hardwareDisplayStatus(OrderStatus.IN_QUEUE)).toBe('AWAITING_PAYMENT');
+    expect(hardwareDisplayStatus(OrderStatus.CLOSED)).toBe('PAID');
+    expect(hardwareDisplayStatus(OrderStatus.VOIDED)).toBe('CANCELLED');
+  });
+
+  it('line total in cents, decimal quantities without float drift', () => {
+    expect(hardwareLineTotal(125_000, 3)).toBe(375_000);
+    expect(hardwareLineTotal(145_000, 0.3)).toBe(43_500); // 0.3 kg welding rod
+    expect(hardwareLineTotal(333, 1.5)).toBe(500); // 499.5 rounds half up
+    expect(hardwareLineTotal(1, 0.001)).toBe(0);
+    expect(hardwareLineTotal(10_000, 0.1 + 0.2)).toBe(3_000);
+  });
+
+  it('cross-branch advance: at least the minimum, always less than the total', () => {
+    expect(hardwareAdvanceRange(10_000, 30)).toEqual({ min: 3_000, max: 9_999 });
+    expect(hardwareAdvanceRange(10_001, 30)).toEqual({ min: 3_001, max: 10_000 });
+    expect(hardwareAdvanceRange(10_000, 0)).toEqual({ min: 1, max: 9_999 });
+  });
+
+  it('create: unique items, up to 3 decimals, no price from the client', () => {
+    const base = { client_request_id: '3f1c1d2e-1111-4222-8333-444455556666' };
+    const A = '0b1c1d2e-1111-4222-8333-444455556666';
+    const B = '1b1c1d2e-1111-4222-8333-444455556666';
+    expect(CreateHardwareSaleSchema.safeParse({ ...base, lines: [{ item_id: A, quantity: 2.5 }] }).success).toBe(true);
+    expect(CreateHardwareSaleSchema.safeParse({ ...base, lines: [{ item_id: A, quantity: 1.2345 }] }).success).toBe(false);
+    expect(CreateHardwareSaleSchema.safeParse({ ...base, lines: [{ item_id: A, quantity: 0 }] }).success).toBe(false);
+    expect(CreateHardwareSaleSchema.safeParse({ ...base, lines: [] }).success).toBe(false);
+    expect(CreateHardwareSaleSchema.safeParse({ ...base, lines: [{ item_id: A, quantity: 1 }, { item_id: A, quantity: 2 }] }).success).toBe(false);
+    const parsed = CreateHardwareSaleSchema.parse({ ...base, lines: [{ item_id: B, quantity: 1, unit_price: 1 }] });
+    expect('unit_price' in parsed.lines[0]).toBe(false);
   });
 });

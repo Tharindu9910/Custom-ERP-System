@@ -90,6 +90,7 @@ export function OrderHistoryModal({
     <Modal
       open={!hidden}
       size="xl"
+      fixedHeight
       onClose={onClose}
       title={type === 'job-cards' ? 'Job Card History' : 'Order History'}
       subtitle={`Every ${noun} at this branch by its ${type === 'job-cards' ? 'job' : 'order'} date. Click one to see its details.`}

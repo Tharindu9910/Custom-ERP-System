@@ -1,12 +1,12 @@
 import type { Page } from '@playwright/test';
 import { SUP, call, gatePass, jobCard, newPhone, passwordFor, ROLLING_LINE, CUSTOM_LINE } from '../support/api';
 import { expect, test } from '../support/fixtures';
-import { field, navLink, row } from '../support/ui';
+import { escape, field, navLink, pick, row } from '../support/ui';
 
 /** JC: Create / Edit Job Card (Docs/testing/role-capabilities.md). */
 
 async function header(page: Page, phone = newPhone(), name = `Job Card Browser ${Date.now() % 1_000_000}`) {
-  await field(page, 'Phone Number').fill(phone);
+  await field(page, 'Customer Phone').fill(phone);
   await field(page, 'Customer Name').fill(name);
   return { phone, name };
 }
@@ -16,19 +16,35 @@ async function pickWorker(page: Page, index = 0) {
 }
 async function addRolling(page: Page, qty = '2') {
   await page.getByRole('button', { name: 'Rolling', exact: true }).click();
-  for (const l of ['Rolling Type', 'Sub Type', 'Size']) await field(page, l).selectOption({ index: 1 });
+  for (const l of ['Rolling Type', 'Sub Type', 'Size']) await pick(page, l);
   await field(page, 'Material Quantity').fill(qty);
   await page.getByRole('button', { name: 'Add Sub-Job' }).click();
 }
-async function addCustomerCut(page: Page) {
-  await page.getByRole('button', { name: 'Cut / Bend', exact: true }).click();
-  await page.getByRole('button', { name: 'Customer Supplied' }).last().click();
-  await field(page, 'Cut Description').fill('Cut customer sheet');
+async function cutCharge(page: Page, description: string) {
+  await field(page, 'Cut Description').fill(description);
   await field(page, 'Cut Rate').fill('50');
   await field(page, 'Cut Quantity').fill('4');
+}
+/** Branch Cut / Bend priced by hand (Custom with a reason), so the card needs an advance. */
+async function addCustomCut(page: Page) {
+  await page.getByRole('button', { name: 'Cut / Bend', exact: true }).click();
+  await page.getByRole('button', { name: 'Custom', exact: true }).click();
+  await pick(page, 'Reason for custom pricing');
+  await cutCharge(page, 'Cut sheet to design');
+  await page.getByRole('button', { name: 'Add Sub-Job' }).click();
+}
+/** Cut / Bend on the customer's own material: a gate pass item (Docs/decisions/0007). */
+async function addCustomerCut(page: Page, pieces = '2', item?: string | RegExp) {
+  await page.getByRole('button', { name: 'Cut / Bend', exact: true }).click();
+  await page.getByRole('button', { name: "Customer's Material" }).click();
+  await pick(page, 'Gate Pass Item', item);
+  await field(page, 'Pieces Used').fill(pieces);
+  await cutCharge(page, 'Cut customer sheet');
   await page.getByRole('button', { name: 'Add Sub-Job' }).click();
 }
 const subJobs = (page: Page) => page.locator('button[title="Delete"]');
+/** The Total row of the Pricing section (label and amount). */
+const total = (page: Page) => page.getByText(/^Total \(/).locator('xpath=..');
 
 test.describe('create', () => {
   test('JC-20 Add Sub-Job stays disabled and says what is still needed', async ({ page }) => {
@@ -36,7 +52,7 @@ test.describe('create', () => {
     await page.getByRole('button', { name: 'Rolling', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Add Sub-Job' })).toBeDisabled();
     await expect(page.getByText(/Still needed: .*Size is required/)).toBeVisible();
-    for (const l of ['Rolling Type', 'Sub Type', 'Size']) await field(page, l).selectOption({ index: 1 });
+    for (const l of ['Rolling Type', 'Sub Type', 'Size']) await pick(page, l);
     await field(page, 'Material Quantity').fill('1');
     await expect(page.getByRole('button', { name: 'Add Sub-Job' })).toBeEnabled();
   });
@@ -54,28 +70,30 @@ test.describe('create', () => {
   test('JC-22 sub-jobs can be edited and deleted before submitting; the total follows', async ({ page }) => {
     await page.goto('/job-cards/new');
     await addRolling(page, '2');
-    await addCustomerCut(page);
+    await addCustomCut(page);
     await expect(subJobs(page)).toHaveCount(2);
-    await expect(page.getByText(/Total Rs/)).toBeVisible();
-    const before = await page.getByText(/Total Rs/).innerText();
+    await expect(total(page)).toContainText('Rs');
+    const before = await total(page).innerText();
     await page.locator('button[title="Edit"]').first().click();
     await expect(page.getByRole('heading', { name: 'Edit Sub-Job' })).toBeVisible();
     await field(page, 'Material Quantity').fill('5');
     await page.getByRole('button', { name: 'Update Sub-Job' }).click();
     await expect(page.getByText(/Qty: 5/)).toBeVisible();
-    await expect(page.getByText(/Total Rs/)).not.toHaveText(before);
+    await expect(total(page)).not.toHaveText(before);
     await subJobs(page).last().click();
     await expect(subJobs(page)).toHaveCount(1);
   });
 
   test('JC-23 a customer-supplied card is created as awaiting payment with its minimum advance', async ({ page }) => {
+    const gp = await gatePass();
     await page.goto('/job-cards/new');
-    const { name } = await header(page);
+    const { name } = await header(page, gp.phone, gp.name);
     await pickWorker(page);
     await addCustomerCut(page);
-    await expect(page.getByText(/Advance to collect at the cashier Rs/)).toBeVisible();
+    await expect(page.getByText('Advance to collect at the cashier')).toBeVisible();
     await page.getByRole('button', { name: 'Submit Job Card' }).click();
-    await expect(page.getByText(/Job card JC-\d+ created and sent to the Cashier Queue. Minimum advance: Rs/)).toBeVisible();
+    await expect(page.getByText(/Job card JC-\d+ created and sent to the Cashier Queue/)).toBeVisible();
+    await expect(page.getByText(/Minimum advance Rs/)).toBeVisible();
     // The form is cleared for the next card
     await expect(field(page, 'Customer Name')).toHaveValue('');
     await page.goto('/workshop-queue');
@@ -88,8 +106,8 @@ test.describe('create', () => {
     await header(page);
     await pickWorker(page);
     await page.getByRole('button', { name: 'Cut / Bend', exact: true }).click();
-    await field(page, 'Material Type').selectOption('Stainless Steel (SS)');
-    await field(page, 'Thickness').selectOption('6mm');
+    await pick(page, 'Material Type', 'Stainless Steel (SS)');
+    await pick(page, 'Thickness', '6mm');
     await field(page, 'Material Qty').fill('1');
     await field(page, 'Total Cut Count').fill('1');
     await page.getByRole('button', { name: 'Add Sub-Job' }).click();
@@ -104,58 +122,64 @@ test.describe('create', () => {
     await addRolling(page);
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(subJobs(page)).toHaveCount(0);
-    await expect(field(page, 'Phone Number')).toHaveValue('');
+    await expect(field(page, 'Customer Phone')).toHaveValue('');
   });
 });
 
 test.describe('customer material and gate passes', () => {
-  test('JC-30 Customer Supplied shows the gate pass panel; allocate from the customer\'s pass, then unassign', async ({ page }) => {
+  test("JC-30 the customer's gate pass items are listed; a sub-job takes one and what is left drops", async ({ page }) => {
     const gp = await gatePass();
     await page.goto('/job-cards/new');
     await header(page, gp.phone, gp.name);
-    await page.getByRole('button', { name: 'Customer Supplied' }).first().click();
-    await expect(page.getByText('Available Gate Passes for Customer')).toBeVisible();
-    await page.getByRole('button', { name: 'Allocate Materials' }).first().click();
-    await expect(page.getByText('Allocate Customer Materials')).toBeVisible();
-    await page.locator('input[type="number"][max]').first().fill('4');
-    await page.getByRole('button', { name: 'Confirm Allocation' }).click();
-    await expect(page.getByText('Assigned Gate Pass')).toBeVisible();
-    await expect(page.getByText('Allocated: 4')).toBeVisible();
-    await page.getByRole('button', { name: 'Unassign' }).click();
-    await expect(page.getByText('Assigned Gate Pass')).toHaveCount(0);
+    await expect(page.getByText("Customer's material (gate passes)")).toBeVisible();
+    await expect(page.getByText('10 of 10 left')).toBeVisible();
+    await addCustomerCut(page, '4');
+    await expect(page.getByText('6 of 10 left')).toBeVisible();
+    await expect(page.getByText(new RegExp(`${escape(gp.pass_number)} · MS Plain Sheet.*× 4`))).toBeVisible();
+    // The next sub-job can take the rest, but no more
+    await page.getByRole('button', { name: 'Cut / Bend', exact: true }).click();
+    await page.getByRole('button', { name: "Customer's Material" }).click();
+    await pick(page, 'Gate Pass Item');
+    await field(page, 'Pieces Used').fill('7');
+    await expect(page.getByText(/Still needed: .*Only 6 left of that gate pass item/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add Sub-Job' })).toBeDisabled();
   });
 
-  test('JC-31 the allocation cannot exceed what the pass has left', async ({ page }) => {
+  test('JC-31 a customer sub-job needs a gate pass item; with no pass the editor says so', async ({ page }) => {
+    await page.goto('/job-cards/new');
+    await header(page);
+    await expect(page.getByText('No gate pass material for this customer.')).toBeVisible();
+    await page.getByRole('button', { name: 'Cut / Bend', exact: true }).click();
+    await page.getByRole('button', { name: "Customer's Material" }).click();
+    await expect(page.getByText('This customer has no gate pass material left. Record a gate pass first.')).toBeVisible();
+    await expect(page.getByText(/Still needed: .*Pick the customer's material from a gate pass/)).toBeVisible();
+  });
+
+  test('JC-32 a mixed card (gate pass item + branch stock) commits the material (Partially Assigned)', async ({ page }) => {
     const gp = await gatePass();
+    // From the gate pass: customer filled in, the editor on the customer's material with the item picked
     await page.goto(`/job-cards/new?gatePass=${gp.gate_pass_id}`);
-    // Coming from the gate pass, the allocation opens straight away with the customer filled in
-    await expect(page.getByText('Allocate Customer Materials')).toBeVisible();
-    const qty = page.locator('input[type="number"][max]').first();
-    await qty.fill('99');
-    await expect(qty).toHaveValue('10');
-    await page.getByRole('button', { name: 'Confirm Allocation' }).click();
     await expect(field(page, 'Customer Name')).toHaveValue(gp.name);
-  });
-
-  test('JC-32 a card using the pass commits the material (Partially Assigned)', async ({ page }) => {
-    const gp = await gatePass();
-    await page.goto(`/job-cards/new?gatePass=${gp.gate_pass_id}`);
-    await page.locator('input[type="number"][max]').first().fill('4');
-    await page.getByRole('button', { name: 'Confirm Allocation' }).click();
+    await expect(page.getByRole('button', { name: new RegExp(escape(gp.pass_number)) }).first()).toBeVisible();
     await pickWorker(page);
-    await addCustomerCut(page);
+    await field(page, 'Pieces Used').fill('4');
+    await cutCharge(page, 'Cut customer sheet');
+    await page.getByRole('button', { name: 'Add Sub-Job' }).click();
+    await page.getByRole('button', { name: 'Branch Stock' }).click();
+    await addRolling(page);
+    await expect(subJobs(page)).toHaveCount(2);
     await page.getByRole('button', { name: 'Submit Job Card' }).click();
     await expect(page.getByText(/Job card JC-\d+ created/)).toBeVisible();
     const after = await call(SUP.thangalla, 'GET', `/gate-passes/${gp.gate_pass_id}`);
-    expect(after.data.summary.status).toBe('PARTIALLY_ASSIGNED');
+    expect([after.data.summary.status, after.data.summary.total_available]).toEqual(['PARTIALLY_ASSIGNED', 6]);
   });
 
-  test('JC-33 "Create New Gate Pass" round trip keeps the half-filled card', async ({ page }) => {
+  test('JC-33 "Create New Gate Pass" round trip keeps the half-filled card and picks the new item', async ({ page }) => {
     await page.goto('/job-cards/new');
     const tripName = `Round Trip ${Date.now() % 1_000_000}`;
     const { phone } = await header(page, newPhone(), tripName);
-    await addCustomerCut(page);
-    await page.getByRole('button', { name: 'Create New Gate Pass' }).click();
+    await addCustomCut(page);
+    await page.getByRole('button', { name: 'Create New Gate Pass' }).first().click();
     await expect(page).toHaveURL(/\/gate-pass\?.*return_to=job-card/);
     await expect(field(page, 'Customer Phone Number')).toHaveValue(phone);
     await field(page, 'Material Type').fill('MS Plain Sheet');
@@ -163,12 +187,10 @@ test.describe('customer material and gate passes', () => {
     await page.getByRole('button', { name: 'Add Material' }).click();
     await page.getByRole('button', { name: 'Generate Gate Pass' }).click();
     await expect(page).toHaveURL(/\/job-cards\/new\?gatePass=/);
-    await expect(page.getByText('Allocate Customer Materials')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Confirm Allocation' })).toBeDisabled();
-    await page.locator('input[type="number"][max]').first().fill('3');
-    await page.getByRole('button', { name: 'Confirm Allocation' }).click();
     await expect(field(page, 'Customer Name')).toHaveValue(tripName);
     await expect(subJobs(page)).toHaveCount(1);
+    await expect(page.getByText('3 of 3 left')).toBeVisible();
+    await expect(page.getByRole('button', { name: /MS Plain Sheet/ }).first()).toBeVisible();
   });
 });
 
@@ -230,17 +252,17 @@ test.describe('unfinished card is kept (sessionStorage draft)', () => {
     await page.goto('/job-cards/new');
     const { phone, name } = await header(page);
     await pickWorker(page);
-    await addCustomerCut(page);
+    await addCustomCut(page);
     // Start the next sub-job but don't add it
     await field(page, 'Inches').fill('7');
     await awayAndBack(page);
 
     await expect(page.getByText('Your unfinished job card was kept while you were away.')).toBeVisible();
-    await expect(field(page, 'Phone Number')).toHaveValue(phone);
+    await expect(field(page, 'Customer Phone')).toHaveValue(phone);
     await expect(field(page, 'Customer Name')).toHaveValue(name);
     await expect(subJobs(page)).toHaveCount(1);
     await expect(field(page, 'Inches')).toHaveValue('7');
-    await expect(page.getByText(/Advance to collect at the cashier Rs/)).toBeVisible();
+    await expect(page.getByText('Advance to collect at the cashier')).toBeVisible();
 
     await page.reload();
     await expect(field(page, 'Customer Name')).toHaveValue(name);
@@ -253,7 +275,7 @@ test.describe('unfinished card is kept (sessionStorage draft)', () => {
     await expect(clear).toBeDisabled();
     await header(page);
     await pickWorker(page);
-    await addCustomerCut(page);
+    await addCustomCut(page);
     await clear.click();
     const confirm = page.getByRole('dialog').filter({ hasText: 'Clear everything on this form?' });
     await confirm.getByRole('button', { name: 'Cancel' }).click();
@@ -272,7 +294,7 @@ test.describe('unfinished card is kept (sessionStorage draft)', () => {
     await page.goto('/job-cards/new');
     await header(page);
     await pickWorker(page);
-    await addCustomerCut(page);
+    await addCustomCut(page);
     await page.getByRole('button', { name: 'Submit Job Card' }).click();
     await expect(page.getByText(/Job card JC-\d+ created/)).toBeVisible();
     await awayAndBack(page);
@@ -284,7 +306,7 @@ test.describe('unfinished card is kept (sessionStorage draft)', () => {
     await page.goto('/job-cards/new');
     await header(page);
     await pickWorker(page);
-    await addCustomerCut(page);
+    await addCustomCut(page);
     const card = await jobCard({ lines: [ROLLING_LINE] });
     await page.goto(`/job-cards/${card.order_id}/edit`);
     await expect(field(page, 'Customer Name')).toHaveValue(card.customer.name);
