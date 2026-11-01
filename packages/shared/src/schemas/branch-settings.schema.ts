@@ -41,6 +41,7 @@ export const GeneralRulesSchema = z.object({
   payment_modes: z.array(z.nativeEnum(PaymentMode)).min(1).default([PaymentMode.CASH, PaymentMode.CARD, PaymentMode.TRANSFER]),
   require_payment_reference: z.boolean().default(true),
   allow_customer_material: z.boolean().default(true),
+  // Deprecated: customer material always needs a gate pass item (Docs/decisions/0007); kept so stored settings parse
   require_gate_pass: z.boolean().default(false),
 });
 

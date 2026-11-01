@@ -1,23 +1,33 @@
 import { LineStatus, OrderStatus } from '../enums/order.enums';
 
 // Display status comes from the stored order status. Job cards store COMPLETED
-// (Docs/decisions/0005); roofing READY is still derived from its lines (0001).
+// (Docs/decisions/0005); roofing READY is still derived from its lines (0001), and a
+// completed job card with nothing owed shows as Ready for Collection.
 
-export type WorkshopDisplayStatus = 'AWAITING_PAYMENT' | 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CLOSED' | 'CANCELLATION_PENDING' | 'VOIDED';
+export type WorkshopDisplayStatus =
+  | 'AWAITING_PAYMENT'
+  | 'PENDING'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'READY_FOR_COLLECTION'
+  | 'CLOSED'
+  | 'CANCELLATION_PENDING'
+  | 'VOIDED';
 export type RoofingDisplayStatus = 'PLACED' | 'IN_PROGRESS' | 'READY' | 'RELEASED' | 'CANCELLATION_PENDING' | 'CANCELLED' | 'DRAFT';
 
 export const WORKSHOP_STATUS_LABEL: Record<WorkshopDisplayStatus, string> = {
   AWAITING_PAYMENT: 'Awaiting Payment',
-  PENDING: 'Pending',
+  PENDING: 'In Workshop Queue',
   IN_PROGRESS: 'Ongoing',
   COMPLETED: 'Finished',
+  READY_FOR_COLLECTION: 'Ready for Collection',
   CLOSED: 'Closed',
   CANCELLATION_PENDING: 'Cancellation Pending',
   VOIDED: 'Voided',
 };
 
 export const ROOFING_STATUS_LABEL: Record<RoofingDisplayStatus, string> = {
-  DRAFT: 'Draft',
+  DRAFT: 'Awaiting Payment',
   PLACED: 'Placed',
   IN_PROGRESS: 'Ongoing',
   READY: 'Ready',
@@ -49,7 +59,8 @@ export function allActiveLinesCompleted(lineStatuses: readonly LineStatus[]): bo
   return active.length > 0 && active.every((s) => s === LineStatus.COMPLETED);
 }
 
-export function workshopDisplayStatus(status: OrderStatus): WorkshopDisplayStatus {
+/** `balance` (total − paid) splits Completed: a finished card paid in full is Ready for Collection. */
+export function workshopDisplayStatus(status: OrderStatus, balance?: number): WorkshopDisplayStatus {
   switch (status) {
     case OrderStatus.DRAFT:
       return 'AWAITING_PAYMENT';
@@ -58,7 +69,7 @@ export function workshopDisplayStatus(status: OrderStatus): WorkshopDisplayStatu
     case OrderStatus.IN_PROGRESS:
       return 'IN_PROGRESS';
     case OrderStatus.COMPLETED:
-      return 'COMPLETED';
+      return balance !== undefined && balance <= 0 ? 'READY_FOR_COLLECTION' : 'COMPLETED';
     case OrderStatus.CANCELLATION_PENDING:
       return 'CANCELLATION_PENDING';
     case OrderStatus.CLOSED:

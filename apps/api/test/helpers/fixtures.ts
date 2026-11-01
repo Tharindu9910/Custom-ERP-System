@@ -135,6 +135,10 @@ export const ROLLING_LINE = {
 export const CUSTOM_LINE = {
   job_type: 'CUT_BEND',
   material_source: 'BRANCH',
+  // Branch sheets are named even when priced by hand (Docs/decisions/0008)
+  material_type: 'MS Plain Sheet',
+  thickness: '2mm',
+  material_quantity: 1,
   custom: true,
   customized_reason_code: 'Special design',
   custom_charges: [
@@ -173,7 +177,6 @@ export function jobCardBody(
   return {
     client_request_id: randomUUID(),
     customer: { phone, name: 'E2E Job Customer' },
-    job_date: colomboToday(),
     worker_ids: workers,
     lines,
     ...over,
@@ -211,6 +214,13 @@ export async function jobCard(
   if (r.status !== 201)
     throw new Error(`jobCard ${r.status} ${JSON.stringify(r.body)}`);
   return opts.paid ? payAdvance(t, r.data, branch) : r.data;
+}
+
+/** The cashier sends a card with nothing due (Rs 0 minimum advance) to the Workshop Queue without a payment. */
+export async function toWorkshop(t: TestApp, order: any, branch: BranchKey = 'thangalla') {
+  const r = await t.as(CASHIER[branch]).post(`/job-cards/${order.order_id}/send-to-workshop`, { version: order.version });
+  if (r.status !== 201) throw new Error(`toWorkshop ${r.status} ${JSON.stringify(r.body)}`);
+  return r.data;
 }
 
 export async function payAdvance(
@@ -276,18 +286,23 @@ export function sheetLine(coilId: string, over: Record<string, unknown> = {}) {
   };
 }
 
-/** A placed roofing order paying the minimum (so a balance is due). */
+/**
+ * A roofing order placed by the cashier paying the minimum (so a balance is due). With
+ * `unpaid` it is submitted without payment (default: by the supervisor) and waits on the
+ * Cashier Queue (DRAFT).
+ */
 export async function roofingOrder(
   t: TestApp,
   opts: {
     user?: string;
     lines?: unknown[];
     payFull?: boolean;
+    unpaid?: boolean;
     override?: { password: string; reason: string };
   } = {},
 ) {
   const r = await t
-    .as(opts.user ?? SUP.thangalla)
+    .as(roofingUser(opts))
     .post('/roofing-orders', await roofingOrderBody(t, opts));
   if (r.status !== 201)
     throw new Error(`roofingOrder ${r.status} ${JSON.stringify(r.body)}`);
@@ -301,10 +316,11 @@ export async function roofingOrderBody(
     user?: string;
     lines?: unknown[];
     payFull?: boolean;
+    unpaid?: boolean;
     override?: { password: string; reason: string };
   } = {},
 ) {
-  const user = opts.user ?? SUP.thangalla;
+  const user = roofingUser(opts);
   const lines = opts.lines ?? [sheetLine((await richCoil(t, user)).item_id)];
   const q = await t.as(user).post('/roofing-orders/quote', { lines });
   if (q.status !== 200)
@@ -312,18 +328,25 @@ export async function roofingOrderBody(
   return {
     client_request_id: randomUUID(),
     customer: { phone: newPhone(), name: 'E2E Roof Customer' },
-    order_date: colomboToday(),
     technician: 'Sampath',
-    material_source: 'BRANCH',
     lines,
     discount: 0,
-    payment: {
-      amount: opts.payFull ? q.data.total : q.data.min_to_place,
-      mode: 'CASH',
-    },
+    // Only the cashier takes the payment while placing
+    ...(opts.unpaid
+      ? {}
+      : {
+          payment: {
+            amount: opts.payFull ? q.data.total : q.data.min_to_place,
+            mode: 'CASH',
+          },
+        }),
     ...(opts.override ? { override: opts.override } : {}),
   };
 }
+
+/** Paid orders are placed by the cashier; unpaid ones are submitted by the supervisor. */
+const roofingUser = (opts: { user?: string; unpaid?: boolean }) =>
+  opts.user ?? (opts.unpaid ? SUP.thangalla : CASHIER.thangalla);
 
 /** Placed → started → completed (Ready). */
 export async function readyRoofingOrder(

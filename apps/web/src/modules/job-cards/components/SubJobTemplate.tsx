@@ -1,10 +1,12 @@
+import { useMemo } from 'react';
 import { MaterialSource, rollingSizesFor, type WorkshopConfig, type WorkshopJobType } from '@erp/shared';
 import { ChoiceTiles, SectionHeader, Segmented, StepLabel } from '@/shared/components/FormSection';
 import { Icon, type IconName } from '@/shared/components/Icon';
 import { SearchableSelect } from '@/shared/components/SearchableSelect';
 import { formatRs, parseMoney } from '@/shared/lib/format';
-import { materialLabel, type CustomerMaterialOption } from '../lib/customer-material';
-import { CUSTOMIZED_REASONS, JOB_TYPE_LABEL, describeSubJob, isCustomMode, toLineInput, type SubJobForm } from '../lib/sub-job-form';
+import { materialLabel, type CustomerMaterialOption } from '@/modules/gate-passes/lib/customer-material';
+import type { WorkshopCoilOption } from '../hooks/useWorkshopCatalog';
+import { CUSTOMIZED_REASONS, JOB_TYPE_LABEL, describeSubJob, isCustomMode, toLineInput, type SheetNeed, type SubJobForm } from '../lib/sub-job-form';
 
 const JOB_TYPE_ICON: Record<WorkshopJobType, IconName> = { CUT_BEND: 'ruler', COIL_CUTTING: 'layers', ROLLING: 'refresh' };
 
@@ -32,6 +34,12 @@ interface Props {
   counts: Partial<Record<WorkshopJobType, number>>;
   editing: boolean;
   issues: string[];
+  /** Coil Cutting material list (workshop catalog, loaded once by the form) */
+  coils?: WorkshopCoilOption[];
+  coilsLoading: boolean;
+  /** This sub-job's sheets with the rest of the card's, against free stock (null = not stock-tracked) */
+  sheet: SheetNeed | null;
+  overrideAllowed: boolean;
   onSubmit: () => void;
   onCancelEdit: () => void;
 }
@@ -51,6 +59,10 @@ export function SubJobTemplate({
   counts,
   editing,
   issues,
+  coils,
+  coilsLoading,
+  sheet,
+  overrideAllowed,
   onSubmit,
   onCancelEdit,
 }: Props) {
@@ -58,22 +70,32 @@ export function SubJobTemplate({
   const isCustomer = form.material_source === MaterialSource.CUSTOMER;
   const coilCutting = form.job_type === 'COIL_CUTTING';
   const lengthMaterial = workshop.length_materials.includes(form.material_type);
-  // Customer cut/bend and rolling are always priced by hand: the choice shows, locked on Custom
-  const pricingLocked = isCustomer && !coilCutting;
-  const canChoosePricing = workshop.allow_custom_jobs || pricingLocked;
+  // Customer cut/bend and rolling are always priced by hand, so there is no choice to make (prototype)
+  const forcedCustom = isCustomer && !coilCutting;
+  const canChoosePricing = workshop.allow_custom_jobs && !forcedCustom;
+  // Branch material inputs stay in custom mode; the customer's material comes from the gate pass item
+  const branchInputs = !isCustomer;
   const detailsStep = String.fromCharCode('a'.charCodeAt(0) + 1 + (customerOn ? 1 : 0) + (canChoosePricing ? 1 : 0));
   const picked = materials.find((m) => m.gp_item_id === form.gp_item_id);
+  // More pieces than the gate pass item has left: shown on the field at once (Docs/decisions/0009)
+  const piecesOver = isCustomer && !!picked && Number(form.gp_quantity) > picked.left;
+  const sheetShort = branchInputs && form.job_type === 'CUT_BEND' && !!sheet && sheet.need > sheet.free;
+  const coilOptions = useMemo(() => {
+    const list = (coils ?? []).map((c) => ({ value: c.name, label: c.name, hint: `${c.sku} · ${c.stock_ft.toLocaleString()} ft in stock` }));
+    // A saved card keeps its material selectable even if it is no longer in the inventory
+    return form.coil_material && !list.some((o) => o.value === form.coil_material) ? [...list, { value: form.coil_material, label: form.coil_material, hint: 'Not in inventory' }] : list;
+  }, [coils, form.coil_material]);
   const set = (k: Field) => (e: { target: { value: string } }) => onChange({ [k]: e.target.value });
   const charges = toLineInput(form).custom_charges;
   const customTotal = charges.reduce((s, c) => s + Math.round(c.rate * c.quantity), 0);
 
-  const select = (k: Field, list: string[], placeholder: string, reset?: Partial<SubJobForm>) => (
+  const select = (k: Field, list: string[], placeholder: string, reset?: Partial<SubJobForm>, required = true) => (
     <SearchableSelect
       options={withCurrent(list, form[k] as string).map((v) => ({ value: v, label: v }))}
       value={(form[k] as string) || undefined}
       onChange={(v) => onChange({ [k]: v, ...reset })}
       placeholder={placeholder}
-      invalid={!form[k]}
+      invalid={required && !form[k]}
     />
   );
 
@@ -183,9 +205,15 @@ export function SubJobTemplate({
                     max={picked ? Math.max(0, picked.left) : undefined}
                     value={form.gp_quantity}
                     onChange={set('gp_quantity')}
-                    className={cls}
+                    className={`${cls} ${piecesOver ? '!border-red-400 !ring-red-300' : ''}`}
                   />
                 </div>
+                {piecesOver && picked && (
+                  <p className="col-span-full -mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-red-600">
+                    <Icon name="alertCircle" className="h-4 w-4 shrink-0" />
+                    Only {Math.max(0, picked.left)} piece{picked.left === 1 ? '' : 's'} left on {picked.pass_number} for this sub-job.
+                  </p>
+                )}
               </div>
             ))}
         </div>
@@ -197,15 +225,11 @@ export function SubJobTemplate({
           <Segmented
             value={custom ? 'CUSTOM' : 'STANDARD'}
             onChange={(v) => onChange({ custom: v === 'CUSTOM' })}
-            disabled={pricingLocked}
             options={[
               { value: 'STANDARD', label: 'Standard' },
               { value: 'CUSTOM', label: 'Custom' },
             ]}
           />
-          {/* <p className="mt-1.5 max-w-md text-xs text-gray-500">
-            {pricingLocked ? "Sub-jobs on the customer's material are always priced by hand." : 'Standard = branch rate table. Custom = enter your own price and a reason.'}
-          </p> */}
         </div>
       )}
 
@@ -215,7 +239,8 @@ export function SubJobTemplate({
         <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-12">
           {form.job_type === 'CUT_BEND' && (
             <>
-              {!custom && (
+              {/* Branch sheets are always named (held and deducted); counts grey out when priced by hand (prototype) */}
+              {branchInputs && (
                 <>
                   <div className="sm:col-span-6 lg:col-span-4">
                     <label className={label}>Material Type {req}</label>
@@ -231,27 +256,37 @@ export function SubJobTemplate({
                       select('thickness', workshop.thicknesses, 'Select thickness…')
                     )}
                   </div>
-                </>
-              )}
-              <div className="sm:col-span-6 lg:col-span-3">
-                <label className={label}>Inches</label>
-                <input type="text" value={form.inches} onChange={set('inches')} className={cls} placeholder="e.g. 5" />
-              </div>
-              {!custom && (
-                <>
+                  <div className="sm:col-span-6 lg:col-span-3">
+                    <label className={label}>Inches</label>
+                    <input type="text" value={form.inches} onChange={set('inches')} className={cls} placeholder="e.g. 5" />
+                  </div>
                   <div className="sm:col-span-6 lg:col-span-2">
                     <label className={label}>Material Qty {req}</label>
-                    <input type="number" min="1" value={form.material_quantity} onChange={set('material_quantity')} className={cls} placeholder="e.g. 3" />
+                    <input
+                      type="number"
+                      min="1"
+                      value={form.material_quantity}
+                      onChange={set('material_quantity')}
+                      className={`${cls} ${sheetShort ? '!border-amber-400' : ''}`}
+                      placeholder="e.g. 3"
+                    />
                   </div>
+                  {sheetShort && sheet && (
+                    <p className={`col-span-full -mt-1 inline-flex items-center gap-1.5 text-sm font-medium ${overrideAllowed ? 'text-amber-700' : 'text-red-600'}`}>
+                      <Icon name="alertCircle" className="h-4 w-4 shrink-0" />
+                      Only {Math.max(0, sheet.free)} {sheet.label} free ({sheet.need} needed on this card).{' '}
+                      {overrideAllowed ? 'Saving will ask for a stock override.' : 'Overrides are off at this branch.'}
+                    </p>
+                  )}
                   <div className="sm:col-span-6 lg:col-span-3">
                     <label className={label}>Total Cut Count</label>
-                    <input type="number" min="0" value={form.cut_count} onChange={set('cut_count')} className={cls} />
+                    <input type="number" min="0" disabled={custom} value={custom ? '' : form.cut_count} onChange={set('cut_count')} className={cls} />
                   </div>
                   <div className="sm:col-span-6 lg:col-span-3">
                     <label className={label}>Total Bend Count</label>
-                    <input type="number" min="0" value={form.bend_count} onChange={set('bend_count')} className={cls} />
+                    <input type="number" min="0" disabled={custom} value={custom ? '' : form.bend_count} onChange={set('bend_count')} className={cls} />
                   </div>
-                  <p className="col-span-full -mt-1 text-xs text-gray-500">Enter the cuts, the bends, or both.</p>
+                  {!custom && <p className="col-span-full -mt-1 text-xs text-gray-500">Enter the cuts, the bends, or both.</p>}
                 </>
               )}
               {reasonPicker}
@@ -259,17 +294,20 @@ export function SubJobTemplate({
                 <div className="col-span-full grid grid-cols-1 gap-4 rounded-md border border-purple-200 bg-purple-50 p-4 sm:grid-cols-12">
                   {chargeRow('Custom Cut Details', 'cut_desc', 'cut_rate', 'cut_qty', 'Cut')}
                   {chargeRow('Custom Bend Details', 'bend_desc', 'bend_rate', 'bend_qty', 'Bend')}
-                  <h4 className="col-span-full mb-1 mt-2 text-xs font-bold uppercase tracking-wider text-purple-800">Sheet Rolling (optional)</h4>
-                  <div className="sm:col-span-3">
-                    <label className={label}>Rolling Rate (Rs.)</label>
-                    <input type="number" min="0" step="0.01" value={form.sheet_roll_rate} onChange={set('sheet_roll_rate')} className={cls} />
-                  </div>
-                  <div className="sm:col-span-3">
-                    <label className={label}>Rolling Quantity</label>
-                    <input type="number" min="1" value={form.sheet_roll_qty} onChange={set('sheet_roll_qty')} className={cls} />
-                  </div>
                 </div>
               )}
+              {/* Optional on every Cut / Bend sub-job, charged whenever a rate is given */}
+              <div className="col-span-full grid grid-cols-1 gap-4 border-t border-gray-200 pt-4 sm:grid-cols-12">
+                <h4 className="col-span-full text-xs font-bold uppercase tracking-wider text-gray-700">Sheet Rolling (optional)</h4>
+                <div className="sm:col-span-3">
+                  <label className={label}>Rolling Rate (Rs.)</label>
+                  <input type="number" min="0" step="0.01" value={form.sheet_roll_rate} onChange={set('sheet_roll_rate')} className={cls} />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className={label}>Rolling Quantity</label>
+                  <input type="number" min="1" value={form.sheet_roll_qty} onChange={set('sheet_roll_qty')} className={cls} />
+                </div>
+              </div>
             </>
           )}
 
@@ -277,7 +315,18 @@ export function SubJobTemplate({
             <>
               <div className="sm:col-span-6">
                 <label className={label}>Material {req}</label>
-                <input type="text" value={form.coil_material} onChange={set('coil_material')} className={cls} placeholder="e.g. Zinc coil 0.47mm" />
+                {/* Branch stock: a coil from the inventory; the customer's own coil is described by hand */}
+                {branchInputs ? (
+                  <SearchableSelect
+                    options={coilOptions}
+                    value={form.coil_material || undefined}
+                    onChange={(v) => onChange({ coil_material: v })}
+                    placeholder={coilsLoading ? 'Loading coils…' : 'Search coil…'}
+                    invalid={!form.coil_material}
+                  />
+                ) : (
+                  <input type="text" value={form.coil_material} onChange={set('coil_material')} className={cls} placeholder="e.g. Zinc coil 0.47mm" />
+                )}
               </div>
               <div className="sm:col-span-6">
                 <label className={label}>Amount (In Ton) {req}</label>
@@ -294,23 +343,28 @@ export function SubJobTemplate({
 
           {form.job_type === 'ROLLING' && (
             <>
-              {!custom && (
+              {/* Branch: type and sub type stay; size and quantity grey out when priced by hand (prototype) */}
+              {branchInputs && (
                 <>
                   <div className="sm:col-span-6 lg:col-span-3">
-                    <label className={label}>Rolling Type {req}</label>
-                    {select('rolling_type', workshop.rolling_types, 'Select type…', { size: '' })}
+                    <label className={label}>Rolling Type {!custom && req}</label>
+                    {select('rolling_type', workshop.rolling_types, 'Select type…', { size: '' }, !custom)}
                   </div>
                   <div className="sm:col-span-6 lg:col-span-3">
-                    <label className={label}>Sub Type {req}</label>
-                    {select('work_type', workshop.rolling_work_types, 'Select sub type…')}
+                    <label className={label}>Sub Type {!custom && req}</label>
+                    {select('work_type', workshop.rolling_work_types, 'Select sub type…', undefined, !custom)}
                   </div>
                   <div className="sm:col-span-6 lg:col-span-3">
-                    <label className={label}>Size {req}</label>
-                    {select('size', rollingSizesFor(workshop, form.rolling_type), 'Select size…')}
+                    <label className={label}>Size {!custom && req}</label>
+                    {custom ? (
+                      <input type="text" disabled value="" className={cls} />
+                    ) : (
+                      select('size', rollingSizesFor(workshop, form.rolling_type), 'Select size…')
+                    )}
                   </div>
                   <div className="sm:col-span-6 lg:col-span-3">
-                    <label className={label}>Material Quantity {req}</label>
-                    <input type="number" min="1" value={form.quantity} onChange={set('quantity')} className={cls} />
+                    <label className={label}>Material Quantity {!custom && req}</label>
+                    <input type="number" min="1" disabled={custom} value={custom ? '' : form.quantity} onChange={set('quantity')} className={cls} />
                   </div>
                 </>
               )}

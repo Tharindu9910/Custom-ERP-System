@@ -11,7 +11,10 @@ export async function menuLabels(page: Page): Promise<string[]> {
   await expect(sidebar(page).getByRole('link').first()).toBeVisible();
   // Wait for branch-gated items to settle (they appear once the branch context loads)
   await page.waitForLoadState('networkidle');
-  return (await sidebar(page).locator('a, [aria-disabled="true"]').allInnerTexts()).map((t) => t.replace(/Coming soon/i, '').trim()).filter(Boolean);
+  // Drop the "Coming soon" tag and a count bubble (e.g. Stock Alerts' restock count)
+  return (await sidebar(page).locator('a, [aria-disabled="true"]').allInnerTexts())
+    .map((t) => t.replace(/Coming soon/i, '').replace(/\s+\d+\+?$/, '').trim())
+    .filter(Boolean);
 }
 
 export const scopeSelect = (page: Page) => page.locator('#scope-branch');

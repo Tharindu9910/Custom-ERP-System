@@ -11,6 +11,7 @@ import {
   QuoteRoofingSchema,
   ReasonSchema,
   RecordPaymentSchema,
+  SendToWorkshopSchema,
   ReleaseOrderSchema,
   RoofingQueueQuerySchema,
   StartJobCardSchema,
@@ -27,6 +28,7 @@ import {
   type QuoteRoofingDto,
   type ReasonDto,
   type RecordPaymentDto,
+  type SendToWorkshopDto,
   type ReleaseOrderDto,
   type OrderHistoryQuery,
   type RoofingQueueQuery,
@@ -129,6 +131,29 @@ export class OrdersController {
     return this.lines.completeCard(id, dto, toActor(u, b));
   }
 
+  @Post('job-cards/:id/send-to-workshop')
+  @RequirePermissions('process:payment')
+  sendToWorkshop(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(SendToWorkshopSchema)) dto: SendToWorkshopDto,
+    @CurrentUser() u: RequestUser,
+    @BranchId() b: string | null,
+  ) {
+    return this.payments.sendToWorkshop(id, dto, toActor(u, b));
+  }
+
+  @Post('roofing-orders/:id/send-to-queue')
+  @RequirePermissions('process:payment')
+  @RequireFeature({ section: 'roofing' })
+  sendRoofingToQueue(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(SendToWorkshopSchema)) dto: SendToWorkshopDto,
+    @CurrentUser() u: RequestUser,
+    @BranchId() b: string | null,
+  ) {
+    return this.payments.sendToOrderQueue(id, dto, toActor(u, b));
+  }
+
   @Post('job-cards/:id/close')
   @RequirePermissions('close:job_card')
   closeJobCard(
@@ -174,8 +199,10 @@ export class OrdersController {
     return this.roofing.create(dto, toActor(u, b));
   }
 
+  // Unpaid orders still at the cashier are edited by whoever creates orders; the service
+  // asks for edit:order once the order is paid or in the Order Queue
   @Put('roofing-orders/:id')
-  @RequirePermissions('edit:order')
+  @RequirePermissions('create:roofing_order')
   @RequireFeature({ section: 'roofing' })
   updateRoofingOrder(
     @Param('id', ParseUUIDPipe) id: string,
@@ -186,9 +213,9 @@ export class OrdersController {
     return this.roofing.update(id, dto, toActor(u, b));
   }
 
-  /** History popup on Create Order: this branch's roofing orders in a date range. */
+  /** History popup on Create Order and the Order Queue: this branch's roofing orders in a date range. */
   @Get('roofing-orders/history')
-  @RequirePermissions('create:roofing_order')
+  @RequirePermissions('view:orders')
   @RequireFeature({ section: 'roofing' })
   roofingOrderHistory(@Query(new ZodPipe(OrderHistoryQuerySchema)) q: OrderHistoryQuery, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.queries.history(OrderType.ROOFING_ORDER, q, toActor(u, b).branch_id);

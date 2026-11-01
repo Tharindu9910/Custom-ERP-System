@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { MaterialSource, PAYMENT_STATE_LABEL, formatGatePassLength, isAccessoryCategory, roofingItemTitle, type RoofingLineInput } from '@erp/shared';
+import { SectionTitle } from '@/shared/components/DetailParts';
 import { Modal } from '@/shared/components/Modal';
 import { StatusPill } from '@/shared/components/StatusPill';
 import { formatDateTime, formatRs } from '@/shared/lib/format';
@@ -53,15 +54,19 @@ export function OrderDetailModal({ orderId, onClose, actions }: { orderId: strin
             <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4">
               <div className="mb-2 flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-violet-800">Customer Supplied Material</h4>
-                <span className="text-xs font-semibold text-violet-700">Gate Pass #{o.gate_pass.pass_number}</span>
+                <span className="text-xs font-semibold text-violet-700">
+                  Gate Pass {[...new Set(o.customer_materials.map((m) => m.pass_number))].join(', ') || o.gate_pass.pass_number}
+                </span>
               </div>
               <div className="space-y-1">
                 {o.customer_materials.map((m) => (
-                  <div key={m.gp_item_id} className="flex justify-between rounded-md border border-violet-100 bg-white px-3 py-1.5 text-sm">
+                  <div key={`${m.gp_item_id}:${m.line_id ?? ''}`} className="flex justify-between rounded-md border border-violet-100 bg-white px-3 py-1.5 text-sm">
                     <span>
                       {m.material_type}
                       {m.thickness && <span className="text-slate-500"> ({m.thickness})</span>}
                       {m.length && <span className="text-slate-500"> [{formatGatePassLength(m.length, m.length_unit)}]</span>}
+                      <span className="text-xs text-slate-400"> · {m.pass_number}</span>
+                      {m.line_id && <span className="text-xs text-slate-400"> · for {lines.find((l) => l.line_id === m.line_id)?.line_number ?? 'a removed item'}</span>}
                     </span>
                     <span className="font-semibold">Qty {m.quantity}</span>
                   </div>
@@ -72,8 +77,8 @@ export function OrderDetailModal({ orderId, onClose, actions }: { orderId: strin
           )}
 
           <div>
-            <h4 className="mb-3 font-semibold text-slate-900">Items ({lines.length})</h4>
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <SectionTitle title="Items" count={lines.length} />
+            <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
               <table className="min-w-full divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50">
                   <tr className="text-left text-xs font-medium text-slate-500">
@@ -113,7 +118,14 @@ export function OrderDetailModal({ orderId, onClose, actions }: { orderId: strin
                           )}
                         </td>
                         <td className="px-4 py-3 text-slate-700">{accessory ? '—' : `${spec.total_cuts || 0} / ${spec.total_bends || 0}`}</td>
-                        <td className="px-4 py-3 text-xs text-slate-700">{l.material_source === MaterialSource.CUSTOMER ? 'Customer' : 'Branch'}</td>
+                        <td className="px-4 py-3 text-xs text-slate-700">
+                          {l.material_source === MaterialSource.CUSTOMER ? 'Customer' : 'Branch'}
+                          {l.customer_material && (
+                            <div className="text-[11px] text-orange-700">
+                              {l.customer_material.pass_number} × {l.customer_material.quantity}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <div className="font-semibold tabular-nums">{formatRs(l.line_total)}</div>
                           {spec.price_note && <div className="ml-auto max-w-[220px] text-[11px] text-slate-400">{spec.price_note}</div>}
@@ -128,7 +140,7 @@ export function OrderDetailModal({ orderId, onClose, actions }: { orderId: strin
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div>
-              <h4 className="mb-3 font-semibold text-slate-900">Payments ({o.payments.length})</h4>
+              <SectionTitle title="Payments" count={o.payments.length} />
               {o.payments.length === 0 ? (
                 <p className="text-sm text-slate-500">No payments recorded.</p>
               ) : (

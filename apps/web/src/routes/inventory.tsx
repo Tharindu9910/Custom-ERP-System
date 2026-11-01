@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { STOCK_LEVEL_LABEL, suggestedRequestQty, type InventoryQuery, type MovementType, type StockLevel } from '@erp/shared';
+import { SectionTitle, Stat, StatStrip } from '@/shared/components/DetailParts';
 import { Icon } from '@/shared/components/Icon';
 import { Modal } from '@/shared/components/Modal';
 import { SearchInput } from '@/shared/components/SearchInput';
@@ -299,28 +300,13 @@ function ItemDetailsModal({
         <div className="py-12 text-center text-sm text-slate-400">Loading…</div>
       ) : (
         <div className="space-y-5 text-sm">
-          <div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4 text-center sm:grid-cols-5">
-            <div>
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">On hand</span>
-              <span className={`mt-1 block text-lg font-bold ${LEVEL_TEXT[item.level]}`}>{formatQty(item.stock)}</span>
-            </div>
-            <div>
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Reserved</span>
-              <span className="mt-1 block text-lg font-bold text-slate-900">{formatQty(item.reserved)}</span>
-            </div>
-            <div>
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Available</span>
-              <span className="mt-1 block text-lg font-bold text-slate-900">{formatQty(item.available)}</span>
-            </div>
-            <div>
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Minimum</span>
-              <span className="mt-1 block text-lg font-bold text-slate-900">{formatQty(item.reorder_level)}</span>
-            </div>
-            <div>
-              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">Status</span>
-              <span className={`mt-1.5 inline-block rounded border px-2 py-0.5 text-xs font-bold ${LEVEL_STYLE[item.level]}`}>{STOCK_LEVEL_LABEL[item.level]}</span>
-            </div>
-          </div>
+          <StatStrip>
+            <Stat label="On hand" value={formatQty(item.stock)} tone={LEVEL_TEXT[item.level]} />
+            <Stat label="Reserved" value={formatQty(item.reserved)} />
+            <Stat label="Available" value={formatQty(item.available)} />
+            <Stat label="Minimum" value={formatQty(item.reorder_level)} />
+            <Stat label="Status" value={<span className={`inline-block rounded border px-2 py-0.5 text-xs font-bold ${LEVEL_STYLE[item.level]}`}>{STOCK_LEVEL_LABEL[item.level]}</span>} />
+          </StatStrip>
 
           {open && (
             <p className={`rounded-lg border p-3 text-xs ${open.status === 'SENT' ? 'border-blue-200 bg-blue-50 text-blue-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
@@ -338,7 +324,7 @@ function ItemDetailsModal({
 
           {item.reservations.length > 0 && (
             <div>
-              <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Held for open orders</h4>
+              <SectionTitle title="Held for open orders" count={item.reservations.length} />
               <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
                 {item.reservations.map((r) => (
                   <div key={r.reservation_id} className="flex items-center justify-between gap-3 px-4 py-2.5">
@@ -360,7 +346,7 @@ function ItemDetailsModal({
           )}
 
           <div>
-            <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Recent movements</h4>
+            <SectionTitle title="Recent movements" />
             {item.movements.length === 0 ? (
               <p className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400">No stock movements yet.</p>
             ) : (

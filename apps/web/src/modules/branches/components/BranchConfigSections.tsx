@@ -3,7 +3,6 @@ import {
   COIL_COLOR_LABELS,
   COIL_ORIGIN_LABELS,
   DEFAULT_BRANCH_SETTINGS,
-  MIN_PAYMENT_TO_PLACE,
   PaymentMode,
   ROOFING_CATEGORIES,
   WORKSHOP_JOB_TYPES,
@@ -11,7 +10,6 @@ import {
   typeHasWorkshop,
   type BranchSettings,
   type FeatureKey,
-  type MinPaymentToPlace,
 } from '@erp/shared';
 import { BRANCH_TYPE_OPTIONS, branchTypeLabel, type ConfigSection } from '../lib/branch-config';
 import {
@@ -57,7 +55,6 @@ const PAYMENT_MODE_LABELS: Record<PaymentMode, string> = {
   [PaymentMode.TRANSFER]: 'Transfer',
 };
 const JOB_TYPE_LABELS: Record<(typeof WORKSHOP_JOB_TYPES)[number], string> = { CUT_BEND: 'Cut / Bend', COIL_CUTTING: 'Coil Cutting', ROLLING: 'Rolling' };
-const MIN_PAYMENT_LABELS: Record<MinPaymentToPlace, string> = { NONE: 'No payment', ADVANCE: 'Advance', FULL: 'Full amount' };
 
 // Option universes come from the system defaults; a branch picks a subset
 const ALL_COIL_THICKNESSES = DEFAULT_BRANCH_SETTINGS.roofing.coil_thicknesses;
@@ -122,23 +119,15 @@ function GeneralSection({ config, update }: SectionProps) {
 
       <FieldGroup title="Customer-supplied material">
         <div className="divide-y divide-gray-100">
-          <SettingRow title="Allow customer-supplied material" description="When off, every item uses branch stock.">
-            <Toggle label="Allow customer-supplied material" checked={value.allow_customer_material} onChange={(v) => set('allow_customer_material', v)} />
-          </SettingRow>
           <SettingRow
-            title="Gate pass is mandatory"
+            title="Allow customer-supplied material"
             description={
               gatePassOff
-                ? 'Turn on the Gate Pass feature to use this.'
-                : 'Order forms and job cards with customer material cannot be submitted without a gate pass.'
+                ? 'Needs the Gate Pass feature: customer material always comes from a gate pass. Turn it on to use this.'
+                : 'Customer-supplied items on orders and job cards always take their material from a gate pass item. When off, every item uses branch stock.'
             }
           >
-            <Toggle
-              label="Gate pass is mandatory"
-              checked={value.require_gate_pass && value.allow_customer_material && !gatePassOff}
-              disabled={!value.allow_customer_material || gatePassOff}
-              onChange={(v) => set('require_gate_pass', v)}
-            />
+            <Toggle label="Allow customer-supplied material" checked={value.allow_customer_material} onChange={(v) => set('allow_customer_material', v)} />
           </SettingRow>
         </div>
       </FieldGroup>
@@ -158,26 +147,17 @@ function OrdersSection({ config, type, update, overridePassword, setOverridePass
   return (
     <>
       {typeHasRoofing(type) && (
-        <FieldGroup title="Roofing orders" hint="What the supervisor must collect before an order is placed.">
+        <FieldGroup
+          title="Roofing orders"
+          hint="Each item has an advance, as a job card sub-job does: standard items take this percentage of their total; customized items are set on the order (pre-filled with the workshop's customized advance). The order's minimum is their sum."
+        >
           <div className="grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelClass}>Payment to place an order</label>
-              <select value={value.min_payment_to_place} onChange={(e) => set('min_payment_to_place', e.target.value as MinPaymentToPlace)} className={inputClass}>
-                {MIN_PAYMENT_TO_PLACE.map((m) => (
-                  <option key={m} value={m}>
-                    {MIN_PAYMENT_LABELS[m]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {value.min_payment_to_place === 'ADVANCE' && (
-              <div>
-                <label className={labelClass}>Minimum advance</label>
-                <div className="mt-1">
-                  <PercentInput value={value.min_advance_pct} onChange={(v) => set('min_advance_pct', v)} />
-                </div>
+              <label className={labelClass}>Standard item advance</label>
+              <div className="mt-1">
+                <PercentInput value={value.min_advance_pct} onChange={(v) => set('min_advance_pct', v)} />
               </div>
-            )}
+            </div>
             <div>
               <label className={labelClass}>Customized surcharge</label>
               <div className="mt-1">
@@ -189,16 +169,19 @@ function OrdersSection({ config, type, update, overridePassword, setOverridePass
       )}
 
       {typeHasWorkshop(type) && (
-        <FieldGroup title="Job card advance" hint="Advance the cashier collects before workshop work starts.">
+        <FieldGroup
+          title="Job card advance"
+          hint="Collected before workshop work starts. Standard Cut / Bend on branch sheets takes the material cost; the supervisor can change a custom sub-job's advance."
+        >
           <div className="grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className={labelClass}>Customized jobs</label>
+              <label className={labelClass}>Custom jobs (suggested)</label>
               <div className="mt-1">
                 <PercentInput value={config.min_advance_pct_customized} onChange={(v) => update('min_advance_pct_customized', v)} />
               </div>
             </div>
             <div>
-              <label className={labelClass}>Standard jobs</label>
+              <label className={labelClass}>Standard Rolling / Coil Cutting</label>
               <div className="mt-1">
                 <PercentInput value={config.min_advance_pct_standard} onChange={(v) => update('min_advance_pct_standard', v)} />
               </div>

@@ -30,6 +30,8 @@ export interface PricedWorkshopLine {
   auto_customized: boolean;
   /** Human-readable list of rates that are missing; non-empty means a custom price is needed. */
   missing_rates: string[];
+  /** Branch sheets on a Cut/Bend line (price × qty, 0 if not catalogued) — the standard advance (Docs/decisions/0010). */
+  material_total: number;
 }
 
 export function customChargesTotal(charges: readonly CustomCharge[]): number {
@@ -51,16 +53,18 @@ export function lineTypeFor(line: WorkshopLineInput): { line_type: LineType; sub
 }
 
 /**
- * Prices one workshop line.
- * - Customized (hand toggle or customer material): the sum of the custom charges.
- * - Standard: rates from price_rate (+ material for branch-material Cut/Bend). If any
- *   needed rate is missing the line becomes customized automatically and the
- *   supervisor must supply custom charges.
+ * Prices one workshop line (Docs/decisions/0008).
+ * - Customized (hand toggle or customer material): the sum of the custom charges, plus
+ *   the branch sheets for a branch Cut/Bend (they are still held and deducted).
+ * - Standard: rates from price_rate (+ material for branch-material Cut/Bend, + any
+ *   sheet rolling charge). If any needed rate is missing the line becomes customized
+ *   automatically and the supervisor must supply custom charges.
  */
 export function priceWorkshopLine(line: WorkshopLineInput, ctx: WorkshopPricingContext): PricedWorkshopLine {
   const { line_type, sub_type } = lineTypeFor(line);
-  const custom = (missing: string[], auto: boolean): PricedWorkshopLine => {
-    const total = customChargesTotal(line.custom_charges);
+  const sheets = line.job_type === 'CUT_BEND' && line.material_source === MaterialSource.BRANCH ? branchMaterialTotal(line, ctx) : null;
+  const custom = (missing: string[], auto: boolean, extra = 0): PricedWorkshopLine => {
+    const total = customChargesTotal(line.custom_charges) + extra;
     return {
       line_type,
       sub_type,
@@ -70,12 +74,16 @@ export function priceWorkshopLine(line: WorkshopLineInput, ctx: WorkshopPricingC
       line_total: total,
       is_customized: true,
       auto_customized: auto,
-      // Missing rates only matter while no custom price has been given
-      missing_rates: line.custom_charges.length > 0 ? [] : missing,
+      // Missing rates only matter while no custom price has been given (sheet rolling alone is not one)
+      missing_rates: line.custom_charges.some((c) => !isSheetRolling(line, c)) ? [] : missing,
+      material_total: sheets ?? 0,
     };
   };
 
-  if (isCustomMode(line)) return custom([], false);
+  if (isCustomMode(line)) {
+    // Uncatalogued branch material adds nothing: the hand rate covers it
+    return custom([], false, sheets ?? 0);
+  }
 
   const missing: string[] = [];
   let total = 0;
@@ -96,10 +104,11 @@ export function priceWorkshopLine(line: WorkshopLineInput, ctx: WorkshopPricingC
       if (r) total += r.rate * line.bend_count;
       else missing.push(`bend rate for ${material} ${thickness}`);
     }
+    // Sheet rolling is entered by hand on any Cut/Bend line
+    total += customChargesTotal(line.custom_charges.filter((c) => isSheetRolling(line, c)));
     if (line.material_source === MaterialSource.BRANCH) {
-      const price = ctx.materialPrice(material, thickness);
-      if (price === null) missing.push(`material price for ${material} ${thickness}`);
-      else total += price * (line.material_quantity ?? 0);
+      if (sheets === null) missing.push(`material price for ${material} ${thickness}`);
+      else total += sheets;
     }
     unit = total;
   } else if (line.job_type === 'ROLLING') {
@@ -135,8 +144,18 @@ export function priceWorkshopLine(line: WorkshopLineInput, ctx: WorkshopPricingC
     is_customized: false,
     auto_customized: false,
     missing_rates: [],
+    material_total: sheets ?? 0,
   };
 }
+
+/** Branch sheets on a Cut/Bend line (price × quantity), or null when the material is not catalogued. */
+function branchMaterialTotal(line: Extract<WorkshopLineInput, { job_type: 'CUT_BEND' }>, ctx: WorkshopPricingContext): number | null {
+  const price = ctx.materialPrice(line.material_type ?? '', line.thickness ?? '');
+  return price === null ? null : price * (line.material_quantity ?? 0);
+}
+
+/** The optional sheet rolling charge of a Cut/Bend line. */
+const isSheetRolling = (line: WorkshopLineInput, c: CustomCharge) => line.job_type === 'CUT_BEND' && c.kind === 'ROLLING';
 
 function standardQuantity(line: WorkshopLineInput): number | null {
   if (line.job_type === 'CUT_BEND') return line.material_quantity ?? null;

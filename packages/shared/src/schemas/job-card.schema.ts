@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MaterialSource } from '../enums/order.enums';
-import { Cents, ClientRequestId, CustomerRefSchema, LocalDate, OptionalId, StockOverrideSchema } from './common.schema';
+import { Cents, ClientRequestId, CustomerMaterialSchema, CustomerRefSchema, OptionalId, StockOverrideSchema } from './common.schema';
 
 // A manual charge used when a line is customized (manual toggle, customer
 // material, or no standard rate — BR23).
@@ -13,12 +13,6 @@ export const CustomChargeSchema = z.object({
 });
 export type CustomCharge = z.infer<typeof CustomChargeSchema>;
 
-// Customer-supplied material always comes from a gate pass item, one item per line (Docs/decisions/0007)
-export const CustomerMaterialSchema = z.object({
-  gp_item_id: z.string().uuid('Pick the customer\'s material from a gate pass'),
-  quantity: z.number().int().min(1, 'Gate pass quantity must be at least 1'),
-});
-export type CustomerMaterial = z.infer<typeof CustomerMaterialSchema>;
 
 const lineBase = {
   // Present when editing an existing line
@@ -31,6 +25,8 @@ const lineBase = {
   notes: z.string().trim().max(500).optional(),
   // Customer material: the one gate pass item this line uses (Docs/decisions/0007)
   customer_material: CustomerMaterialSchema.nullable().optional(),
+  // Advance set by the supervisor on a customized sub-job (0 to its total); ignored on standard ones (Docs/decisions/0010)
+  advance: Cents.optional(),
 };
 
 export const CutBendLineSchema = z.object({
@@ -76,15 +72,18 @@ export const WorkshopLineSchema = z
       issue('Give a reason for marking this job as customized', 'customized_reason_code');
     }
     if (line.job_type === 'CUT_BEND') {
+      // Branch sheets are always named, even when priced by hand: they are held and deducted (BR10, Docs/decisions/0008)
+      if (line.material_source === MaterialSource.BRANCH) {
+        if (!line.material_type) issue('Material type is required', 'material_type');
+        if (!line.thickness) issue('Thickness is required', 'thickness');
+        if (!line.material_quantity) issue('Material quantity is required', 'material_quantity');
+      }
       if (customMode) {
         if (!line.custom_charges.some((c) => c.kind === 'CUT' || c.kind === 'BEND')) {
           issue('Add a custom cut or bend charge (description, rate and quantity)', 'custom_charges');
         }
-      } else {
-        if (!line.material_type) issue('Material type is required', 'material_type');
-        if (!line.thickness) issue('Thickness is required', 'thickness');
-        if (!line.material_quantity) issue('Material quantity is required', 'material_quantity');
-        if (line.cut_count <= 0 && line.bend_count <= 0) issue('Enter the number of cuts or bends', 'cut_count');
+      } else if (line.cut_count <= 0 && line.bend_count <= 0) {
+        issue('Enter the number of cuts or bends', 'cut_count');
       }
     }
     if (line.job_type === 'ROLLING') {
@@ -108,7 +107,7 @@ export function isCustomMode(line: Pick<WorkshopLineInput, 'job_type' | 'custom'
 
 const jobCardBody = {
   customer: CustomerRefSchema,
-  job_date: LocalDate,
+  // No job_date: the server stamps the branch-local date when the card is created
   worker_ids: z.array(z.string().uuid()).min(1, 'Assign at least one worker'),
   notes: z.string().trim().max(500).optional(),
   // Material source and gate pass material are per line (customer_material); nothing order-level

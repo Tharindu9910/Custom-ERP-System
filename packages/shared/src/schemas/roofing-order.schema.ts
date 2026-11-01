@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { MaterialSource } from '../enums/order.enums';
 import { PaymentMode } from '../enums/payment-mode.enum';
 import { ROOFING_CATEGORIES, type RoofingConfig } from './branch-settings.schema';
-import { Cents, ClientRequestId, CustomerRefSchema, LocalDate, MaterialAllocationsSchema, OptionalId, StockOverrideSchema } from './common.schema';
+import { Cents, ClientRequestId, CustomerMaterialSchema, CustomerRefSchema, LocalDate, OptionalId, StockOverrideSchema } from './common.schema';
 
 export const ROOFING_JOB_TYPES = ['STANDARD', 'CUSTOMIZED'] as const;
 export type RoofingJobType = (typeof ROOFING_JOB_TYPES)[number];
@@ -27,6 +27,11 @@ export const RoofingLineSchema = z.object({
   quantity: z.number().int().min(1).optional(),
   design_attachment_id: OptionalId,
   remarks: z.string().trim().max(500).optional(),
+  // Customer material: the one gate pass item this item uses (Docs/decisions/0007)
+  customer_material: CustomerMaterialSchema.nullable().optional(),
+  // A customized item's advance (cents), set when the order is made; standard items take the
+  // branch percentage and ignore this (Docs/decisions/0011)
+  advance: Cents.optional(),
 });
 export type RoofingLineInput = z.infer<typeof RoofingLineSchema>;
 
@@ -39,13 +44,10 @@ export type PaymentCapture = z.infer<typeof PaymentCaptureSchema>;
 
 const roofingBody = {
   customer: CustomerRefSchema,
-  order_date: LocalDate,
   technician: z.string().trim().max(120).optional(),
-  material_source: z.nativeEnum(MaterialSource).default(MaterialSource.BRANCH),
   // One coil applied to every branch-material item that needs a coil
   global_coil_item_id: OptionalId,
-  gate_pass_id: OptionalId,
-  allocations: MaterialAllocationsSchema,
+  // Material source and gate pass material are per line (customer_material); nothing order-level
   lines: z.array(RoofingLineSchema).min(1, 'Add at least one item'),
   discount: Cents.default(0),
   // Branch material is reserved on save; given only after a 409 STOCK_INSUFFICIENT (Docs/decisions/0003)
@@ -55,7 +57,9 @@ const roofingBody = {
 export const CreateRoofingOrderSchema = z.object({
   client_request_id: ClientRequestId,
   ...roofingBody,
-  payment: PaymentCaptureSchema,
+  // Only the cashier takes the payment while placing; without one the order waits at the
+  // Cashier Queue (Awaiting Payment) like a job card. The order date is stamped by the server.
+  payment: PaymentCaptureSchema.optional(),
 });
 export type CreateRoofingOrderDto = z.infer<typeof CreateRoofingOrderSchema>;
 
@@ -120,6 +124,7 @@ export const runningFt = (line: Pick<RoofingLineInput, 'length_ft' | 'pieces'>) 
 export function validateRoofingLine(line: RoofingLineInput, roofing: RoofingConfig, hasOrderCoil: boolean): string[] {
   const missing: string[] = [];
   if (!roofing.categories.includes(line.category)) missing.push('a category enabled for this branch');
+  if (line.material_source === MaterialSource.CUSTOMER && !line.customer_material) missing.push('gate pass material');
   if (lineNeedsCoil(line, roofing) && !hasOrderCoil && !line.coil_item_id) missing.push('coil');
   if (isAccessoryCategory(line.category)) {
     const acc = roofing.accessories.find((a) => a.name === line.accessory_type);
@@ -163,6 +168,8 @@ export function normalizeRoofingLine(line: RoofingLineInput, roofing: RoofingCon
     quantity: accessory ? line.quantity : undefined,
     design_attachment_id: custom ? (line.design_attachment_id ?? undefined) : undefined,
     remarks: line.remarks?.trim() || undefined,
+    customer_material: line.material_source === MaterialSource.CUSTOMER ? (line.customer_material ?? undefined) : undefined,
+    advance: custom ? line.advance : undefined,
   };
 }
 

@@ -25,6 +25,9 @@ import {
   itemBalance,
   coilDetails,
   jobCardMinAdvance,
+  lineAdvance,
+  suggestedLineAdvance,
+  advanceEditable,
   lineDeductsCoil,
   normalizeRoofingLine,
   roofingItemTitle,
@@ -36,6 +39,7 @@ import {
   priceWorkshopLine,
   roofingDisplayStatus,
   roofingTotals,
+  freeStock,
   stockAlertInfo,
   stockLevel,
   toBranchDate,
@@ -138,7 +142,17 @@ describe('roofing pricing (prototype orderPricing)', () => {
     expect(validateRoofingLine(sheet({ pattern: undefined }), cfg, false)).toContain('design pattern');
     expect(validateRoofingLine(sheet({ job_type: 'CUSTOMIZED' }), cfg, false)).toContain('design photo');
     // Customer material never needs a coil; aluminium brackets never need a coil
-    expect(validateRoofingLine(sheet({ material_source: MaterialSource.CUSTOMER, coil_item_id: undefined, pattern: undefined }), cfg, false)).toEqual([]);
+    const gpItem = { gp_item_id: '7b1c2a4e-5d6f-4a8b-9c0d-1e2f3a4b5c6d', quantity: 2 };
+    expect(
+      validateRoofingLine(sheet({ material_source: MaterialSource.CUSTOMER, coil_item_id: undefined, pattern: undefined, customer_material: gpItem }), cfg, false),
+    ).toEqual([]);
+    // ...but always a gate pass item (Docs/decisions/0007)
+    expect(validateRoofingLine(sheet({ material_source: MaterialSource.CUSTOMER, coil_item_id: undefined, pattern: undefined }), cfg, false)).toEqual([
+      'gate pass material',
+    ]);
+    // A branch item never keeps a gate pass item
+    expect(normalizeRoofingLine(sheet({ customer_material: gpItem }), cfg).customer_material).toBeUndefined();
+    expect(normalizeRoofingLine(sheet({ material_source: MaterialSource.CUSTOMER, customer_material: gpItem }), cfg).customer_material).toEqual(gpItem);
     expect(
       validateRoofingLine({ category: 'Gutter Accessories', job_type: 'STANDARD', material_source: MaterialSource.BRANCH, accessory_type: 'Bracket (Aluminium)', quantity: 4, total_cuts: 0, total_bends: 0 }, cfg, false),
     ).toEqual([]);
@@ -185,6 +199,35 @@ describe('workshop pricing', () => {
     expect(p).toMatchObject({ is_customized: true, auto_customized: false, line_total: 31000 });
   });
 
+  it('branch cut/bend priced by hand still names and charges its sheets (Docs/decisions/0008)', () => {
+    const cut = [{ kind: 'CUT', description: 'Cut to design', rate: 5000, quantity: 3 }];
+    const p = priceWorkshopLine(
+      parse({ job_type: 'CUT_BEND', custom: true, customized_reason_code: 'Special design', material_type: 'MS Plain Sheet', thickness: '2mm', material_quantity: 2, custom_charges: cut }),
+      ctx,
+    );
+    // 3 × 50 + 2 × 4,500 = 9,150
+    expect(p).toMatchObject({ is_customized: true, auto_customized: false, quantity: 2, line_total: 915000 });
+    const messages = WorkshopLineSchema.safeParse({ job_type: 'CUT_BEND', custom: true, customized_reason_code: 'Special design', custom_charges: cut });
+    expect(messages.success ? [] : messages.error.issues.map((i) => i.message)).toEqual(
+      expect.arrayContaining(['Material type is required', 'Thickness is required', 'Material quantity is required']),
+    );
+  });
+
+  it('sheet rolling is charged on a standard cut/bend, but is not a custom price for a missing rate', () => {
+    const roll = [{ kind: 'ROLLING', description: 'Sheet rolling', rate: 20000, quantity: 2 }];
+    const std = priceWorkshopLine(
+      parse({ job_type: 'CUT_BEND', material_type: 'MS Plain Sheet', thickness: '2mm', material_quantity: 2, cut_count: 4, bend_count: 3, custom_charges: roll }),
+      ctx,
+    );
+    // 9,380 + 2 × 200
+    expect(std).toMatchObject({ is_customized: false, line_total: 978000 });
+    const noRate = priceWorkshopLine(
+      parse({ job_type: 'CUT_BEND', material_type: 'Stainless Steel (SS)', thickness: '6mm', material_quantity: 1, cut_count: 1, custom_charges: roll }),
+      ctx,
+    );
+    expect(noRate.missing_rates.length).toBeGreaterThan(0);
+  });
+
   it('customer material needs a gate pass item; branch lines must not have one (Docs/decisions/0007)', () => {
     const charge = [{ kind: 'CUT', description: 'Cut', rate: 5000, quantity: 1 }];
     const messages = (v: unknown) => {
@@ -226,9 +269,58 @@ describe('payments and advance', () => {
     expect(paymentKindFor(300, 200, 1000)).toBe('PARTIAL');
     expect(paymentKindFor(300, 700, 1000)).toBe('FINAL');
   });
-  it('job card minimum advance: customized 30% + standard 0% (BR09)', () => {
-    expect(jobCardMinAdvance([{ line_total: 10000, is_customized: true }, { line_total: 5000, is_customized: false }], DEFAULT_BRANCH_SETTINGS)).toBe(3000);
-    expect(jobCardMinAdvance([{ line_total: 333, is_customized: true }], DEFAULT_BRANCH_SETTINGS)).toBe(100); // rounds up
+  it('job card minimum advance is the sum of its sub-job advances', () => {
+    expect(jobCardMinAdvance([{ advance: 3000 }, { advance: 0 }, { advance: 450 }])).toBe(3450);
+    expect(jobCardMinAdvance([])).toBe(0);
+  });
+});
+
+describe('workshop sub-job advance (Docs/decisions/0010)', () => {
+  const rates = [
+    rate({ line_type: LineType.CUT_BEND, sub_type: LineSubType.CUT, variant: 'MS Plain Sheet', thickness_or_size: '2mm', price_basis: PriceBasis.PER_CUT, rate: 3800 }),
+    rate({ line_type: LineType.ROLLING, sub_type: LineSubType.PIPE_BEND, work_type: 'GI Pipe', thickness_or_size: '1"', price_basis: PriceBasis.PER_PIECE, rate: 23000 }),
+  ];
+  const ctx = { rates, materialPrice: (m: string, t: string) => (m === 'MS Plain Sheet' && t === '2mm' ? 450000 : null) };
+  const settings = DEFAULT_BRANCH_SETTINGS; // 30% custom, 0% standard
+  const advanceOf = (raw: unknown) => {
+    const input = WorkshopLineSchema.parse(raw);
+    const priced = priceWorkshopLine(input, ctx);
+    return { priced, suggested: suggestedLineAdvance(priced, input, settings), saved: lineAdvance(priced, input, settings) };
+  };
+  const sheets = { job_type: 'CUT_BEND', material_type: 'MS Plain Sheet', thickness: '2mm', material_quantity: 2 };
+  const customCut = [{ kind: 'CUT', description: 'Cut to design', rate: 5000, quantity: 3 }];
+
+  it('standard cut/bend on branch sheets: the sheet cost, not editable', () => {
+    const a = advanceOf({ ...sheets, cut_count: 4, advance: 1 });
+    expect(a.priced.material_total).toBe(900000);
+    expect(a.suggested).toBe(900000);
+    expect(a.saved).toBe(900000); // a typed amount is ignored on standard work
+    expect(advanceEditable(a.priced)).toBe(false);
+  });
+
+  it('custom cut/bend on branch sheets: suggested is the sheet cost only, the supervisor may change it', () => {
+    const a = advanceOf({ ...sheets, custom: true, customized_reason_code: 'SPECIAL', custom_charges: customCut });
+    expect(a.priced.line_total).toBe(915000);
+    expect(a.suggested).toBe(900000);
+    expect(advanceEditable(a.priced)).toBe(true);
+    expect(advanceOf({ ...sheets, custom: true, customized_reason_code: 'SPECIAL', custom_charges: customCut, advance: 0 }).saved).toBe(0);
+  });
+
+  it('other custom work: the branch custom % of its total, editable', () => {
+    const a = advanceOf({
+      job_type: 'CUT_BEND',
+      material_source: 'CUSTOMER',
+      customer_material: { gp_item_id: '7b1c2a4e-5d6f-4a8b-9c0d-1e2f3a4b5c6d', quantity: 1 },
+      custom_charges: [{ kind: 'CUT', description: 'Cut', rate: 3333, quantity: 1 }],
+    });
+    expect(a.suggested).toBe(1000); // 30% rounded up
+    expect(a.saved).toBe(1000);
+  });
+
+  it('standard rolling keeps the standard % (unchanged for now)', () => {
+    const a = advanceOf({ job_type: 'ROLLING', rolling_type: 'Pipe Bending', work_type: 'GI Pipe', size: '1"', quantity: 2 });
+    expect(a.priced.is_customized).toBe(false);
+    expect(a.suggested).toBe(0);
   });
 });
 
@@ -272,6 +364,14 @@ describe('stock status (one definition for Inventory and Alerts)', () => {
     expect(stockAlertInfo(4, 10)).toEqual({ severity: 'LOW', deficit: 6 });
     expect(stockAlertInfo(10, 10)).toEqual({ severity: 'LOW', deficit: 0 });
     expect(stockAlertInfo(20, 10)).toEqual({ severity: 'NORMAL', deficit: 0 });
+  });
+  it('alerts use free stock: sheets booked by open orders count at once (Docs/decisions/0009)', () => {
+    // 10 on hand, 8 held by a job card, reorder at 3 → 2 free → low
+    expect(stockLevel(freeStock(10, 8), 3)).toBe('LOW');
+    // Booked 3 beyond stock with an override → out, and the deficit covers the shortfall
+    expect(freeStock(5, 5, 3)).toBe(-3);
+    expect(stockLevel(freeStock(5, 5, 3), 2)).toBe('OUT');
+    expect(stockLevel(freeStock(10, 2), 3)).toBe('HEALTHY');
   });
 });
 

@@ -7,10 +7,13 @@ import {
   MaterialSource,
   OrderStatus,
   OrderType,
-  isCustomMode,
+  advanceEditable,
   jobCardMinAdvance,
+  lineAdvance,
   lineHasStarted,
   priceWorkshopLine,
+  suggestedLineAdvance,
+  toBranchDate,
   type BranchSettings,
   type CreateJobCardDto,
   type PricedWorkshopLine,
@@ -24,11 +27,11 @@ import { BranchContextService } from '../../core/branch-context.service';
 import { EventsService } from '../../core/events.service';
 import { NumberService } from '../../core/number.service';
 import { StockService, type StockReservationInput } from '../../core/stock.service';
-import type { OrderHeader } from '../../database/entities/order.entity';
 import type { OrderLineEntity } from '../../database/entities/order-line.entity';
 import { CustomersService } from '../customers/customers.service';
 import { AllocationsService } from '../gate-passes/allocations.service';
 import { GatePassesService } from '../gate-passes/gate-passes.service';
+import { customerMaterialLine, withoutOrderMaterial, type CustomerMaterialLine } from './customer-material';
 import { OrderAccessService } from './order-access.service';
 import { OrderQueriesService, type OrderDetail } from './order-queries.service';
 import { PricingService, type PricingData } from './pricing.service';
@@ -37,18 +40,9 @@ interface PricedInput {
   input: WorkshopLineInput;
   priced: PricedWorkshopLine;
   item_id: string | null;
-}
-
-interface CustomerMaterialLine {
-  line_id: string;
-  gp_item_id: string;
-  quantity: number;
-}
-
-/** Older cards kept the material source and one gate pass on the header; lines carry them now. */
-function withoutOrderMaterial(header: OrderHeader | null): OrderHeader {
-  const { material_source: _s, gate_pass_id: _g, ...rest } = header ?? {};
-  return rest;
+  /** Advance this sub-job needs (Docs/decisions/0010): the supervisor's amount on a customized line, else the suggestion */
+  advance: number;
+  suggested_advance: number;
 }
 
 /** Workshop job cards: one order (JOB_CARD) per customer visit, one line per sub-job. */
@@ -73,12 +67,15 @@ export class JobCardsService {
   async quote(lines: WorkshopLineInput[], actor: Actor) {
     const settings = (await this.branches.get(actor.branch_id)).settings;
     const data = await this.pricing.load(this.ds.manager);
-    const priced = lines.map((l) => priceWorkshopLine(l, this.pricingCtx(data)));
+    const priced = lines.map((input) => {
+      const p = priceWorkshopLine(input, this.pricingCtx(data));
+      return { ...p, suggested_advance: suggestedLineAdvance(p, input, settings), advance: lineAdvance(p, input, settings), advance_editable: advanceEditable(p) };
+    });
     const subtotal = priced.reduce((s, p) => s + p.line_total, 0);
     return {
       lines: priced,
       subtotal,
-      min_advance: jobCardMinAdvance(priced, settings),
+      min_advance: jobCardMinAdvance(priced),
       missing_rates: priced.flatMap((p, i) => p.missing_rates.map((m) => ({ line_index: i, missing: m }))),
     };
   }
@@ -90,9 +87,11 @@ export class JobCardsService {
     const settings = (await this.branches.get(actor.branch_id)).settings;
     this.checkAgainstSettings(dto, settings);
 
+    let advances: PricedInput[] = [];
     const orderId = await this.ds.transaction(async (em) => {
       await this.assertWorkers(em, dto.worker_ids, actor.branch_id);
-      const priced = await this.priceAll(em, dto.lines);
+      const priced = await this.priceAll(em, dto.lines, settings);
+      advances = priced;
       const customerId = await this.customers.findOrCreateForIntake(em, dto.customer, actor.branch_id, actor.user_id);
       const orderNumber = await this.numbers.next(em, 'JOB_CARD', settings.number_prefixes);
       const total = priced.reduce((s, p) => s + p.priced.line_total, 0);
@@ -107,7 +106,8 @@ export class JobCardsService {
           customerId,
           orderNumber,
           total,
-          JSON.stringify({ job_date: dto.job_date, notes: dto.notes }),
+          // The job date is the day the card is created (branch time), never typed by the user
+          JSON.stringify({ job_date: toBranchDate(), notes: dto.notes }),
           actor.user_id,
           actor.role,
           dto.client_request_id,
@@ -120,7 +120,7 @@ export class JobCardsService {
         const lineId = await this.insertLine(em, order_id, i + 1, p, settings, actor);
         await this.assignWorkers(em, lineId, dto.worker_ids, actor);
         holds.push(...this.hold(p, lineId));
-        materials.push(...this.material(p, lineId));
+        materials.push(...customerMaterialLine(p.input, lineId));
       }
       // Branch material is held from now until the line starts (Docs/decisions/0003)
       await this.stock.reserveMany(em, actor.branch_id, order_id, holds, actor, { override: dto.override });
@@ -135,39 +135,43 @@ export class JobCardsService {
         to_status: OrderStatus.DRAFT,
         note: dto.override ? `Job card created with stock override: ${dto.override.reason}` : 'Job card created',
       });
-      await this.releaseIfAdvanceCovered(em, order_id, settings, actor);
+      // Every card waits for the cashier, even with nothing due (Docs/decisions/0005)
       return order_id;
     });
 
     this.audit.record(actor, { type: 'order', id: orderId, version: 1 }, dto.override ? 'CREATE_JOB_CARD_WITH_STOCK_OVERRIDE' : 'CREATE_JOB_CARD', {
-      after: { lines: dto.lines.length, ...(dto.override ? { override_reason: dto.override.reason } : {}) },
+      after: { lines: dto.lines.length, ...advanceOverrides(advances), ...(dto.override ? { override_reason: dto.override.reason } : {}) },
     });
     this.events.changed(actor.branch_id, 'orders', 'gate_passes', 'stock');
     return this.queries.detail(orderId, actor.branch_id);
   }
 
   /**
-   * Edits a job card until any line has started. Removed lines are cancelled (kept
-   * for history), totals and the advance are recalculated (BR26). Held material is
+   * Edits a job card until a payment is taken or a line has started. Removed lines are
+   * cancelled (kept for history), totals and advances are recalculated. Held material is
    * released and held again for the edited lines.
    */
-  async update(orderId: string, dto: UpdateJobCardDto, actor: Actor): Promise<OrderDetail & { advance_shortfall: number }> {
+  async update(orderId: string, dto: UpdateJobCardDto, actor: Actor): Promise<OrderDetail> {
     const settings = (await this.branches.get(actor.branch_id)).settings;
     this.checkAgainstSettings(dto, settings);
 
+    let advances: PricedInput[] = [];
     await this.ds.transaction(async (em) => {
       const order = await this.access.lockOrder(em, orderId, actor.branch_id, OrderType.JOB_CARD);
       this.access.assertVersion(order.version, dto.version);
       if (order.status !== OrderStatus.DRAFT && order.status !== OrderStatus.IN_QUEUE) {
         throw new ConflictException(ERR.ORDER_LOCKED);
       }
+      // Once the cashier has taken any money the card is fixed; void it or open a new one (Docs/decisions/0010)
+      if (order.paid_amount > 0) throw new ConflictException(ERR.JOB_CARD_PAID_LOCKED);
       await this.access.assertChiefMayModify(em, order, actor);
 
       const lines: OrderLineEntity[] = await em.query(`SELECT * FROM order_line WHERE order_id = $1 FOR UPDATE`, [orderId]);
       if (lines.some((l) => lineHasStarted(l.status))) throw new ConflictException(ERR.ORDER_LOCKED);
 
       await this.assertWorkers(em, dto.worker_ids, actor.branch_id);
-      const priced = await this.priceAll(em, dto.lines);
+      const priced = await this.priceAll(em, dto.lines, settings);
+      advances = priced;
       const customerId = await this.customers.findOrCreateForIntake(em, dto.customer, actor.branch_id, actor.user_id);
 
       const byId = new Map(lines.map((l) => [l.line_id, l]));
@@ -197,14 +201,14 @@ export class JobCardsService {
       for (const p of priced) {
         let lineId = p.input.line_id;
         if (lineId) {
-          await this.updateLine(em, lineId, p, settings);
+          await this.updateLine(em, lineId, p);
         } else {
           lineId = await this.insertLine(em, orderId, nextNo++, p, settings, actor);
         }
         await em.query(`DELETE FROM line_assignment WHERE line_id = $1`, [lineId]);
         await this.assignWorkers(em, lineId, dto.worker_ids, actor);
         holds.push(...this.hold(p, lineId));
-        materials.push(...this.material(p, lineId));
+        materials.push(...customerMaterialLine(p.input, lineId));
       }
       await this.stock.reserveMany(em, actor.branch_id, orderId, holds, actor, { override: dto.override });
 
@@ -217,7 +221,8 @@ export class JobCardsService {
           orderId,
           customerId,
           total,
-          JSON.stringify({ ...withoutOrderMaterial(order.header), job_date: dto.job_date, notes: dto.notes }),
+          // Edits keep the original job date
+          JSON.stringify({ ...withoutOrderMaterial(order.header), notes: dto.notes }),
         ],
       );
 
@@ -231,16 +236,13 @@ export class JobCardsService {
         event_type: HistoryEventType.NOTE,
         note: dto.override ? `Job card edited with stock override: ${dto.override.reason}` : 'Job card edited',
       });
-      await this.releaseIfAdvanceCovered(em, orderId, settings, actor);
     });
 
     this.audit.record(actor, { type: 'order', id: orderId, version: dto.version + 1 }, dto.override ? 'UPDATE_JOB_CARD_WITH_STOCK_OVERRIDE' : 'UPDATE_JOB_CARD', {
-      after: { lines: dto.lines.length, ...(dto.override ? { override_reason: dto.override.reason } : {}) },
+      after: { lines: dto.lines.length, ...advanceOverrides(advances), ...(dto.override ? { override_reason: dto.override.reason } : {}) },
     });
     this.events.changed(actor.branch_id, 'orders', 'gate_passes', 'stock');
-    const detail = await this.queries.detail(orderId, actor.branch_id);
-    // BR26: the cashier is told when the advance paid no longer covers the minimum
-    return { ...detail, advance_shortfall: Math.max(0, detail.min_advance - detail.paid_amount) };
+    return this.queries.detail(orderId, actor.branch_id);
   }
 
   /** BR14: a draft job card (nothing paid, nothing started) may be voided by its supervisor or chief. */
@@ -273,33 +275,6 @@ export class JobCardsService {
 
   // ── helpers ─────────────────────────────────────────────────────────────
 
-  /**
-   * BR05/BR09: a DRAFT job card enters the Workshop Queue once the advance paid
-   * covers the minimum. With a 0% minimum (e.g. all-standard work) nothing is due,
-   * so it goes straight to the queue; the cashier still collects the balance.
-   */
-  private async releaseIfAdvanceCovered(em: EntityManager, orderId: string, settings: BranchSettings, actor: Actor): Promise<void> {
-    const [order]: { status: OrderStatus; paid_amount: number }[] = await em.query(
-      `SELECT status, paid_amount FROM "order" WHERE order_id = $1`,
-      [orderId],
-    );
-    if (order.status !== OrderStatus.DRAFT) return;
-    const lines: { line_total: number; is_customized: boolean }[] = await em.query(
-      `SELECT line_total, is_customized FROM order_line WHERE order_id = $1 AND status <> 'CANCELLED'`,
-      [orderId],
-    );
-    const minAdvance = jobCardMinAdvance(lines, settings);
-    if (order.paid_amount < minAdvance) return;
-    await this.access.setOrderStatus(em, orderId, OrderStatus.IN_QUEUE);
-    await this.access.history(em, actor, {
-      order_id: orderId,
-      event_type: HistoryEventType.STATUS_CHANGE,
-      from_status: OrderStatus.DRAFT,
-      to_status: OrderStatus.IN_QUEUE,
-      note: minAdvance === 0 ? 'No advance required — sent to the Workshop Queue' : 'Minimum advance covered — sent to the Workshop Queue',
-    });
-  }
-
   /** Rules the form offers from branch settings are enforced here too. */
   private checkAgainstSettings(dto: CreateJobCardDto | UpdateJobCardDto, settings: BranchSettings): void {
     // Customer material always comes from a gate pass item (schema), so the branch needs both on (Docs/decisions/0007)
@@ -322,27 +297,25 @@ export class JobCardsService {
     return p.item_id && quantity > 0 ? [{ item_id: p.item_id, quantity, line_id: lineId }] : [];
   }
 
-  /** The gate pass item a customer line uses. */
-  private material(p: PricedInput, lineId: string): CustomerMaterialLine[] {
-    const m = p.input.material_source === MaterialSource.CUSTOMER ? p.input.customer_material : null;
-    return m ? [{ line_id: lineId, gp_item_id: m.gp_item_id, quantity: m.quantity }] : [];
-  }
-
   private pricingCtx(data: PricingData) {
     return { rates: data.rates, materialPrice: data.materialPrice };
   }
 
   /** Prices every line; a line without a standard rate needs a custom price (BR23). */
-  private async priceAll(em: EntityManager, lines: WorkshopLineInput[]): Promise<PricedInput[]> {
+  private async priceAll(em: EntityManager, lines: WorkshopLineInput[], settings: BranchSettings): Promise<PricedInput[]> {
     const data = await this.pricing.load(em);
     const result = lines.map((input) => {
       const priced = priceWorkshopLine(input, this.pricingCtx(data));
-      const deducts = input.job_type === 'CUT_BEND' && !isCustomMode(input) && input.material_source === MaterialSource.BRANCH;
+      // Branch sheets are held and deducted whether the line is priced by rate or by hand (Docs/decisions/0008)
+      const deducts = input.job_type === 'CUT_BEND' && input.material_source === MaterialSource.BRANCH;
       const item_id = deducts && input.material_type && input.thickness ? data.materialItemId(input.material_type, input.thickness) : null;
-      return { input, priced, item_id };
+      return { input, priced, item_id, advance: lineAdvance(priced, input, settings), suggested_advance: suggestedLineAdvance(priced, input, settings) };
     });
     const missing = result.flatMap((r, i) => r.priced.missing_rates.map((m) => ({ line_index: i, missing: m })));
     if (missing.length > 0) throw new BadRequestException(errWith(ERR.PRICE_MISSING_RATE, { missing_rates: missing }));
+    // A supervisor's advance runs from 0 to the sub-job total (Docs/decisions/0010)
+    const over = result.findIndex((r) => r.advance > r.priced.line_total);
+    if (over >= 0) throw new BadRequestException(errWith(ERR.JOB_ADVANCE_RANGE, { line_index: over, max: result[over].priced.line_total }));
     return result;
   }
 
@@ -356,19 +329,20 @@ export class JobCardsService {
     if (rows.length !== ids.length) throw new BadRequestException(ERR.WORKER_NOT_IN_BRANCH);
   }
 
-  private lineValues(p: PricedInput, settings: BranchSettings) {
-    const { line_id: _ignored, ...spec } = p.input;
-    const pct = p.priced.is_customized ? settings.min_advance_pct_customized : settings.min_advance_pct_standard;
+  private lineValues(p: PricedInput) {
+    // The advance is kept in its own column, not in the spec
+    const { line_id: _ignored, advance: _advance, ...spec } = p.input;
     return {
       spec,
-      suggested_advance: Math.ceil((p.priced.line_total * pct) / 100),
+      // order_line.suggested_advance holds the advance this sub-job needs (Docs/decisions/0010)
+      suggested_advance: p.advance,
       // Reason only matters for a manual toggle (BR24); customer material/auto are implied
       reason: p.input.custom ? (p.input.customized_reason_code ?? null) : p.priced.auto_customized ? 'NO_STANDARD_RATE' : null,
     };
   }
 
   private async insertLine(em: EntityManager, orderId: string, lineNo: number, p: PricedInput, settings: BranchSettings, actor: Actor): Promise<string> {
-    const v = this.lineValues(p, settings);
+    const v = this.lineValues(p);
     const lineNumber = await this.numbers.next(em, 'ORDER_LINE', settings.number_prefixes);
     const [{ line_id }]: { line_id: string }[] = await em.query(
       `INSERT INTO order_line (order_id, line_number, line_no, line_type, sub_type, status, material_source, item_id, spec,
@@ -400,8 +374,8 @@ export class JobCardsService {
     return line_id;
   }
 
-  private async updateLine(em: EntityManager, lineId: string, p: PricedInput, settings: BranchSettings): Promise<void> {
-    const v = this.lineValues(p, settings);
+  private async updateLine(em: EntityManager, lineId: string, p: PricedInput): Promise<void> {
+    const v = this.lineValues(p);
     await em.query(
       `UPDATE order_line SET line_type = $2, sub_type = $3, material_source = $4, item_id = $5, spec = $6::jsonb, quantity = $7,
               price_basis = $8, unit_price = $9, line_total = $10, suggested_advance = $11, is_customized = $12,
@@ -431,4 +405,12 @@ export class JobCardsService {
       await em.query(`INSERT INTO line_assignment (line_id, employee_id, assigned_by) VALUES ($1, $2, $3)`, [lineId, id, actor.user_id]);
     }
   }
+}
+
+/** Audit detail: customized sub-jobs whose advance the supervisor changed from the suggestion. */
+function advanceOverrides(lines: PricedInput[]) {
+  const changed = lines
+    .map((l, i) => ({ line: i + 1, suggested: l.suggested_advance, entered: l.advance }))
+    .filter((l) => l.suggested !== l.entered);
+  return changed.length ? { advance_overrides: changed } : {};
 }

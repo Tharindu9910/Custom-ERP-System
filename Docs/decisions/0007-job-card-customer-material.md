@@ -1,7 +1,7 @@
-# 0007 — Job card customer material per sub-job
+# 0007 — Customer material per item (job cards and roofing orders)
 
 - **Status:** accepted (2026-10-30)
-- **Scope:** job cards (`order_type = JOB_CARD`). Roofing orders keep the order-level gate pass for now and move to this model in a follow-up.
+- **Scope:** job cards (`JOB_CARD`, 2026-10-30) and roofing orders (`ROOFING_ORDER`, 2026-10-30, same day follow-up).
 - **Builds on:** [0003](0003-stock-reservation.md) (branch material is held at creation). Gate pass balances and statuses are unchanged.
 
 ## Why
@@ -17,7 +17,7 @@ The Create Job Card form asked for material twice: a card-level "Material Source
 | Items per sub-job | **One** gate pass item (and the pieces used) per sub-job. Two materials mean two sub-jobs. |
 | Several passes | A card may draw on any of the customer's passes. Several sub-jobs may share one item, as long as their total fits what is left. |
 | Coil Cutting | Can use the customer's material like the other job types. Its price does not change (coil cutting is priced by range, not by material source). |
-| Pricing | Unchanged. Customer Cut / Bend and Rolling are priced by hand. Branch Cut / Bend holds branch stock; customer lines never do. |
+| Pricing | Unchanged. Customer Cut / Bend and Rolling are priced by hand. Branch Cut / Bend holds branch stock; customer lines never do. Custom vs customer material inputs and pricing: see [0008](0008-job-card-custom-pricing.md). |
 
 ## Model
 
@@ -33,3 +33,17 @@ The Create Job Card form asked for material twice: a card-level "Material Source
 - The sub-job editor: **a.** job type, **b.** Material (Branch Stock / Customer's Material → gate pass item + pieces used), **c.** pricing, **d.** details. A new sub-job starts on the material of the last one added.
 - The sub-job list and the work order show each customer sub-job's gate pass item and pieces.
 - Older cards whose material was held for the whole card show a warning on edit until each customer sub-job has its item.
+
+## Roofing orders (Create Order)
+
+The same model, item by item:
+
+- No card-level Material Source step and no Gate Pass panel / Allocate modal. Each item picks Branch Stock or the Customer's Material; a customer item picks one gate pass item and the pieces it uses (`customer_material` on the line).
+- Customer items never need or hold a coil and keep the customer per-ft rate (unchanged). The "Coil for the Whole Order" step shows only while there is a Branch Stock item (or one is being added).
+- **Pieces used are suggested** for sheet items when the gate pass piece has a length: ⌈length × pieces ÷ piece length⌉ (inches ÷ 12). The suggestion fills the field while it is empty and stays editable.
+- Customer accessories are added one row at a time (one gate pass item per item).
+- `allocate:gate_pass_order` is still checked: on placing, when any item uses a gate pass; on editing, only when an item uses a gate pass item the order did not already hold.
+
+## Branch setting
+
+`general.require_gate_pass` is no longer read: a gate pass item is always required. The toggle is gone from Branch settings; the field stays in the schema so stored settings parse.

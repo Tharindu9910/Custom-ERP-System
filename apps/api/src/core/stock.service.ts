@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import type { EntityManager } from 'typeorm';
-import { MovementType, ReservationStatus, stockLevel, type StockOverride } from '@erp/shared';
+import { MovementType, ReservationStatus, freeStock, stockLevel, type StockOverride } from '@erp/shared';
 import { ERR, errWith } from '../common/errors';
 import type { Actor } from '../common/actor';
 import { BranchContextService } from './branch-context.service';
@@ -145,8 +145,8 @@ export class StockService {
         reason: shortBy > 0 ? `Override: ${overrideReason} (short by ${shortBy})` : (opts.reason ?? null),
         actor,
       });
-      await this.syncAlert(em, branchId, i.item_id, s.quantity, locked.get(i.item_id)?.reorder_level ?? 0);
     }
+    await this.syncAlerts(em, branchId, [...locked.keys()]);
   }
 
   /**
@@ -200,6 +200,8 @@ export class StockService {
         ]);
       }
     }
+    // Booking sheets uses up free stock: raise the alert now, not when work starts (Docs/decisions/0009)
+    await this.syncAlerts(em, branchId, [...totals.keys()]);
   }
 
   /** Frees everything an order still holds (edit, void, cancel). Returns how many lines were released. */
@@ -222,6 +224,7 @@ export class StockService {
         ]);
       }
     }
+    await this.syncAlerts(em, branch[0].branch_id, [...totals.keys()]);
     return open.length;
   }
 
@@ -253,7 +256,7 @@ export class StockService {
       reason: reason ?? null,
       actor,
     });
-    await this.syncAlert(em, branchId, item.item_id, after, Number(rows[0].reorder_level));
+    await this.syncAlerts(em, branchId, [item.item_id]);
   }
 
   /** Current quantities for the given items at a branch (0 when there is no row). */
@@ -386,6 +389,22 @@ export class StockService {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, clock_timestamp() AT TIME ZONE current_setting('TimeZone'))`,
       [m.branchId, m.itemId, m.type, m.quantity, m.after, m.lineId, m.transferLineId, m.reason, m.actor.user_id],
     );
+  }
+
+  /** Re-reads the items' free stock (on hand − held − booked beyond stock) and keeps their alerts in step. */
+  private async syncAlerts(em: EntityManager, branchId: string, itemIds: string[]): Promise<void> {
+    if (itemIds.length === 0) return;
+    const rows: { item_id: string; quantity: string; reserved_quantity: string; reorder_level: string; shortfall: string | null }[] = await em.query(
+      `SELECT s.item_id, s.quantity, s.reserved_quantity, s.reorder_level,
+              (SELECT SUM(r.shortfall) FROM stock_reservation r WHERE r.branch_id = s.branch_id AND r.item_id = s.item_id AND r.status = 'RESERVED') AS shortfall
+       FROM branch_stock s WHERE s.branch_id = $1 AND s.item_id = ANY($2::uuid[])
+       ORDER BY s.item_id`,
+      [branchId, itemIds],
+    );
+    for (const r of rows) {
+      const free = freeStock(Number(r.quantity), Number(r.reserved_quantity), Number(r.shortfall ?? 0));
+      await this.syncAlert(em, branchId, r.item_id, free, Number(r.reorder_level));
+    }
   }
 
   /** One unresolved alert per branch item while it is low or out; resolved once healthy again. */

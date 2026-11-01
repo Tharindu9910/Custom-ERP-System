@@ -51,6 +51,12 @@ export const ERR = {
   HARDWARE_ITEM_INVALID: { code: 'ORD_023', message: 'An item is not an active hardware item' },
   HARDWARE_CROSS_BRANCH_DENIED: { code: 'ORD_024', message: 'You can only place hardware orders for your own branch' },
   HARDWARE_PAYMENT_DENIED: { code: 'ORD_025', message: 'Only the cashier can take payment — place the order without one' },
+  JOB_ADVANCE_RANGE: { code: 'ORD_026', message: 'A sub-job advance must be between Rs 0 and the sub-job total' },
+  JOB_CARD_PAID_LOCKED: { code: 'ORD_027', message: "A payment has been taken — this job card can't be edited" },
+  ORDER_DISCOUNT_DENIED: { code: 'ORD_028', message: 'Only the cashier can give a discount' },
+  ORDER_PAYMENT_DENIED: { code: 'ORD_029', message: 'Only the cashier can take payment — submit the order without one' },
+  ORDER_ITEM_ADVANCE_RANGE: { code: 'ORD_031', message: "An item's advance must be between Rs 0 and the item total" },
+  ORDER_DRAFT_PAID_LOCKED: { code: 'ORD_030', message: "A payment has been taken — only the cashier can edit this order now" },
 
   // ── Pricing ─────────────────────────────────────────────────────────────
   PRICE_MISSING_RATE: { code: 'PRC_001', message: 'No standard rate found — enter a custom price' },

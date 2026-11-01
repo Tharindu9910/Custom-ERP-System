@@ -133,9 +133,14 @@ export function minToPlace(total: number, policy: OrderPolicy): number {
   return Math.ceil((total * policy.min_advance_pct) / 100);
 }
 
-export function roofingTotals(lineTotals: readonly number[], discount: number, policy: OrderPolicy): RoofingTotals {
+/**
+ * Order totals. With item advances (Docs/decisions/0011) the minimum to place is their sum,
+ * never more than the total; without them the order-level policy applies (minToPlace).
+ */
+export function roofingTotals(lineTotals: readonly number[], discount: number, policy: OrderPolicy, advances?: readonly number[]): RoofingTotals {
   const subtotal = lineTotals.reduce((a, b) => a + b, 0);
   const d = Math.max(0, Math.min(discount, subtotal));
   const total = subtotal - d;
-  return { subtotal, discount: d, max_discount: maxDiscountFor(subtotal, policy), total, min_to_place: minToPlace(total, policy) };
+  const min = advances ? Math.min(total, advances.reduce((a, b) => a + b, 0)) : minToPlace(total, policy);
+  return { subtotal, discount: d, max_discount: maxDiscountFor(subtotal, policy), total, min_to_place: min };
 }

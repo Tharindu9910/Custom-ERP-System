@@ -16,6 +16,15 @@ export function stockLevel(quantity: number, reorderLevel: number): StockLevel {
   return 'HEALTHY';
 }
 
+/**
+ * Stock still free for new work: on hand, minus what open orders hold, minus what they
+ * booked beyond stock with an override. Alerts and levels use this, so a job card that
+ * books the sheets raises the alert on save, not when work starts (Docs/decisions/0009).
+ */
+export function freeStock(quantity: number, reserved: number, shortfall = 0): number {
+  return Math.round((quantity - reserved - shortfall) * 1000) / 1000;
+}
+
 export type AlertSeverity = 'CRITICAL' | 'LOW' | 'NORMAL';
 
 /** Stock Alerts view: severity plus how much is needed to get back to the reorder level. */

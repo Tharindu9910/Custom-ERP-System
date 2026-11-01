@@ -14,6 +14,8 @@ import {
   newPhone,
   payAdvance,
   workerIds,
+  toWorkshop,
+  CASHIER,
 } from './helpers/fixtures';
 
 /** Supervisor workshop flow: gate pass → job card → advance → start/complete (Docs/testing/role-capabilities.md GP, JC, WQ). */
@@ -127,9 +129,13 @@ describe('JC job card', () => {
     );
   });
 
-  it('JC-02 an all-standard card (0% advance) goes straight to the queue', async () => {
+  it('JC-02 an all-standard card (Rs 0 advance) still waits at the cashier, who sends it on without payment', async () => {
     const card = await jobCard(t, { lines: [ROLLING_LINE] });
-    expect(card.status).toBe('IN_QUEUE');
+    expect([card.min_advance, card.status]).toEqual([0, 'DRAFT']);
+    const row = (await t.as(CASHIER.thangalla).get('/cashier-queue')).data.find((x: any) => x.order_id === card.order_id);
+    expect([row.column, row.advance_due]).toEqual(['AWAITING_PAYMENT', 0]);
+    const sent = await toWorkshop(t, card);
+    expect([sent.status, sent.paid_amount]).toEqual(['IN_QUEUE', 0]);
   });
 
   it('JC-03 needs at least one worker and one sub-job', async () => {
@@ -401,6 +407,33 @@ describe('JC job card', () => {
     });
     expect(r.status).toBe(409);
   });
+
+  it('JC-12 once any payment is taken the card can no longer be edited (ORD_027)', async () => {
+    const workers = await workerIds(t, SUP.thangalla);
+    const card = await jobCard(t);
+    const paid = await t.as('cashier_thangalla').post(`/orders/${card.order_id}/payments`, { client_request_id: randomUUID(), amount: 100, mode: 'CASH' });
+    const r = await tha().put(`/job-cards/${card.order_id}`, {
+      ...jobCardBody(newPhone(), workers, [CUSTOM_LINE]),
+      client_request_id: undefined,
+      version: paid.data.version,
+    });
+    expect([r.status, r.code]).toEqual([409, 'ORD_027']);
+    expect((await tha().get(`/orders/${card.order_id}`)).data.can_edit).toBe(false);
+  });
+
+  it('JC-13 the supervisor sets a custom sub-job advance; 0 sends the card straight to the queue (Docs/decisions/0010)', async () => {
+    const quote = await tha().post('/job-cards/quote', { lines: [CUSTOM_LINE] });
+    expect(quote.data.lines[0].advance_editable).toBe(true);
+    expect(quote.data.min_advance).toBe(quote.data.lines[0].suggested_advance);
+    const card = await jobCard(t, { lines: [{ ...CUSTOM_LINE, advance: 0 }] });
+    expect([card.min_advance, card.status]).toEqual([0, 'DRAFT']);
+    expect((await toWorkshop(t, card)).status).toBe('IN_QUEUE');
+  });
+
+  it('JC-14 a sub-job advance above its total is refused (ORD_026)', async () => {
+    const r = await tha().post('/job-cards', jobCardBody(newPhone(), await workerIds(t, SUP.thangalla), [{ ...CUSTOM_LINE, advance: 999_999_999 }]));
+    expect([r.status, r.code]).toEqual([400, 'ORD_026']);
+  });
 });
 
 describe('WQ workshop queue and floor actions', () => {
@@ -598,14 +631,11 @@ describe('WQ workshop queue and floor actions', () => {
 
   it('WQ-08 a card with started work can no longer be edited (ORD_004)', async () => {
     const workers = await workerIds(t, SUP.thangalla);
-    const card = await jobCard(t, {
-      lines: [ROLLING_LINE, CUSTOM_LINE],
-      paid: true,
-    });
-    const l = card.lines[0];
-    const s = await tha().post(`/order-lines/${l.line_id}/start`, {
-      version: l.version,
-    });
+    // Standard rolling needs no advance: the cashier sends the unpaid card on (a paid one is ORD_027)
+    const card = await toWorkshop(t, await jobCard(t, { lines: [ROLLING_LINE] }));
+    // Sub-jobs start with the card (Start Job, Docs/decisions/0005)
+    const s = await tha().post(`/job-cards/${card.order_id}/start`, { version: card.version, line_ids: [card.lines[0].line_id] });
+    expect(s.status).toBe(201);
     const r = await tha().put(`/job-cards/${card.order_id}`, {
       ...jobCardBody(newPhone(), workers, [ROLLING_LINE]),
       client_request_id: undefined,
@@ -628,5 +658,91 @@ describe('WQ workshop queue and floor actions', () => {
     expect(r.data.status).toBe('DRAFT');
     const paid = await payAdvance(t, r.data);
     expect(paid.status).toBe('IN_QUEUE');
+  });
+
+  it('WQ-10 the cashier takes more while the job is in the workshop; the card does not move', async () => {
+    const queued = await payAdvance(t, await jobCard(t));
+    expect(queued.status).toBe('IN_QUEUE');
+    const queue = async () => (await t.as('cashier_thangalla').get('/cashier-queue')).data.find((x: any) => x.order_id === queued.order_id);
+    const row = await queue();
+    expect(row.column).toBe('IN_WORKSHOP');
+    expect(row.balance).toBeGreaterThan(1);
+
+    const pay = (amount: number) =>
+      t.as('cashier_thangalla').post(`/orders/${queued.order_id}/payments`, { client_request_id: randomUUID(), amount, mode: 'CASH' });
+    const part = await pay(Math.floor(row.balance / 2));
+    expect(part.data.status).toBe('IN_QUEUE');
+    expect((await queue()).balance).toBe(part.data.balance);
+
+    const rest = await pay(part.data.balance);
+    expect(rest.data.status).toBe('IN_QUEUE');
+    expect(rest.data.balance).toBe(0);
+    // Paid in full, it stays under In Workshop until the workshop finishes it
+    expect([(await queue()).column, (await queue()).balance]).toEqual(['IN_WORKSHOP', 0]);
+  });
+
+  // Finish an advance-paid card: Finished at the workshop, Finished – Balance Due at the cashier
+  const finishedCard = async () => {
+    const queued = await payAdvance(t, await jobCard(t));
+    const started = await tha().post(`/job-cards/${queued.order_id}/start`, { version: queued.version, line_ids: queued.lines.map((l: any) => l.line_id) });
+    expect(started.status).toBe(201);
+    const done = await tha().post(`/job-cards/${queued.order_id}/complete`, { version: started.data.version });
+    expect(done.data.status).toBe('COMPLETED');
+    return done.data;
+  };
+  const cashierRow = async (id: string) => (await t.as('cashier_thangalla').get('/cashier-queue')).data.find((x: any) => x.order_id === id);
+  const workshopRow = async (id: string) => (await tha().get('/workshop-queue')).data.rows.find((x: any) => x.order_id === id);
+
+  it('WQ-11 paid in full, a finished card leaves the cashier for Ready for Collection; the supervisor hands it over', async () => {
+    const card = await finishedCard();
+    expect(card.balance).toBeGreaterThan(0);
+    expect((await workshopRow(card.order_id)).display_status).toBe('COMPLETED');
+    expect((await cashierRow(card.order_id)).column).toBe('FINISHED_BALANCE_DUE');
+
+    const paid = await t
+      .as('cashier_thangalla')
+      .post(`/orders/${card.order_id}/payments`, { client_request_id: randomUUID(), amount: card.balance, mode: 'CASH' });
+    // Paying never closes the card
+    expect([paid.data.status, paid.data.balance]).toEqual(['COMPLETED', 0]);
+    expect(await cashierRow(card.order_id)).toBeUndefined();
+    const ready = await workshopRow(card.order_id);
+    expect([ready.display_status, ready.display_label]).toEqual(['READY_FOR_COLLECTION', 'Ready for Collection']);
+
+    const closed = await tha().post(`/job-cards/${card.order_id}/close`, { version: paid.data.version, released_to: 'Collector Name' });
+    expect(closed.status).toBe(201);
+    expect([closed.data.status, closed.data.released_to]).toEqual(['CLOSED', 'Collector Name']);
+    expect(await workshopRow(card.order_id)).toBeUndefined();
+  });
+
+  it('WQ-13 send-to-workshop is the cashier\'s, only for a draft with nothing still due (ORD_005)', async () => {
+    const owing = await jobCard(t); // a customized line needs an advance
+    const r = await t.as(CASHIER.thangalla).post(`/job-cards/${owing.order_id}/send-to-workshop`, { version: owing.version });
+    expect([r.status, r.code]).toEqual([409, 'ORD_005']);
+    const free = await jobCard(t, { lines: [ROLLING_LINE] });
+    expect((await tha().post(`/job-cards/${free.order_id}/send-to-workshop`, { version: free.version })).status).toBe(403);
+    const sent = await toWorkshop(t, free);
+    const again = await t.as(CASHIER.thangalla).post(`/job-cards/${free.order_id}/send-to-workshop`, { version: sent.version });
+    expect([again.status, again.code]).toEqual([409, 'ORD_002']);
+  });
+
+  it('WQ-12 only the supervisor hands over, never with money owed, and a payment cannot close', async () => {
+    const card = await finishedCard();
+    const owed = await tha().post(`/job-cards/${card.order_id}/close`, { version: card.version, released_to: 'X' });
+    expect([owed.status, owed.code]).toEqual([409, 'ORD_006']);
+
+    // Collect & Close is gone: the schema refuses the extra fields
+    const withClose = await t
+      .as('cashier_thangalla')
+      .post(`/orders/${card.order_id}/payments`, { client_request_id: randomUUID(), amount: card.balance, mode: 'CASH', close: true });
+    expect(withClose.status).toBe(400);
+
+    const paid = await t
+      .as('cashier_thangalla')
+      .post(`/orders/${card.order_id}/payments`, { client_request_id: randomUUID(), amount: card.balance, mode: 'CASH' });
+    const cashier = await t.as('cashier_thangalla').post(`/job-cards/${card.order_id}/close`, { version: paid.data.version, released_to: 'X' });
+    expect(cashier.status).toBe(403);
+    // Who collected is required
+    const nameless = await tha().post(`/job-cards/${card.order_id}/close`, { version: paid.data.version, released_to: ' ' });
+    expect(nameless.status).toBe(400);
   });
 });

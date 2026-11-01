@@ -129,6 +129,9 @@ async function demo() {
   const customCut = (desc: string, rate: number, qty: number): WorkshopLineInput => ({
     job_type: 'CUT_BEND',
     material_source: MaterialSource.BRANCH,
+    material_type: 'MS Plain Sheet',
+    thickness: '2mm',
+    material_quantity: 1,
     custom: true,
     customized_reason_code: 'Special design',
     cut_count: 0,
@@ -138,6 +141,9 @@ async function demo() {
 
   const pay = async (orderId: string, amount: number, cashier: Actor, mode = PaymentMode.CASH) =>
     payments.record(orderId, { client_request_id: randomUUID(), amount, mode, reference: mode === PaymentMode.CASH ? undefined : 'TXN-DEMO' }, cashier);
+  // Every card waits at the cashier (Docs/decisions/0005): the advance sends it on, or with nothing due the cashier sends it without payment
+  const advance = async (d: { order_id: string; version: number; min_advance: number }, cashier: Actor) =>
+    d.min_advance > 0 ? pay(d.order_id, d.min_advance, cashier) : payments.sendToWorkshop(d.order_id, { version: d.version }, cashier);
   // Board moves (Docs/decisions/0005): the supervisor starts the card, then marks it completed
   type Detail = Awaited<ReturnType<typeof pay>>;
   const startJob = (d: Detail, by: Actor, lineCount = d.lines.length) =>
@@ -184,12 +190,39 @@ async function demo() {
         {
           client_request_id: randomUUID(),
           customer: { phone: phone('333 4455'), name: 'Kamal Stores' },
-          job_date: today,
           worker_ids: team,
           lines: [
             cutBend('MS Plain Sheet', '2mm', 2, 4, 2),
             rolling('Pipe Bending', 'GI Pipe', '1"', 3),
             customCut('Cut flat bar to design', 4500, 6),
+          ],
+        },
+        sup,
+      );
+
+      // 1b. Awaiting the advance with many items (branch + customer material, custom price): the cashier checkout's item check
+      const gpWije = await gatePasses.create(
+        {
+          client_request_id: randomUUID(),
+          customer: { phone: phone('999 1122'), name: 'Wijesinghe Engineering' },
+          items: [{ material_type: 'Zinc Coated', thickness: '1.5', length: 8, length_unit: LengthUnit.FT, quantity: 4 }],
+        },
+        sup,
+      );
+      const zincItem = gpWije.items[0];
+      await jobCards.create(
+        {
+          client_request_id: randomUUID(),
+          customer: { phone: phone('999 1122'), name: 'Wijesinghe Engineering' },
+          worker_ids: team,
+          // 4mm sheets: 2mm is what the e2e job cards use, and the override case below takes the scarcest MS Plain
+          lines: [
+            cutBend('MS Plain Sheet', '4mm', 3, 6, 4),
+            cutBend('MS Checker Sheet', '3mm', 1, 2, 0),
+            rolling('Pipe Bending', 'GI Pipe', '1"', 4),
+            rolling('Box Bar Bending', 'Circle Bend', '1"x1"', 2),
+            customerCut('Cut customer zinc sheets', 2500, 4, zincItem.gp_item_id, 2),
+            customCut('Cut flanges to drawing', 3500, 3),
           ],
         },
         sup,
@@ -201,20 +234,18 @@ async function demo() {
         {
           client_request_id: randomUUID(),
           customer: { phone: phone('111 2233'), name: 'Nimal Perera' },
-          job_date: today,
           worker_ids: team,
           lines: [customerCut('Cut customer sheets to 4ft', 6000, 8, msItem.gp_item_id, 4), cutBend('MS Checker Sheet', '3mm', 1, 2, 0)],
         },
         sup,
       );
-      await pay(queued.order_id, queued.min_advance, cashier);
+      await advance(queued, cashier);
 
       // 3. In progress: Start Job with only the first sub-job; the second starts later from the card
       const started = await jobCards.create(
         {
           client_request_id: randomUUID(),
           customer: { phone: phone('444 5566'), name: 'Rathna Builders' },
-          job_date: today,
           worker_ids: team,
           lines: [cutBend('Zinc Coated', '1.5mm', 3, 6, 4), rolling('Box Bar Bending', 'Circle Bend', '1"x1"', 2)],
         },
@@ -228,7 +259,6 @@ async function demo() {
         {
           client_request_id: randomUUID(),
           customer: { phone: phone('666 7788'), name: 'Priya Welding' },
-          job_date: today,
           worker_ids: team,
           lines: [cutBend('MS Plain Sheet', '2mm', 1, 2, 2), rolling('Pipe Bending', 'GI Pipe', '1"', 2)],
         },
@@ -238,12 +268,11 @@ async function demo() {
       detail = await startJob(detail, sup);
       for (const line of detail.lines) detail = await lines.complete(line.line_id, { version: line.version }, sup);
 
-      // 5. Completed with a balance due: the cashier's Collect & Close
+      // 5. Finished with a balance due: the cashier's Collect Balance, then the supervisor's hand-over
       const done = await jobCards.create(
         {
           client_request_id: randomUUID(),
           customer: { phone: phone('555 6677'), name: 'Saman Engineering' },
-          job_date: today,
           worker_ids: team,
           lines: [cutBend('MS Plain Sheet', '3mm', 1, 3, 3)],
         },
@@ -253,12 +282,11 @@ async function demo() {
       detail = await startJob(detail, sup);
       await completeJob(detail, sup);
 
-      // 6. Completed and paid in full: the cashier's Close & Hand Over
+      // 6. Finished and paid in full: Ready for Collection, the supervisor's Check & Hand Over
       const paidUp = await jobCards.create(
         {
           client_request_id: randomUUID(),
           customer: { phone: phone('777 8899'), name: 'Dilan Motors' },
-          job_date: today,
           worker_ids: team,
           lines: [rolling('Box Bar Bending', 'Circle Bend', '1"x1"', 1)],
         },
@@ -268,12 +296,11 @@ async function demo() {
       detail = await startJob(detail, sup);
       await completeJob(detail, sup);
 
-      // 7. Closed: collected and handed over (leaves both boards; shows in History)
+      // 7. Closed: paid at the cashier, then checked and handed over by the supervisor (History only)
       const closed = await jobCards.create(
         {
           client_request_id: randomUUID(),
           customer: { phone: phone('888 9900'), name: 'Chaminda Traders' },
-          job_date: today,
           worker_ids: team,
           lines: [cutBend('Zinc Coated', '1.5mm', 1, 2, 0)],
         },
@@ -282,11 +309,8 @@ async function demo() {
       detail = await pay(closed.order_id, Math.max(closed.min_advance, 1), cashier);
       detail = await startJob(detail, sup);
       detail = await completeJob(detail, sup);
-      await payments.record(
-        closed.order_id,
-        { client_request_id: randomUUID(), amount: detail.balance, mode: PaymentMode.CASH, close: true, released_to: 'Chaminda Traders' },
-        cashier,
-      );
+      detail = await pay(closed.order_id, detail.balance, cashier);
+      await payments.close(closed.order_id, { version: detail.version, released_to: 'Chaminda Traders' }, sup);
 
       console.log(`   seeded demo gate passes and job cards for ${branch.sup}'s branch`);
     }
@@ -330,35 +354,61 @@ async function demo() {
         {
           client_request_id: randomUUID(),
           customer: { phone: phone(n), name },
-          order_date: today,
           technician: 'Sampath',
-          material_source: MaterialSource.BRANCH,
           lines: orderLines,
           discount: 0,
           payment: { amount, mode: PaymentMode.CASH },
           ...extra,
         },
-        sup,
+        // Only the cashier places an order with a payment; the supervisor's go to the Cashier Queue
+        cashier,
       );
     };
+
+    // 0. Submitted by the supervisor without payment: waiting on the Cashier Queue (Awaiting Payment)
+    await roofing.create(
+      {
+        client_request_id: randomUUID(),
+        customer: { phone: phone('600 1100'), name: 'Awaiting Cashier Roofing' },
+        technician: 'Sampath',
+        lines: [sheet('Roofing', 'Tile Roofing', 10, 8)],
+        discount: 0,
+        global_coil_item_id: coil(0),
+      },
+      sup,
+    );
 
     // 1. Placed — advance paid, one coil for the whole order
     await place('Ajith Constructions', '600 1122', [sheet('Roofing', 'Tile Roofing', 12, 20), sheet('Ridge Cap', 'Normal', 10, 4), accessory('Nozzle', 4, 'Round')], 30, {
       global_coil_item_id: coil(0),
     });
 
-    // 2. Placed — customized item with a design photo, plus customer-supplied flashing
+    // 2. Placed — customized item with a design photo, plus a customer-supplied gutter from a gate pass (Docs/decisions/0007)
+    const gpGutter = await gatePasses.create(
+      {
+        client_request_id: randomUUID(),
+        customer: { phone: phone('611 2233'), name: 'Lakmal Perera' },
+        items: [{ material_type: 'Zinc Coated', thickness: '0.47', length: 15, length_unit: LengthUnit.FT, quantity: 3, color: 'Red' }],
+      },
+      sup,
+    );
     const photo = await attachments.upload(
       { originalname: 'design.png', mimetype: 'image/png', size: DEMO_PNG.length, buffer: DEMO_PNG },
       'DESIGN_PHOTO',
-      sup,
+      // Uploaded by whoever places the order (the cashier, who takes the payment)
+      cashier,
     );
     await place(
       'Lakmal Perera',
       '611 2233',
       [
         { ...sheet('Flashing', undefined, 8, 6, coil(1)), job_type: 'CUSTOMIZED', design_attachment_id: photo.attachment_id, total_bends: 12, remarks: 'Follow the sketch for the parapet' },
-        { ...sheet('Gutter', undefined, 15, 3), material_source: MaterialSource.CUSTOMER, total_cuts: 6 },
+        {
+          ...sheet('Gutter', undefined, 15, 3),
+          material_source: MaterialSource.CUSTOMER,
+          total_cuts: 6,
+          customer_material: { gp_item_id: gpGutter.items[0].gp_item_id, quantity: 3 },
+        },
       ],
       100,
     );
@@ -540,13 +590,12 @@ async function demo() {
       {
         client_request_id: randomUUID(),
         customer: { phone: phone('100 2001'), name: 'Full Pass Customer' },
-        job_date: today,
         worker_ids: team,
         lines: [customerCut('Cut all three customer sheets', 5000, 6, gpFull.items[0].gp_item_id, 3)],
       },
       tha,
     );
-    await pay(fullCard.order_id, fullCard.min_advance, thaCashier);
+    await advance(fullCard, thaCashier);
 
     // Closed: every piece committed to a job card that is now completed
     const gpClosed = await gatePasses.create(
@@ -557,7 +606,6 @@ async function demo() {
       {
         client_request_id: randomUUID(),
         customer: { phone: phone('100 2002'), name: 'Closed Pass Customer' },
-        job_date: today,
         worker_ids: team,
         lines: [customerCut('Bend customer zinc sheets', 4000, 2, gpClosed.items[0].gp_item_id, 2)],
       },
@@ -579,7 +627,6 @@ async function demo() {
       {
         client_request_id: randomUUID(),
         customer: { phone: phone('200 3001'), name: 'Part Paid Customer' },
-        job_date: today,
         worker_ids: team,
         lines: [customCut('Custom bracket cutting', 9000, 5)],
       },
@@ -587,12 +634,11 @@ async function demo() {
     );
     await pay(d.order_id, Math.max(1, Math.floor(d.min_advance / 2)), thaCashier);
 
-    // Edited before work started: a sub-job added, so more advance is due
+    // Edited before any payment: a sub-job added, so the advance is recalculated
     d = await jobCards.create(
       {
         client_request_id: randomUUID(),
         customer: { phone: phone('200 3002'), name: 'Edited Card Customer' },
-        job_date: today,
         worker_ids: team,
         lines: [rolling('Pipe Bending', 'GI Pipe', '1"', 2), customCut('Cut gate posts', 3000, 4)],
       },
@@ -603,7 +649,6 @@ async function demo() {
       {
         version: d.version,
         customer: { phone: phone('200 3002'), name: 'Edited Card Customer' },
-        job_date: today,
         worker_ids: team,
         lines: [
           { ...rolling('Pipe Bending', 'GI Pipe', '1"', 4), line_id: d.lines[0].line_id },
@@ -619,7 +664,6 @@ async function demo() {
       {
         client_request_id: randomUUID(),
         customer: { phone: phone('200 3003'), name: 'Voided Card Customer' },
-        job_date: today,
         worker_ids: team,
         lines: [customCut('Cut sheet to size', 2500, 2)],
       },
@@ -640,7 +684,6 @@ async function demo() {
       {
         client_request_id: randomUUID(),
         customer: { phone: phone('200 3004'), name: 'Override Card Customer' },
-        job_date: today,
         worker_ids: team,
         lines: [
           cutBend(low.material, low.thickness, Number(low.quantity) + 3, 2, 0),
@@ -650,7 +693,7 @@ async function demo() {
       },
       tha,
     ));
-    d = await pay(d.order_id, d.min_advance, thaCashier);
+    d = await advance(d, thaCashier);
     await startJob(d, tha, 1);
 
     // Made by the chief (in the queue): BR21 applies the other way round only
@@ -658,12 +701,71 @@ async function demo() {
       {
         client_request_id: randomUUID(),
         customer: { phone: phone('200 3005'), name: 'Chief Card Customer' },
-        job_date: today,
         worker_ids: team,
         lines: [rolling('Box Bar Bending', 'Circle Bend', '1"x1"', 2)],
       },
       thaChief,
     );
+    await advance(d, thaCashier);
+
+    // Nothing due (standard rolling, Rs 0 advance): still waits at the cashier for Send to Workshop
+    await jobCards.create(
+      {
+        client_request_id: randomUUID(),
+        customer: { phone: phone('200 3006'), name: 'No Advance Customer' },
+        worker_ids: team,
+        lines: [rolling('Pipe Bending', 'GI Pipe', '1"', 2)],
+      },
+      tha,
+    );
+
+    // ── Veyangoda: 21 job cards in every lifecycle status, for manual testing of the boards ──
+    // Rolling sub-jobs only, so no branch sheets are held or used
+    {
+      const vey = await actor('supervisor_veyangoda');
+      const veyCashier = await actor('cashier_veyangoda');
+      const veyTeam = await workers(vey.branch_id);
+      const PER_STATUS = 21;
+      const FIRST = ['Nuwan', 'Kasun', 'Chathura', 'Dinesh', 'Ruwan', 'Sampath', 'Lahiru', 'Isuru', 'Tharaka', 'Pradeep', 'Mahesh', 'Asanka', 'Buddhika', 'Gayan', 'Janaka'];
+      const LAST = ['Silva', 'Fernando', 'Perera', 'Jayasinghe', 'Bandara', 'Herath', 'Dissanayake', 'Wickramasinghe', 'Rathnayake', 'Gunawardena'];
+      const STATUSES = ['awaiting', 'queue', 'ongoing', 'finished', 'ready', 'closed', 'voided'] as const;
+      const veyCard = (s: number, i: number) => {
+        const lines = [rolling('Pipe Bending', 'GI Pipe', '1"', 1 + ((i + s) % 5))];
+        if (i % 2 === 0) lines.push(rolling('Box Bar Bending', 'Circle Bend', '1"x1"', 1 + (i % 3)));
+        return jobCards.create(
+          {
+            client_request_id: randomUUID(),
+            customer: { phone: `071 ${500 + s} ${String(1000 + i)}`, name: `${FIRST[(i + s * 3) % FIRST.length]} ${LAST[(i * 7 + s) % LAST.length]}` },
+            worker_ids: veyTeam,
+            lines,
+          },
+          vey,
+        );
+      };
+      for (const [s, status] of STATUSES.entries()) {
+        for (let i = 0; i < PER_STATUS; i++) {
+          let c: Detail = await veyCard(s, i);
+          // Rs 0 minimum advance: any payment would send it on, so these stay unpaid at the cashier
+          if (status === 'awaiting') continue;
+          if (status === 'voided') {
+            await jobCards.void(c.order_id, 'Customer cancelled before paying', vey);
+            continue;
+          }
+          // Mixed payment states before the work starts: Ready and Closed are paid in full, Finished still owes, the rest vary
+          const part = Math.floor(c.total / 2);
+          const upFront =
+            status === 'ready' || status === 'closed' ? c.total : status === 'finished' ? (i % 2 === 0 ? 0 : part) : [0, part, c.total][i % 3];
+          c = upFront > 0 ? await pay(c.order_id, upFront, veyCashier) : await payments.sendToWorkshop(c.order_id, { version: c.version }, veyCashier);
+          if (status === 'queue') continue;
+          // Ongoing: some cards with only the first sub-job started
+          c = await startJob(c, vey, status === 'ongoing' && i % 2 === 0 ? 1 : c.lines.length);
+          if (status === 'ongoing') continue;
+          c = await completeJob(c, vey);
+          if (status === 'closed') await payments.close(c.order_id, { version: c.version, released_to: c.customer?.name ?? 'Customer' }, vey);
+        }
+      }
+      console.log(`   seeded ${PER_STATUS * STATUSES.length} job cards across every status at Veyangoda`);
+    }
 
     // ── Roofing orders ────────────────────────────────────────────────────
     const thaCoils = await items.coils(tha.branch_id);
@@ -679,9 +781,7 @@ async function demo() {
         {
           client_request_id: randomUUID(),
           customer: { phone: n, name },
-          order_date: today,
           technician: 'Sampath',
-          material_source: MaterialSource.BRANCH,
           lines: orderLines,
           discount: opts.discount ?? 0,
           payment: { amount: opts.full ? q.total : q.min_to_place, mode, reference: mode === PaymentMode.CASH ? undefined : 'TXN-DEMO-2' },
@@ -692,31 +792,29 @@ async function demo() {
     };
 
     // Ready and fully paid: the supervisor can release it now
-    d = await place(tha, 'Ready To Release', phone('300 4001'), [sheetLine('Roofing', 'Tile Roofing', 10, 6, rich[0].item_id)], { full: true });
+    d = await place(thaCashier, 'Ready To Release', phone('300 4001'), [sheetLine('Roofing', 'Tile Roofing', 10, 6, rich[0].item_id)], { full: true });
     d = await roofing.start(d.order_id, { version: d.version }, tha);
     await roofing.complete(d.order_id, { version: d.version }, tha);
 
-    // Started with a coil override (more feet than the coil has)
-    await withGrant(Role.SUPERVISOR, 'override:stock', async () => {
-      d = await place(tha, 'Coil Override Customer', phone('300 4002'), [sheetLine('Cladding', 'Cladding', short.stock_ft + 40, 1, short.item_id)], {
+    // Started with a coil override (more feet than the coil has); the cashier places it
+    await withGrant(Role.CASHIER, 'override:stock', async () => {
+      d = await place(thaCashier, 'Coil Override Customer', phone('300 4002'), [sheetLine('Cladding', 'Cladding', short.stock_ft + 40, 1, short.item_id)], {
         extra: { override: OVERRIDE },
       });
       await roofing.start(d.order_id, { version: d.version }, tha);
     });
 
     // Discount, paid by card
-    d = await place(tha, 'Discount Card Customer', phone('300 4003'), [sheetLine('Roofing', 'Tile Roofing', 14, 10, rich[1 % rich.length].item_id)], { discount: 50000, mode: PaymentMode.CARD });
+    d = await place(thaCashier, 'Discount Card Customer', phone('300 4003'), [sheetLine('Roofing', 'Tile Roofing', 14, 10, rich[1 % rich.length].item_id)], { discount: 50000, mode: PaymentMode.CARD });
 
     // Edited by the cashier before work started (fewer pieces), so a refund is due
-    d = await place(tha, 'Cashier Edited Customer', phone('300 4004'), [sheetLine('Roofing', 'Tile Roofing', 12, 10, rich[2 % rich.length].item_id)], { full: true });
+    d = await place(thaCashier, 'Cashier Edited Customer', phone('300 4004'), [sheetLine('Roofing', 'Tile Roofing', 12, 10, rich[2 % rich.length].item_id)], { full: true });
     await roofing.update(
       d.order_id,
       {
         version: d.version,
         customer: { phone: phone('300 4004'), name: 'Cashier Edited Customer' },
-        order_date: today,
         technician: 'Sampath',
-        material_source: MaterialSource.BRANCH,
         lines: [{ ...sheetLine('Roofing', 'Tile Roofing', 12, 6, rich[2 % rich.length].item_id), line_id: d.lines[0].line_id }],
         discount: 0,
       },
@@ -724,10 +822,9 @@ async function demo() {
     );
 
     // Naiwala: customer-supplied gutter from the roofing branch's gate pass
-    await place(nai, 'Roof Material Customer', '077 100 3001', [{ ...sheetLine('Gutter', undefined, 20, 4), material_source: MaterialSource.CUSTOMER }], {
-      extra: { material_source: MaterialSource.CUSTOMER, gate_pass_id: gpRoof.gate_pass_id, allocations: [{ gp_item_id: gpRoof.items[0].gp_item_id, quantity: 4 }] },
-    });
-    void naiCashier;
+    await place(naiCashier, 'Roof Material Customer', '077 100 3001', [
+      { ...sheetLine('Gutter', undefined, 20, 4), material_source: MaterialSource.CUSTOMER, customer_material: { gp_item_id: gpRoof.items[0].gp_item_id, quantity: 4 } },
+    ]);
 
     // ── Accounts ──────────────────────────────────────────────────────────
     const users = app.get(UsersService);

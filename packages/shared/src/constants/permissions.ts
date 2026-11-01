@@ -24,7 +24,7 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   p('view:job_cards', 'job-cards', 'View the workshop queue'),
   p('update:job_card_status', 'job-cards', 'Start job cards and their sub-jobs', { branchWrite: true }),
   p('cancel:job_card_draft', 'job-cards', 'Void an unpaid DRAFT job card', { branchWrite: true }),
-  p('close:job_card', 'job-cards', 'Close and hand over a completed, fully paid job card', { branchWrite: true }),
+  p('close:job_card', 'job-cards', 'Check and hand over a finished, fully paid job card', { branchWrite: true }),
   p('cancel:job_card_any', 'job-cards', 'Cancel a job card in any status', { planned: true, branchWrite: true }),
   p('create:work_order', 'work-orders', 'Add a work order to a job card', { planned: true, branchWrite: true }),
   p('complete:work_order', 'work-orders', 'Mark sub-jobs and job cards as completed', { branchWrite: true }),
@@ -43,11 +43,11 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   p('create:gate_pass', 'gate-passes', 'Record customer material coming in', { branchWrite: true }),
   p('allocate:gate_pass_order', 'gate-passes', "Use a gate pass's material on a roofing order", { branchWrite: true }),
   // Roofing orders
-  p('create:roofing_order', 'orders', 'Place roofing orders (with the placement payment)', { branchWrite: true }),
+  p('create:roofing_order', 'orders', 'Place roofing orders (the cashier takes the payment)', { branchWrite: true }),
   p('view:orders', 'orders', 'View the order queue'),
   p('update:order_status', 'orders', 'Start and complete roofing orders', { branchWrite: true }),
   p('release:order', 'orders', 'Release a ready, fully paid order to the customer', { branchWrite: true }),
-  p('edit:order', 'orders', 'Edit a placed roofing order before work starts', { branchWrite: true }),
+  p('edit:order', 'orders', 'Edit a roofing order in the Order Queue before work starts', { branchWrite: true }),
   p('cancel:order', 'orders', 'Cancel a placed roofing order', { branchWrite: true }),
   // Hardware sales (Docs/decisions/0006)
   p('create:hardware_sale', 'hardware', 'Use the Hardware Store and place hardware orders for own branch', { branchWrite: true }),

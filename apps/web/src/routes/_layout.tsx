@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import { Outlet, Link, useNavigate, useRouter } from '@tanstack/react-router';
-import { Role } from '@erp/shared';
-import { SUPER_ADMIN_NAV, pageRunsAt, useVisibleNav, type NavItem } from '@/app/navigation';
+import { Outlet, Link, useNavigate, useRouter, useRouterState } from '@tanstack/react-router';
+import { Role, isGlobalRole } from '@erp/shared';
+import { SUPER_ADMIN_NAV, isNavItemActive, pageRunsAt, useVisibleNav, type NavItem } from '@/app/navigation';
 import { useAuthStore } from '@/shared/stores/auth.store';
 import { useMe } from '@/shared/hooks/useMe';
 import { useBranchContext } from '@/shared/hooks/useBranchContext';
@@ -10,6 +10,7 @@ import { useLiveUpdates, type LiveState } from '@/shared/live/useLiveUpdates';
 import { apiClient } from '@/shared/api/client';
 import { queryClient } from '@/app/query-client';
 import { useBranchOptions } from '@/modules/branches/hooks/useBranches';
+import { useStockAlertCount } from '@/modules/inventory/hooks/useInventory';
 import { EmptyState } from '@/shared/components/EmptyState';
 import { Icon } from '@/shared/components/Icon';
 import { branchOptionLabel } from '@/shared/lib/branch';
@@ -23,7 +24,22 @@ const BRANCH_TYPE_LABEL: Record<string, string> = {
   ROOFING_WORKSHOP: 'Roofing + Workshop',
 };
 
+/** Count for a menu item's bubble: loaded once, refreshed by live nudges only. */
+function useNavBadge(item: NavItem): number {
+  const activeBranchId = useAuthStore((s) => s.activeBranchId);
+  const user = useAuthStore((s) => s.user);
+  const { branch } = useBranchContext();
+  const network = !!user && isGlobalRole(user.role) && !activeBranchId;
+  const enabled = item.badge === 'stockAlerts' && (network || (!!branch && pageRunsAt(item, branch)));
+  const { data } = useStockAlertCount(enabled, network, activeBranchId);
+  // Every link shares the cached count (a disabled query still returns cached data): only badge items show it
+  return enabled ? (data ?? 0) : 0;
+}
+
 function NavLink({ item }: { item: NavItem }) {
+  const badge = useNavBadge(item);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isActive = isNavItemActive(item, pathname);
   // Menu items whose page is not built yet get a red cross
   const routesByPath = useRouter().routesByPath as Record<string, unknown>;
   const notBuilt = item.comingSoon || !(item.to in routesByPath);
@@ -44,20 +60,28 @@ function NavLink({ item }: { item: NavItem }) {
   return (
     <Link
       to={item.to}
-      activeOptions={{ exact: true }}
-      className="flex w-full items-center rounded-md px-3 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
-      activeProps={{ className: '!bg-blue-600 !text-white' }}
+      // The router's own active marks must agree with isNavItemActive (it spreads aria-current last)
+      activeOptions={{ exact: true, includeSearch: false }}
+      aria-current={isActive ? 'page' : undefined}
+      className={cn(
+        'flex w-full items-center rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
+        isActive ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white',
+      )}
     >
-      {({ isActive }) => (
-        <>
-          <Icon name={item.icon} className={cn('mr-3 h-5 w-5', isActive ? 'text-white' : 'text-slate-400')} />
-          <span className="flex-1">{item.label}</span>
-          {notBuilt && (
-            <span title="Not built yet" aria-label="Not built yet">
-              <Icon name="x" className="h-4 w-4 text-red-500" strokeWidth={3} />
-            </span>
-          )}
-        </>
+      <Icon name={item.icon} className={cn('mr-3 h-5 w-5', isActive ? 'text-white' : 'text-slate-400')} />
+      <span className="flex-1">{item.label}</span>
+      {badge > 0 && (
+        <span
+          title={`${badge} item(s) need restocking`}
+          className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+      {notBuilt && (
+        <span title="Not built yet" aria-label="Not built yet">
+          <Icon name="x" className="h-4 w-4 text-red-500" strokeWidth={3} />
+        </span>
       )}
     </Link>
   );

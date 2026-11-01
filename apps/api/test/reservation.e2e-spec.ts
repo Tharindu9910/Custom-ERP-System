@@ -154,7 +154,7 @@ describe('RSV stock reservation', () => {
     expect(await t.reserved('thangalla', sku)).toBe(before);
 
     const free = (await tha().get('/items/coils')).data.find((x: any) => x.item_id === coil.item_id).stock_ft;
-    const short = await t.withGrant('SUPERVISOR', 'override:stock', () =>
+    const short = await t.withGrant('CASHIER', 'override:stock', () =>
       roofingOrder(t, {
         lines: [sheetLine(coil.item_id, { length_ft: free + 5, pieces: 1 })],
         override: { password: OVERRIDE_PASSWORD, reason: 'Coil arriving today' },

@@ -127,6 +127,10 @@ export const ROLLING_LINE = { job_type: 'ROLLING', rolling_type: 'Pipe Bending',
 export const CUSTOM_LINE = {
   job_type: 'CUT_BEND',
   material_source: 'BRANCH',
+  // Branch sheets are named even when priced by hand (Docs/decisions/0008)
+  material_type: 'MS Plain Sheet',
+  thickness: '2mm',
+  material_quantity: 1,
   custom: true,
   customized_reason_code: 'Special design',
   custom_charges: [{ kind: 'CUT', description: 'Cut sheet to design', rate: 5000, quantity: 4 }],
@@ -192,7 +196,6 @@ export async function jobCard(opts: { branch?: BranchKey; lines?: unknown[]; pai
     call(user, 'POST', '/job-cards', {
       client_request_id: randomUUID(),
       customer: { phone: newPhone(), name: opts.name ?? `JC Customer ${seq + 1}` },
-      job_date: colomboToday(),
       worker_ids: await workerIds(user),
       lines: opts.lines ?? [CUSTOM_LINE],
     }),
@@ -207,8 +210,21 @@ export async function payAdvance(order: any, branch: BranchKey = 'thangalla') {
   return ok(call(CASHIER[branch], 'POST', `/orders/${order.order_id}/payments`, { client_request_id: randomUUID(), amount: Math.max(row?.min_advance ?? 0, 100), mode: 'CASH' }), 'payAdvance');
 }
 
+/** The cashier sends a card with nothing due (Rs 0 minimum advance) to the Workshop Queue without a payment. */
+export async function toWorkshop(order: any, branch: BranchKey = 'thangalla') {
+  return ok(call(CASHIER[branch], 'POST', `/job-cards/${order.order_id}/send-to-workshop`, { version: order.version }), 'toWorkshop');
+}
+
 export async function payBalance(order: any, branch: BranchKey = 'thangalla') {
   return ok(call(CASHIER[branch], 'POST', `/orders/${order.order_id}/payments`, { client_request_id: randomUUID(), amount: order.balance, mode: 'CASH' }), 'payBalance');
+}
+
+/** An advance-paid job card started and marked finished by the supervisor; `paidInFull` also clears the balance (Ready for Collection). */
+export async function finishedJobCard(opts: { paidInFull?: boolean; name?: string } = {}) {
+  const paid = await jobCard({ paid: true, name: opts.name });
+  const started = await ok(call(SUP.thangalla, 'POST', `/job-cards/${paid.order_id}/start`, { version: paid.version, line_ids: paid.lines.map((l: any) => l.line_id) }), 'startJob');
+  const done = await ok(call(SUP.thangalla, 'POST', `/job-cards/${paid.order_id}/complete`, { version: started.version }), 'completeJob');
+  return opts.paidInFull && done.balance > 0 ? payBalance(done) : done;
 }
 
 export async function coil(minFt = 1000, user: string = SUP.thangalla) {
@@ -220,26 +236,37 @@ export function sheetLine(coilId: string, over: Record<string, unknown> = {}) {
   return { category: 'Roofing', job_type: 'STANDARD', material_source: 'BRANCH', coil_item_id: coilId, pattern: 'Tile Roofing', length_ft: 10, pieces: 2, total_cuts: 1, total_bends: 0, ...over };
 }
 
-export async function roofingOrder(opts: { lines?: unknown[]; payFull?: boolean; name?: string } = {}) {
-  const user = SUP.thangalla;
+/**
+ * A roofing order in the Order Queue, placed by the cashier with the minimum (or in full). With
+ * `bySupervisor` the supervisor submits it unpaid and the cashier then takes the minimum, so the
+ * supervisor is its creator (BR21); with `unpaid` it stays at the cashier (Awaiting Payment).
+ */
+export async function roofingOrder(opts: { lines?: unknown[]; payFull?: boolean; name?: string; bySupervisor?: boolean; unpaid?: boolean } = {}) {
+  const cashier = CASHIER.thangalla;
+  const supervisorPlaces = opts.bySupervisor || opts.unpaid;
+  const user = supervisorPlaces ? SUP.thangalla : cashier;
   const lines = opts.lines ?? [sheetLine((await coil()).item_id)];
   const q = await ok(call(user, 'POST', '/roofing-orders/quote', { lines }), 'quote');
-  return ok(
+  const o = await ok(
     call(user, 'POST', '/roofing-orders', {
       client_request_id: randomUUID(),
       customer: { phone: newPhone(), name: opts.name ?? `Roof Customer ${seq + 1}` },
-      order_date: colomboToday(),
       technician: 'Sampath',
-      material_source: 'BRANCH',
       lines,
       discount: 0,
-      payment: { amount: opts.payFull ? q.total : q.min_to_place, mode: 'CASH' },
+      // Only the cashier takes a payment while placing
+      ...(supervisorPlaces ? {} : { payment: { amount: opts.payFull ? q.total : q.min_to_place, mode: 'CASH' } }),
     }),
     'roofingOrder',
   );
+  if (!opts.bySupervisor) return o;
+  const amount = opts.payFull ? o.total : o.min_advance;
+  return amount > 0
+    ? ok(call(cashier, 'POST', `/orders/${o.order_id}/payments`, { client_request_id: randomUUID(), amount, mode: 'CASH' }), 'roofing minimum')
+    : ok(call(cashier, 'POST', `/roofing-orders/${o.order_id}/send-to-queue`, { version: o.version }), 'roofing send-to-queue');
 }
 
-export async function readyRoofingOrder(opts: { payFull?: boolean; name?: string } = {}) {
+export async function readyRoofingOrder(opts: { payFull?: boolean; name?: string; bySupervisor?: boolean } = {}) {
   const o = await roofingOrder(opts);
   const s = await ok(call(SUP.thangalla, 'POST', `/roofing-orders/${o.order_id}/start`, { version: o.version }), 'start');
   return ok(call(SUP.thangalla, 'POST', `/roofing-orders/${o.order_id}/complete`, { version: s.version }), 'complete');

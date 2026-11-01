@@ -1,33 +1,26 @@
 import { useState } from 'react';
 import { LineStatus, OrderStatus, PAYMENT_STATE_LABEL, formatGatePassLength, type StockOverride } from '@erp/shared';
+import { SectionTitle, Stat, StatStrip } from '@/shared/components/DetailParts';
 import { Icon } from '@/shared/components/Icon';
+import { ColorDot } from '@/shared/components/Marks';
 import { Modal } from '@/shared/components/Modal';
 import { Notice } from '@/shared/components/Notice';
 import { StockOverrideDialog, type StockShortageDetails } from '@/shared/components/StockOverrideDialog';
 import { apiError } from '@/shared/api/errors';
 import { formatDate, formatDateTime, formatRs } from '@/shared/lib/format';
+import { accentFor } from '@/shared/lib/tones';
 import { usePermission } from '@/shared/hooks/usePermission';
 import { useCanTransact } from '@/shared/hooks/useCanTransact';
 import { useLineAction, useOrderDetail, useVoidJobCard, type OrderLineDto } from '@/modules/orders/hooks/useOrders';
-import { thicknessLabel } from '../lib/customer-material';
+import { thicknessLabel } from '@/modules/gate-passes/lib/customer-material';
+import { LINE_TYPE_LABEL, lineSummary } from '../lib/line-summary';
 import { CompleteJobDialog, StartJobDialog } from './JobCardMoveDialogs';
 
 // Sub-job status pill and its action button share one size so the rows line up
 const LINE_CHIP = 'inline-flex h-8 w-28 items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-semibold';
 
-const LINE_TYPE_LABEL: Record<string, string> = { CUT_BEND: 'Cut / Bend', COIL_CUTTING: 'Coil Cutting', ROLLING: 'Rolling' };
-
 const statusPill = (s: LineStatus) =>
-  s === LineStatus.IN_PROGRESS ? 'bg-blue-100 text-blue-800' : s === LineStatus.COMPLETED ? 'bg-green-100 text-green-800' : s === LineStatus.CANCELLED ? 'bg-gray-100 text-gray-500' : 'bg-amber-100 text-amber-800';
-
-/** Spec summary for a sub-job (prototype modal row). */
-function lineSummary(l: OrderLineDto): string {
-  const s = l.spec as Record<string, unknown>;
-  if (l.is_customized) return 'Customized Work';
-  if (l.line_type === 'CUT_BEND') return `${s.material_type ?? ''} ${s.thickness ?? ''} | Qty: ${s.material_quantity ?? 0} | Cut: ${s.cut_count ?? 0} | Bend: ${s.bend_count ?? 0}`;
-  if (l.line_type === 'ROLLING') return `Rolling (${s.work_type}) ${s.rolling_type} ${s.size} | Qty: ${s.quantity ?? 0}`;
-  return `Coil: ${s.coil_material} - ${s.amount_range} Ton`;
-}
+  s === LineStatus.IN_PROGRESS ? 'bg-blue-100 text-blue-800' : s === LineStatus.COMPLETED ? 'bg-green-100 text-green-800' : s === LineStatus.CANCELLED ? 'bg-slate-100 text-slate-500' : 'bg-amber-100 text-amber-800';
 
 /**
  * Work order (job card) popup from the Workshop Queue: material details, each sub-job
@@ -121,7 +114,10 @@ export function WorkOrderModal({
         footer={
           <>
             {canVoid && voidReason === null && (
-              <button onClick={() => setVoidReason('')} className="mr-auto rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50">
+              <button
+                onClick={() => setVoidReason('')}
+                className="mr-auto rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
+              >
                 Void job card
               </button>
             )}
@@ -132,16 +128,16 @@ export function WorkOrderModal({
                   value={voidReason}
                   onChange={(e) => setVoidReason(e.target.value)}
                   placeholder="Reason for voiding"
-                  className="rounded-md border border-red-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
+                  className="rounded-lg border border-red-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-red-400"
                 />
                 <button
                   disabled={voidReason.trim().length < 3 || voidCard.isPending}
                   onClick={() => void confirmVoid()}
-                  className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                  className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
                 >
                   Confirm void
                 </button>
-                <button onClick={() => setVoidReason(null)} className="text-sm text-gray-500 hover:text-gray-800">
+                <button onClick={() => setVoidReason(null)} className="text-sm text-slate-500 hover:text-slate-800">
                   Keep
                 </button>
               </div>
@@ -162,11 +158,11 @@ export function WorkOrderModal({
               </button>
             )}
             {canEdit && order?.can_edit && onEdit && (
-              <button onClick={onEdit} className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100">
+              <button onClick={onEdit} className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100">
                 Edit
               </button>
             )}
-            <button onClick={onClose} className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <button onClick={onClose} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
               Close
             </button>
           </>
@@ -186,77 +182,108 @@ export function WorkOrderModal({
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-semibold text-gray-900">
+                  <p className="font-semibold text-slate-900">
                     {order.customer?.name ?? '—'}
-                    {order.customer?.phone && <span className="ml-2 font-normal text-gray-500">{order.customer.phone}</span>}
+                    {order.customer?.phone && <span className="ml-2 font-mono text-sm font-normal text-slate-500">{order.customer.phone}</span>}
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-400">
+                  <p className="mt-0.5 text-xs text-slate-400">
                     {formatDate(order.header.job_date ?? order.created_at)}
                     {order.created_by_name && ` · Created by ${order.created_by_name}`}
                   </p>
                 </div>
                 <span className="whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{order.display_label}</span>
               </div>
-              <div className="grid grid-cols-3 divide-x rounded-lg border border-gray-200 text-sm">
-                <Field label="Total" value={formatRs(order.total)} />
-                <div className="px-3 py-2">
-                  <p className="text-xs text-gray-500">{PAYMENT_STATE_LABEL[order.payment_state]}</p>
-                  <p className={`font-semibold ${order.payment_state === 'UNPAID' ? 'text-red-600' : 'text-green-600'}`}>{formatRs(order.paid_amount)}</p>
-                </div>
-                <Field label="Balance" value={formatRs(order.balance)} />
-              </div>
+              <StatStrip>
+                <Stat label="Total" value={formatRs(order.total)} />
+                <Stat label="Advance" value={formatRs(order.min_advance)} />
+                <Stat
+                  label={PAYMENT_STATE_LABEL[order.payment_state]}
+                  value={formatRs(order.paid_amount)}
+                  tone={order.payment_state === 'UNPAID' ? 'text-red-600' : 'text-emerald-700'}
+                />
+                <Stat label="Balance" value={formatRs(order.balance)} />
+              </StatStrip>
             </div>
 
             <div>
-              <div className="mb-2 flex items-center gap-2">
-                <h4 className="font-semibold text-gray-900">Materials</h4>
-                <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">{source}</span>
+              <SectionTitle title="Materials">
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{source}</span>
                 {[...new Set(order.customer_materials.map((m) => m.pass_number))].map((n) => (
-                  <span key={n} className="rounded bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                  <span key={n} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                     Gate pass {n}
                   </span>
                 ))}
-              </div>
+              </SectionTitle>
               {branchMaterials.length + order.customer_materials.length > 0 ? (
-                <ul className="divide-y rounded-lg border border-gray-200 text-sm">
-                  {branchMaterials.map((l) => (
-                    <li key={l.line_id} className="flex items-center justify-between gap-3 px-3 py-2">
-                      <span className="text-gray-900">
-                        {l.item_name ?? `${(l.spec as Record<string, string>).material_type} (${(l.spec as Record<string, string>).thickness})`}{' '}
-                        <span className="text-xs text-gray-400">Branch</span>
-                      </span>
-                      <span className="whitespace-nowrap text-gray-600">
-                        {l.quantity ?? '-'} {l.item_unit ?? ''}
-                      </span>
-                    </li>
-                  ))}
+                <ul className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+                  {branchMaterials.map((l) => {
+                    const spec = l.spec as Record<string, string>;
+                    return (
+                      <li
+                        key={l.line_id}
+                        className="flex items-center justify-between gap-4 bg-white py-3 pl-5 pr-4"
+                        style={{ boxShadow: `inset 4px 0 0 ${accentFor(spec.material_type)}` }}
+                      >
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900">{l.item_name ?? `${spec.material_type} (${spec.thickness})`}</p>
+                          <p className="text-xs text-slate-500">Branch</p>
+                        </div>
+                        <QtyCell value={l.quantity ?? '-'} unit={l.item_unit} />
+                      </li>
+                    );
+                  })}
                   {order.customer_materials.map((m) => (
-                    <li key={`${m.gp_item_id}:${m.line_id ?? ''}`} className="flex items-center justify-between gap-3 px-3 py-2">
-                      <span className="text-gray-900">
-                        {m.material_type} {m.thickness ? `(${m.thickness})` : ''} {m.length ? `[${formatGatePassLength(m.length, m.length_unit)}]` : ''}{' '}
-                        {m.color ? `{Color: ${m.color}}` : ''} <span className="text-xs text-gray-400">Customer · {m.pass_number}</span>
-                        {m.line_id && <span className="text-xs text-gray-400"> · for {active.find((l) => l.line_id === m.line_id)?.line_number ?? 'a removed sub-job'}</span>}
-                      </span>
-                      <span className="whitespace-nowrap text-gray-600">{m.quantity}</span>
+                    <li
+                      key={`${m.gp_item_id}:${m.line_id ?? ''}`}
+                      className="flex items-center justify-between gap-4 bg-white py-3 pl-5 pr-4"
+                      style={{ boxShadow: `inset 4px 0 0 ${accentFor(m.material_type)}` }}
+                    >
+                      <div className="min-w-0 space-y-1.5">
+                        <p className="font-bold text-slate-900">{m.material_type}</p>
+                        {(m.thickness || m.length || m.color) && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {m.thickness && <span className="spec-chip">{thicknessLabel(m.thickness)}</span>}
+                            {m.length && <span className="spec-chip">{formatGatePassLength(m.length, m.length_unit)}</span>}
+                            {m.color && (
+                              <span className="spec-chip">
+                                <ColorDot color={m.color} />
+                                {m.color}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <p className="text-xs text-slate-500">
+                          Customer · {m.pass_number}
+                          {m.line_id && ` · for ${active.find((l) => l.line_id === m.line_id)?.line_number ?? 'a removed sub-job'}`}
+                        </p>
+                      </div>
+                      <QtyCell value={m.quantity} />
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-gray-500">No materials added.</p>
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-4 py-6 text-center text-sm text-slate-500">
+                  No materials added.
+                </div>
               )}
             </div>
 
             <div>
-              <h4 className="mb-2 font-semibold text-gray-900">Sub Jobs ({active.length})</h4>
-              <ul className="divide-y rounded-lg border border-gray-200">
+              <SectionTitle title="Sub Jobs" count={active.length} />
+              <ul className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
                 {active.map((l) => (
-                  <li key={l.line_id} className="px-3 py-3">
+                  <li key={l.line_id} className="bg-white px-4 py-3.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="font-semibold text-gray-900">
-                        {l.line_number} <span className="text-xs font-normal text-gray-400">· {LINE_TYPE_LABEL[l.line_type] ?? l.line_type}</span>
+                      <div className="font-bold text-slate-900">
+                        {l.line_number} <span className="text-xs font-medium text-slate-400">· {LINE_TYPE_LABEL[l.line_type] ?? l.line_type}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="whitespace-nowrap text-sm font-semibold text-gray-700">{formatRs(l.line_total)}</span>
+                        {l.advance > 0 && (
+                          <span title="Advance for this sub-job" className="whitespace-nowrap text-xs tabular-nums text-slate-500">
+                            Advance {formatRs(l.advance)}
+                          </span>
+                        )}
+                        <span className="whitespace-nowrap text-sm font-bold tabular-nums text-slate-800">{formatRs(l.line_total)}</span>
                         <span className={`${LINE_CHIP} ${statusPill(l.status)}`}>{l.status_label}</span>
                         {canStart && cardStarted && l.status === LineStatus.ASSIGNED && (
                           <button
@@ -278,7 +305,9 @@ export function WorkOrderModal({
                         )}
                       </div>
                     </div>
-                    <p className="mt-1 text-sm text-gray-600">{l.is_customized ? <span className="font-medium text-purple-700">Customized Work</span> : lineSummary(l)}</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {l.is_customized ? <span className="font-medium text-purple-700">Customized Work</span> : lineSummary(l)}
+                    </p>
                     {l.customer_material && (
                       <p className="mt-1 inline-flex items-center gap-1.5 text-sm text-orange-800">
                         <Icon name="packageOpen" className="h-4 w-4 shrink-0" />
@@ -287,7 +316,7 @@ export function WorkOrderModal({
                         {l.customer_material.quantity}
                       </p>
                     )}
-                    <p className="mt-0.5 text-xs text-gray-400">
+                    <p className="mt-0.5 text-xs text-slate-400">
                       {l.workers.length > 0 && `Workers: ${l.workers.map((w) => w.full_name).join(', ')}`}
                       {l.started_at && ` · Started ${formatDateTime(l.started_at)} by ${l.started_by}`}
                       {l.inspected_by && ` · Inspected by ${l.inspected_by}`}
@@ -296,29 +325,6 @@ export function WorkOrderModal({
                 ))}
               </ul>
             </div>
-
-            {order.history.length > 0 && (
-              <div>
-                <h4 className="mb-2 font-semibold text-gray-900">History</h4>
-                <ol className="space-y-1.5 text-xs text-gray-600">
-                  {order.history.map((h) => (
-                    <li key={h.history_id} className="flex gap-2">
-                      <span className="w-36 shrink-0 text-gray-400">{formatDateTime(h.created_at)}</span>
-                      <span>
-                        {h.line_number && <strong className="text-gray-800">{h.line_number}: </strong>}
-                        {h.event_type === 'INSPECTION'
-                          ? `Inspected (${h.result})`
-                          : h.event_type === 'NOTE'
-                            ? h.note
-                            : `${h.from_status ?? 'New'} → ${h.to_status}`}
-                        {h.event_type === 'STATUS_CHANGE' && h.note ? ` — ${h.note}` : ''}
-                        {h.actor_name && <span className="text-gray-400"> · {h.actor_name}</span>}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
           </div>
         )}
       </Modal>
@@ -338,11 +344,11 @@ export function WorkOrderModal({
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function QtyCell({ value, unit }: { value: number | string; unit?: string | null }) {
   return (
-    <div className="px-3 py-2">
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className="font-semibold text-gray-900">{value}</p>
-    </div>
+    <p className="shrink-0 whitespace-nowrap text-right tabular-nums">
+      <span className="text-lg font-bold text-slate-900">{value}</span>
+      {unit && <span className="ml-1 text-xs font-medium text-slate-400">{unit}</span>}
+    </p>
   );
 }

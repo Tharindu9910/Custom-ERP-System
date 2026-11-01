@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { BRANCH, OVERRIDE_PASSWORD, SA, SUP, call, colomboToday, jobCard, login, material, newPhone, roofingOrder, withGrant, workerIds } from '../support/api';
+import { BRANCH, OVERRIDE_PASSWORD, SA, SUP, call, jobCard, login, material, newPhone, roofingOrder, withGrant, workerIds } from '../support/api';
 import { expect, signIn, test } from '../support/fixtures';
 import { dialog, menuLabels, pickBranch, row } from '../support/ui';
 
@@ -101,7 +101,6 @@ test.describe('branch config', () => {
     const body = (override: { password: string; reason: string }) => ({
       client_request_id: randomUUID(),
       customer: { phone: newPhone(), name: 'Override Password Customer' },
-      job_date: colomboToday(),
       material_source: 'BRANCH',
       lines: [{ job_type: 'CUT_BEND', material_type: m.material_type, thickness: m.thickness, material_quantity: m.quantity + 5, cut_count: 1 }],
       override,

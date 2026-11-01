@@ -154,3 +154,18 @@ export function useNetworkStockAlerts(query: Partial<StockAlertQuery>) {
     ...LIVE_QUERY_OPTIONS,
   });
 }
+
+/**
+ * Items needing restock, for the sidebar badge. Fetched once; the live stock / transfers
+ * nudges refetch it (key under ['stock-alerts']), so it never polls (Docs/decisions/0009).
+ * `network` = head office on "All branches".
+ */
+export function useStockAlertCount(enabled: boolean, network: boolean, branchId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.stockAlertCount(network ? 'network' : (branchId ?? '')),
+    queryFn: async () => (await apiClient.get<{ data: { count: number } }>(network ? '/network/stock-alerts/count' : '/stock-alerts/count')).data.data.count,
+    enabled,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+}

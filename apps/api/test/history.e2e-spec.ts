@@ -1,5 +1,5 @@
 import { TestApp } from './helpers/app';
-import { CASHIER, CUSTOM_LINE, ROLLING_LINE, SUP, colomboToday, jobCard, roofingOrder } from './helpers/fixtures';
+import { CASHIER, CUSTOM_LINE, ROLLING_LINE, SUP, colomboToday, jobCard, roofingOrder, toWorkshop } from './helpers/fixtures';
 
 /** HIS: History popup on Create Job Card / Create Order (own branch, date range, paged). */
 let t: TestApp;
@@ -11,7 +11,7 @@ const today = colomboToday();
 
 describe('HIS order history', () => {
   it('HIS-01 job cards in the range are listed newest first with status, creator and totals; voided ones too', async () => {
-    const a = await jobCard(t, { lines: [ROLLING_LINE] });
+    const a = await toWorkshop(t, await jobCard(t, { lines: [ROLLING_LINE] }));
     const b = await jobCard(t, { lines: [CUSTOM_LINE] }); // stays DRAFT, so it can be voided
     expect((await tha().post(`/job-cards/${b.order_id}/void`, { reason: 'Customer left' })).status).toBe(201);
     const r = await tha().get(`/job-cards/history?from=${today}&to=${today}&search=${b.order_number}`);

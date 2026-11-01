@@ -60,6 +60,8 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'cancel:job_card_draft',
     'create:work_order',
     'complete:work_order',
+    // Checks the items and hands over a finished, fully paid job card (Docs/decisions/0005)
+    'close:job_card',
     'assign:worker',
     'enter_price:customized',
     'enter_price:standard',
@@ -100,7 +102,6 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
   CASHIER: [
     'verify_price:standard',
     'process:payment',
-    'close:job_card',
     'generate:invoice',
     'complete:customer_profile',
     'create:roofing_order',

@@ -182,7 +182,6 @@ describe('ACC-SA-WRITE head office cannot change branch work (403 CTX_003)', () 
         sa().post('/roofing-orders', {
           client_request_id: randomUUID(),
           customer: { phone: newPhone(), name: 'X' },
-          order_date: colomboToday(),
           lines: [sheetLine(coil.item_id)],
           payment: { amount: 100000, mode: 'CASH' },
         }),
@@ -355,10 +354,14 @@ describe('ACC-SUP supervisor permissions', () => {
         }),
     ],
     [
-      'edit a roofing order',
+      'edit a roofing order in the Order Queue',
+      // Unpaid orders at the cashier are the supervisor's to edit; placed ones need edit:order
       () =>
         t.as(SUP.thangalla).put(`/roofing-orders/${placed.order_id}`, {
           version: placed.version,
+          customer: { phone: placed.customer.phone, name: 'X' },
+          lines: [{ ...sheetLine(coil.item_id), line_id: placed.lines[0].line_id }],
+          discount: 0,
         }),
     ],
     [

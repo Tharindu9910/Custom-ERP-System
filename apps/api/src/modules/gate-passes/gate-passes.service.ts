@@ -28,6 +28,11 @@ const ROW_SELECT = `
 // created_at is stored as UTC; filters use the branch's local day
 const LOCAL_DAY = `((gp.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Colombo')::date`;
 
+export interface CatalogMaterial {
+  material_type: string;
+  thicknesses: string[];
+}
+
 @Injectable()
 export class GatePassesService {
   constructor(
@@ -124,6 +129,22 @@ export class GatePassesService {
     return rows.map((r) => r.material_type);
   }
 
+  /** Material types in the inventory catalogue, each with its stocked thicknesses (thinnest first). */
+  async catalogMaterials(): Promise<CatalogMaterial[]> {
+    const rows: { material_type: string; thicknesses: string[] }[] = await this.ds.query(
+      `SELECT i.attributes->>'material_type' AS material_type,
+              array_agg(DISTINCT i.attributes->>'thickness') FILTER (WHERE i.attributes->>'thickness' IS NOT NULL) AS thicknesses
+         FROM item i
+        WHERE i.item_type = 'MATERIAL' AND i.is_active = true AND i.attributes->>'material_type' IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1`,
+    );
+    return rows.map((r) => ({
+      material_type: r.material_type,
+      thicknesses: (r.thicknesses ?? []).sort((a, b) => parseFloat(a) - parseFloat(b) || a.localeCompare(b)),
+    }));
+  }
+
   async get(gatePassId: string, branchId: string, em: EntityManager = this.ds.manager): Promise<GatePassView> {
     const rows: GatePassRow[] = await em.query(`${ROW_SELECT} WHERE gp.gate_pass_id = $1 AND gp.branch_id = $2`, [gatePassId, branchId]);
     if (rows.length === 0) throw new NotFoundException(ERR.GATE_PASS_NOT_FOUND);
@@ -133,25 +154,22 @@ export class GatePassesService {
 
   /** The customer's passes that still have material to allocate (plus one already assigned). */
   /**
-   * The customer's passes that still have material. `includeId` keeps one pass even when
-   * used up (roofing edit); `orderId` keeps every pass that order already draws on (job
-   * card edit, where the form adds the order's own quantities back).
+   * The customer's passes that still have material, plus (with `orderId`) every pass that
+   * order already draws on, so an order being edited still sees them (Docs/decisions/0007).
    */
-  async available(phone: string, branchId: string, includeId?: string, orderId?: string): Promise<GatePassView[]> {
+  async available(phone: string, branchId: string, orderId?: string): Promise<GatePassView[]> {
     const key = phoneKey(phone);
-    if (key.length < 7 && !includeId && !orderId) return [];
+    if (key.length < 7 && !orderId) return [];
     const rows: GatePassRow[] = await this.ds.query(
       `${ROW_SELECT}
-       WHERE gp.branch_id = $1 AND (right(regexp_replace(c.phone, '\\D', '', 'g'), 9) = $2 OR gp.gate_pass_id = $3
+       WHERE gp.branch_id = $1 AND (right(regexp_replace(c.phone, '\\D', '', 'g'), 9) = $2
          OR gp.gate_pass_id IN (SELECT i.gate_pass_id FROM material_allocation a JOIN gate_pass_item i ON i.gp_item_id = a.gp_item_id
-                                WHERE a.order_id = $4 AND a.status = 'COMMITTED'))
+                                WHERE a.order_id = $3 AND a.status = 'COMMITTED'))
        ORDER BY gp.created_at DESC`,
-      [branchId, key, includeId ?? null, orderId ?? null],
+      [branchId, key, orderId ?? null],
     );
     const views = await buildGatePassViews(this.ds.manager, rows);
-    const kept = new Set(includeId ? [includeId] : []);
-    if (orderId) views.filter((v) => v.linked_documents.some((d) => d.order_id === orderId)).forEach((v) => kept.add(v.gate_pass_id));
-    return views.filter((v) => v.summary.has_available || kept.has(v.gate_pass_id));
+    return views.filter((v) => v.summary.has_available || (!!orderId && v.linked_documents.some((d) => d.order_id === orderId)));
   }
 
   /**

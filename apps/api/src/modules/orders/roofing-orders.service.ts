@@ -15,7 +15,11 @@ import {
   lineHasStarted,
   normalizeRoofingLine,
   priceRoofingLine,
+  roofingAdvanceEditable,
+  roofingLineAdvance,
   roofingTotals,
+  suggestedRoofingAdvance,
+  toBranchDate,
   validateRoofingLine,
   type BranchSettings,
   type CompleteWorkDto,
@@ -42,6 +46,7 @@ import { CustomersService } from '../customers/customers.service';
 import { AllocationsService } from '../gate-passes/allocations.service';
 import { GatePassesService } from '../gate-passes/gate-passes.service';
 import { ItemsService, type CoilOption } from '../items/items.service';
+import { customerMaterialLine, withoutOrderMaterial, type CustomerMaterialLine } from './customer-material';
 import { OrderAccessService } from './order-access.service';
 import { OrderQueriesService, type OrderDetail } from './order-queries.service';
 import { PaymentsService } from './payments.service';
@@ -53,6 +58,9 @@ interface PreparedLine {
   /** Coil deducted on start (BR10), null when nothing is deducted */
   item_id: string | null;
   coil: CoilOption | null;
+  /** The item's advance and its suggestion (Docs/decisions/0011) */
+  advance: number;
+  suggested_advance: number;
 }
 
 interface Prepared {
@@ -67,8 +75,10 @@ interface Prepared {
 
 /**
  * Roofing orders (Create Order / Order Queue). One order per customer visit, one
- * line per item. Placed with the first payment; started, completed and released by
- * the floor; edited or cancelled by the cashier before work starts.
+ * line per item. The cashier places an order with its first payment; anyone else
+ * submits it unpaid (DRAFT) and it waits on the Cashier Queue until the minimum is paid,
+ * like a job card. Started, completed and released by the floor; edited or cancelled
+ * before work starts.
  */
 @Injectable()
 export class RoofingOrdersService {
@@ -96,7 +106,12 @@ export class RoofingOrdersService {
     const settings = (await this.branches.get(actor.branch_id)).settings;
     const p = await this.prepare(this.ds.manager, dto.lines, dto.global_coil_item_id, dto.discount, settings, actor.branch_id, false);
     return {
-      lines: p.lines.map((l) => l.priced),
+      lines: p.lines.map((l) => ({
+        ...l.priced,
+        suggested_advance: l.suggested_advance,
+        advance: l.advance,
+        advance_editable: roofingAdvanceEditable(l.input),
+      })),
       subtotal: p.subtotal,
       discount: p.discount,
       max_discount: p.max_discount,
@@ -112,23 +127,30 @@ export class RoofingOrdersService {
 
     const settings = (await this.branches.get(actor.branch_id)).settings;
     this.checkMaterialRules(dto, settings);
-    if (dto.gate_pass_id && dto.allocations) await this.assertMayAllocateGatePass(actor);
+    // Using a gate pass on an order is its own permission (RO-08)
+    if (dto.lines.some((l) => l.material_source === MaterialSource.CUSTOMER && l.customer_material)) await this.assertMayAllocateGatePass(actor);
+    // Only the cashier takes money and gives discounts; others submit the order to the Cashier Queue
+    const cashier = await this.isCashier(actor);
+    if (dto.payment && !cashier) throw new ForbiddenException(ERR.ORDER_PAYMENT_DENIED);
+    if (dto.discount > 0 && !cashier) throw new ForbiddenException(ERR.ORDER_DISCOUNT_DENIED);
+    const payment = dto.payment;
+    const status = payment ? OrderStatus.IN_QUEUE : OrderStatus.DRAFT;
 
     const orderId = await this.ds.transaction(async (em) => {
       const p = await this.prepare(em, dto.lines, dto.global_coil_item_id, dto.discount, settings, actor.branch_id, true);
 
       // Placement payment (prototype): at least the branch minimum, never more than the total
-      if (dto.payment.amount < p.min_to_place) {
+      if (payment && payment.amount < p.min_to_place) {
         throw new BadRequestException(errWith(ERR.PAYMENT_BELOW_MINIMUM, { min_to_place: p.min_to_place }, `At least ${formatRs(p.min_to_place)} must be paid to place the order`));
       }
-      if (dto.payment.amount > p.total) throw new BadRequestException(errWith(ERR.PAYMENT_ABOVE_BALANCE, { balance: p.total }));
+      if (payment && payment.amount > p.total) throw new BadRequestException(errWith(ERR.PAYMENT_ABOVE_BALANCE, { balance: p.total }));
 
       const customerId = await this.customers.findOrCreateForIntake(em, dto.customer, actor.branch_id, actor.user_id);
       const orderNumber = await this.numbers.next(em, 'ROOFING_ORDER', settings.number_prefixes);
       const [order]: Pick<OrderEntity, 'order_id' | 'total' | 'paid_amount'>[] = await em.query(
         `INSERT INTO "order" (branch_id, customer_id, order_type, section_type, service_type, order_number, status,
                               subtotal, discount, total, header, created_by, actor_role_at_creation, client_request_id)
-         VALUES ($1, $2, 'ROOFING_ORDER', 'ROOFING', 'FABRICATION', $3, 'IN_QUEUE', $4, $5, $6, $7::jsonb, $8, $9, $10)
+         VALUES ($1, $2, 'ROOFING_ORDER', 'ROOFING', 'FABRICATION', $3, $11, $4, $5, $6, $7::jsonb, $8, $9, $10)
          RETURNING order_id, total, paid_amount`,
         [
           actor.branch_id,
@@ -137,66 +159,76 @@ export class RoofingOrdersService {
           p.subtotal,
           p.discount,
           p.total,
-          JSON.stringify(this.header(dto, p)),
+          // The order date is the day the order is placed (branch time), never typed by the user
+          JSON.stringify({ order_date: toBranchDate(), ...this.header(dto, p) }),
           actor.user_id,
           actor.role,
           dto.client_request_id,
+          status,
         ],
       );
 
       const links: { attachment_id: string; line_id: string }[] = [];
       const holds: StockReservationInput[] = [];
+      const materials: CustomerMaterialLine[] = [];
       for (const [i, line] of p.lines.entries()) {
         const lineId = await this.insertLine(em, order.order_id, i + 1, line, settings, actor);
         if (line.input.design_attachment_id) links.push({ attachment_id: line.input.design_attachment_id, line_id: lineId });
         holds.push(...this.hold(line, lineId));
+        materials.push(...customerMaterialLine(line.input, lineId));
       }
       await this.attachments.linkToLines(em, order.order_id, links, actor);
       // Coil is held from placing until work starts (Docs/decisions/0003)
       await this.stock.reserveMany(em, actor.branch_id, order.order_id, holds, actor, { override: dto.override });
 
-      if (dto.gate_pass_id && dto.allocations) {
-        await this.allocations.commit(
-          em,
-          { order_id: order.order_id, gate_pass_id: dto.gate_pass_id, customer_id: customerId, items: dto.allocations, replace: false },
-          actor,
-        );
-        await this.gatePasses.syncStoredStatus(em, [dto.gate_pass_id], actor.branch_id);
-      }
+      // Customer material: each item takes its gate pass item (Docs/decisions/0007)
+      const passes = await this.allocations.commitLines(em, { order_id: order.order_id, customer_id: customerId, lines: materials, replace: false }, actor);
+      if (passes.length) await this.gatePasses.syncStoredStatus(em, passes, actor.branch_id);
 
       await this.access.history(em, actor, {
         order_id: order.order_id,
         event_type: HistoryEventType.STATUS_CHANGE,
-        to_status: OrderStatus.IN_QUEUE,
-        note: dto.override ? `Order placed with stock override: ${dto.override.reason}` : 'Order placed',
+        to_status: status,
+        note:
+          (payment ? 'Order placed' : 'Order placed — waiting for the cashier') + (dto.override ? ` with stock override: ${dto.override.reason}` : ''),
       });
-      if (dto.payment.amount > 0) {
-        await this.payments.insertPayment(em, order, dto.payment, settings, actor);
+      if (payment && payment.amount > 0) {
+        await this.payments.insertPayment(em, order, payment, settings, actor);
       }
       return order.order_id;
     });
 
     this.audit.record(actor, { type: 'order', id: orderId, version: 1 }, dto.override ? 'PLACE_ROOFING_ORDER_WITH_STOCK_OVERRIDE' : 'PLACE_ROOFING_ORDER', {
-      after: { lines: dto.lines.length, payment: dto.payment.amount, ...(dto.override ? { override_reason: dto.override.reason } : {}) },
+      after: { lines: dto.lines.length, payment: payment?.amount ?? 0, ...(dto.override ? { override_reason: dto.override.reason } : {}) },
     });
     this.events.changed(actor.branch_id, 'orders', 'payments', 'gate_passes', 'stock');
     return this.queries.detail(orderId, actor.branch_id);
   }
 
   /**
-   * Cashier edit while the order is still Placed (prototype rule, gated by
-   * allow_cashier_edit_before_start). Prices are recalculated; payments are kept and
-   * any overpayment is reported as a refund due at the counter.
+   * Edits an order before work starts. An unpaid order still at the cashier (DRAFT) is
+   * edited by whoever may create orders (the supervisor, from History). Once money is
+   * taken, or the order is in the Order Queue, it is the cashier's edit (edit:order, gated
+   * by allow_cashier_edit_before_start). Prices are recalculated; payments are kept and
+   * any overpayment is reported as a refund due at the counter. Only the cashier changes
+   * the discount.
    */
   async update(orderId: string, dto: UpdateRoofingOrderDto, actor: Actor): Promise<OrderDetail & { refund_due: number }> {
     const settings = (await this.branches.get(actor.branch_id)).settings;
-    if (!settings.orders.allow_cashier_edit_before_start) throw new ConflictException(ERR.ORDER_EDIT_DISABLED);
     this.checkMaterialRules(dto, settings);
+    const cashier = await this.isCashier(actor);
+    const mayEditPlaced = await this.rolePermissions.has(actor.role, 'edit:order');
 
     await this.ds.transaction(async (em) => {
       const order = await this.access.lockOrder(em, orderId, actor.branch_id, OrderType.ROOFING_ORDER);
       this.access.assertVersion(order.version, dto.version);
-      if (order.status !== OrderStatus.IN_QUEUE) throw new ConflictException(ERR.ORDER_LOCKED);
+      if (order.status !== OrderStatus.IN_QUEUE && order.status !== OrderStatus.DRAFT) throw new ConflictException(ERR.ORDER_LOCKED);
+      const unpaidDraft = order.status === OrderStatus.DRAFT && order.paid_amount === 0;
+      if (!unpaidDraft) {
+        if (!mayEditPlaced) throw new ForbiddenException(order.status === OrderStatus.DRAFT ? ERR.ORDER_DRAFT_PAID_LOCKED : ERR.AUTH_INSUFFICIENT_PERMISSION);
+        if (!settings.orders.allow_cashier_edit_before_start) throw new ConflictException(ERR.ORDER_EDIT_DISABLED);
+      }
+      if (!cashier && dto.discount !== order.discount) throw new ForbiddenException(ERR.ORDER_DISCOUNT_DENIED);
       const existing: OrderLineEntity[] = await em.query(`SELECT * FROM order_line WHERE order_id = $1 FOR UPDATE`, [orderId]);
       if (existing.some((l) => lineHasStarted(l.status))) throw new ConflictException(ERR.ORDER_LOCKED);
 
@@ -226,35 +258,35 @@ export class RoofingOrdersService {
       const links: { attachment_id: string; line_id: string }[] = [];
       await this.stock.releaseForOrder(em, orderId, 'replaced_in_edit');
       const holds: StockReservationInput[] = [];
+      const materials: CustomerMaterialLine[] = [];
       for (const line of p.lines) {
         const lineId = line.input.line_id
           ? (await this.updateLine(em, line.input.line_id, line), line.input.line_id)
           : await this.insertLine(em, orderId, nextNo++, line, settings, actor);
         if (line.input.design_attachment_id) links.push({ attachment_id: line.input.design_attachment_id, line_id: lineId });
         holds.push(...this.hold(line, lineId));
+        materials.push(...customerMaterialLine(line.input, lineId));
       }
       await this.attachments.linkToLines(em, orderId, links, actor);
       await this.stock.reserveMany(em, actor.branch_id, orderId, holds, actor, { override: dto.override });
 
-      const previousGatePass = order.header?.gate_pass_id;
-      // Keeping the pass the order already uses is not a new allocation
-      if (dto.gate_pass_id && dto.allocations && dto.gate_pass_id !== previousGatePass) await this.assertMayAllocateGatePass(actor);
+      // Keeping material the order already holds is not a new allocation (RO-08)
+      const held: { gp_item_id: string; gate_pass_id: string }[] = await em.query(
+        `SELECT DISTINCT a.gp_item_id, i.gate_pass_id FROM material_allocation a JOIN gate_pass_item i ON i.gp_item_id = a.gp_item_id
+         WHERE a.order_id = $1 AND a.status = 'COMMITTED'`,
+        [orderId],
+      );
+      if (materials.some((m) => !held.some((h) => h.gp_item_id === m.gp_item_id))) await this.assertMayAllocateGatePass(actor);
       await em.query(
         `UPDATE "order" SET customer_id = $2, subtotal = $3, discount = $4, total = $5, header = $6::jsonb, version = version + 1, updated_at = now()
          WHERE order_id = $1`,
-        [orderId, customerId, p.subtotal, p.discount, p.total, JSON.stringify({ ...order.header, ...this.header(dto, p) })],
+        // The stored order date is kept; the minimum to place follows the new total
+        [orderId, customerId, p.subtotal, p.discount, p.total, JSON.stringify({ ...withoutOrderMaterial(order.header), ...this.header(dto, p) })],
       );
 
-      const touched = [previousGatePass, dto.gate_pass_id].filter((x): x is string => !!x);
-      if (dto.gate_pass_id && dto.allocations) {
-        await this.allocations.commit(
-          em,
-          { order_id: orderId, gate_pass_id: dto.gate_pass_id, customer_id: customerId, items: dto.allocations, replace: true },
-          actor,
-        );
-      } else if (!dto.gate_pass_id && previousGatePass) {
-        await this.allocations.releaseForOrder(em, orderId, 'unassigned_by_user');
-      }
+      // Customer material: the items' gate pass material replaces what the order held before
+      const passes = await this.allocations.commitLines(em, { order_id: orderId, customer_id: customerId, lines: materials, replace: true }, actor);
+      const touched = [...new Set([...held.map((h) => h.gate_pass_id), ...passes])];
       if (touched.length) await this.gatePasses.syncStoredStatus(em, touched, actor.branch_id);
 
       await this.access.history(em, actor, {
@@ -404,7 +436,8 @@ export class RoofingOrdersService {
   async cancel(orderId: string, reason: string, actor: Actor): Promise<OrderDetail> {
     await this.ds.transaction(async (em) => {
       const order = await this.access.lockOrder(em, orderId, actor.branch_id, OrderType.ROOFING_ORDER);
-      if (order.status !== OrderStatus.IN_QUEUE) throw new ConflictException(ERR.ORDER_INVALID_TRANSITION);
+      // Unpaid orders waiting at the cashier can be cancelled too
+      if (order.status !== OrderStatus.IN_QUEUE && order.status !== OrderStatus.DRAFT) throw new ConflictException(ERR.ORDER_INVALID_TRANSITION);
       await em.query(`UPDATE order_line SET status = 'CANCELLED', version = version + 1 WHERE order_id = $1 AND status <> 'CANCELLED'`, [orderId]);
       await em.query(
         `UPDATE "order" SET status = 'VOIDED', header = header || $2::jsonb, version = version + 1, updated_at = now() WHERE order_id = $1`,
@@ -417,7 +450,7 @@ export class RoofingOrdersService {
       await this.access.history(em, actor, {
         order_id: orderId,
         event_type: HistoryEventType.STATUS_CHANGE,
-        from_status: OrderStatus.IN_QUEUE,
+        from_status: order.status,
         to_status: OrderStatus.VOIDED,
         note: reason,
       });
@@ -431,12 +464,10 @@ export class RoofingOrdersService {
   // ── helpers ─────────────────────────────────────────────────────────────
 
   private checkMaterialRules(dto: CreateRoofingOrderDto | UpdateRoofingOrderDto, settings: BranchSettings): void {
-    const usesCustomer =
-      dto.material_source === MaterialSource.CUSTOMER || dto.lines.some((l) => l.material_source === MaterialSource.CUSTOMER);
+    // Customer material always comes from a gate pass item, so the branch needs both on (Docs/decisions/0007)
+    const usesCustomer = dto.lines.some((l) => l.material_source === MaterialSource.CUSTOMER);
     if (usesCustomer && !settings.general.allow_customer_material) throw new BadRequestException(ERR.ORDER_CUSTOMER_MATERIAL_DISABLED);
-    if (usesCustomer && settings.general.require_gate_pass && settings.features.gatePass && !dto.gate_pass_id) {
-      throw new BadRequestException(ERR.ORDER_GATE_PASS_REQUIRED);
-    }
+    if (usesCustomer && !settings.features.gatePass) throw new BadRequestException(ERR.ORDER_GATE_PASS_REQUIRED);
   }
 
   /**
@@ -471,11 +502,18 @@ export class RoofingOrdersService {
         if (input.coil_item_id && !coils.has(input.coil_item_id)) throw new BadRequestException(errWith(ERR.ORDER_COIL_INVALID, { line_index: i }));
       }
       const coil = input.coil_item_id ? (coils.get(input.coil_item_id) ?? null) : null;
+      const priced = priceRoofingLine(input, ctx);
+      // A customized item's advance is typed (0 to its total); standard items take the branch %
+      if (strict && input.advance !== undefined && input.advance > priced.line_total) {
+        throw new BadRequestException(errWith(ERR.ORDER_ITEM_ADVANCE_RANGE, { line_index: i, max: priced.line_total }));
+      }
       return {
         input,
-        priced: priceRoofingLine(input, ctx),
+        priced,
         item_id: lineDeductsCoil(input) && coil ? coil.item_id : null,
         coil,
+        advance: roofingLineAdvance(priced, input, settings),
+        suggested_advance: suggestedRoofingAdvance(priced, input, settings),
       };
     });
 
@@ -484,7 +522,13 @@ export class RoofingOrdersService {
       throw new BadRequestException(errWith(ERR.PRICE_ROOFING_RATE_MISSING, { missing_rates: missingRates }));
     }
 
-    const totals = roofingTotals(prepared.map((l) => l.priced.line_total), discount, settings.orders);
+    // The minimum to place is the sum of the item advances (Docs/decisions/0011)
+    const totals = roofingTotals(
+      prepared.map((l) => l.priced.line_total),
+      discount,
+      settings.orders,
+      prepared.map((l) => l.advance),
+    );
     if (strict && discount > totals.max_discount) {
       throw new BadRequestException(errWith(ERR.ORDER_DISCOUNT_TOO_HIGH, { max_discount: totals.max_discount }, `The discount can't be more than ${settings.orders.max_discount_pct}% (${formatRs(totals.max_discount)})`));
     }
@@ -499,14 +543,19 @@ export class RoofingOrdersService {
       : [];
   }
 
+  /** Header fields set by every save; the order date is stamped once on create. */
   private header(dto: CreateRoofingOrderDto | UpdateRoofingOrderDto, p: Prepared) {
     return {
-      order_date: dto.order_date,
       technician: dto.technician || undefined,
-      material_source: dto.material_source,
       global_coil_item_id: p.orderCoilId ?? undefined,
-      gate_pass_id: dto.gate_pass_id ?? undefined,
+      // What the cashier must take before an unpaid order enters the Order Queue
+      min_to_place: p.min_to_place,
     };
+  }
+
+  /** The cashier takes payments and gives discounts (process:payment). */
+  private isCashier(actor: Actor): Promise<boolean> {
+    return this.rolePermissions.has(actor.role, 'process:payment');
   }
 
   /** The stored spec: the normalized item plus a snapshot of the coil as it was when ordered. */
@@ -519,8 +568,8 @@ export class RoofingOrdersService {
     const lineNumber = await this.numbers.next(em, 'ORDER_LINE', settings.number_prefixes);
     const [{ line_id }]: { line_id: string }[] = await em.query(
       `INSERT INTO order_line (order_id, line_number, line_no, line_type, status, material_source, item_id, spec,
-                               quantity, price_basis, unit_price, line_total, is_customized, notes, created_by, actor_role_at_creation)
-       VALUES ($1, $2, $3, $4, 'ASSIGNED', $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15)
+                               quantity, price_basis, unit_price, line_total, is_customized, notes, created_by, actor_role_at_creation, suggested_advance)
+       VALUES ($1, $2, $3, $4, 'ASSIGNED', $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING line_id`,
       [
         orderId,
@@ -538,6 +587,7 @@ export class RoofingOrdersService {
         line.input.remarks ?? null,
         actor.user_id,
         actor.role,
+        line.advance,
       ],
     );
     return line_id;
@@ -553,7 +603,7 @@ export class RoofingOrdersService {
   private async updateLine(em: EntityManager, lineId: string, line: PreparedLine): Promise<void> {
     await em.query(
       `UPDATE order_line SET line_type = $2, material_source = $3, item_id = $4, spec = $5::jsonb, quantity = $6, price_basis = $7,
-              unit_price = $8, line_total = $9, is_customized = $10, notes = $11, status = 'ASSIGNED', version = version + 1
+              unit_price = $8, line_total = $9, is_customized = $10, notes = $11, suggested_advance = $12, status = 'ASSIGNED', version = version + 1
        WHERE line_id = $1`,
       [
         lineId,
@@ -567,6 +617,7 @@ export class RoofingOrdersService {
         line.priced.line_total,
         line.input.job_type === 'CUSTOMIZED',
         line.input.remarks ?? null,
+        line.advance,
       ],
     );
   }

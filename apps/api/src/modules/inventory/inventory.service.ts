@@ -5,6 +5,7 @@ import {
   ItemType,
   MovementType,
   OPEN_TRANSFER_STATUSES,
+  freeStock,
   stockAlertInfo,
   stockLevel,
   typeHasRoofing,
@@ -31,6 +32,9 @@ export interface StockRow {
   /** On hand minus reserved: what a new order or a stock request send can take */
   available: number;
   reorder_level: number;
+  /** Free for new work: available minus what open orders booked beyond stock (Docs/decisions/0009) */
+  free: number;
+  /** From free stock, so booked sheets count */
   level: StockLevel;
   /** Our branch's request for this item that has not arrived yet */
   open_request: OpenRequestInfo | null;
@@ -148,8 +152,20 @@ export class InventoryService {
   }
 
   async alerts(q: StockAlertQuery, branchId: string): Promise<{ rows: AlertRow[]; counts: AlertCounts; categories: string[] }> {
-    const all = (await this.stockRows(branchId)).map((r) => ({ ...r, ...stockAlertInfo(r.stock, r.reorder_level) }));
+    const all = (await this.stockRows(branchId)).map((r) => ({ ...r, ...stockAlertInfo(r.free, r.reorder_level) }));
     return filterAlerts(all, q);
+  }
+
+  /** Items needing restock at one branch: the sidebar badge (same rule as the Stock Alerts tab). */
+  async alertCount(branchId: string): Promise<{ count: number }> {
+    return { count: (await this.stockRows(branchId)).filter((r) => r.level !== 'HEALTHY').length };
+  }
+
+  /** Head office on "All branches": alerts across every branch with Stock Alerts on. */
+  async networkAlertCount(): Promise<{ count: number }> {
+    const branches = await this.networkBranches('stockAlerts');
+    const counts = await Promise.all(branches.map((b) => this.alertCount(b.branch_id)));
+    return { count: counts.reduce((sum, c) => sum + c.count, 0) };
   }
 
   /**
@@ -204,7 +220,7 @@ export class InventoryService {
     const all: NetworkAlertRow[] = branches.flatMap((b, i) =>
       perBranch[i].map((r) => ({
         ...r,
-        ...stockAlertInfo(r.stock, r.reorder_level),
+        ...stockAlertInfo(r.free, r.reorder_level),
         branch: b,
         main_stock: b.is_main ? null : (mainStock.get(r.item_id) ?? null),
       })),
@@ -223,7 +239,7 @@ export class InventoryService {
 
   /** One item at our branch: stock, open request and recent movements. */
   async item(itemId: string, branchId: string): Promise<StockRow & { movements: MovementRow[]; reservations: ReservationRow[] }> {
-    const items: Omit<StockRow, 'level' | 'open_request' | 'stock' | 'reserved' | 'available' | 'reorder_level'>[] = await this.ds.query(
+    const items: Omit<StockRow, 'level' | 'open_request' | 'stock' | 'reserved' | 'available' | 'free' | 'reorder_level'>[] = await this.ds.query(
       `SELECT item_id, name, sku, COALESCE(category, 'Other') AS category, unit, item_type FROM item WHERE item_id = $1 AND is_active`,
       [itemId],
     );
@@ -261,13 +277,16 @@ export class InventoryService {
       [branchId, itemId],
     );
 
+    const shortfall = reservations.reduce((sum, r) => sum + Number(r.shortfall), 0);
+    const free = freeStock(qty, reserved, shortfall);
     return {
       ...items[0],
       stock: qty,
       reserved,
       available: round3(qty - reserved),
+      free,
       reorder_level: reorder,
-      level: stockLevel(qty, reorder),
+      level: stockLevel(free, reorder),
       open_request: open.get(itemId) ?? null,
       movements: movements.map((m) => ({ ...m, quantity: Number(m.quantity), quantity_after: Number(m.quantity_after) })),
       reservations: reservations.map((r) => ({ ...r, quantity: Number(r.quantity), shortfall: Number(r.shortfall) })),
@@ -314,10 +333,13 @@ export class InventoryService {
       quantity: string;
       reserved_quantity: string;
       reorder_level: string;
+      shortfall: string | null;
     }[] =
       await this.ds.query(
-        `SELECT i.item_id, i.name, i.sku, COALESCE(i.category, 'Other') AS category, i.unit, i.item_type, s.quantity, s.reserved_quantity, s.reorder_level
+        // Booked beyond stock (override shortfall) on open orders counts against free stock
+        `SELECT i.item_id, i.name, i.sku, COALESCE(i.category, 'Other') AS category, i.unit, i.item_type, s.quantity, s.reserved_quantity, s.reorder_level, b.shortfall
          FROM branch_stock s JOIN item i ON i.item_id = s.item_id
+         LEFT JOIN (SELECT item_id, SUM(shortfall) AS shortfall FROM stock_reservation WHERE branch_id = $1 AND status = 'RESERVED' GROUP BY item_id) b ON b.item_id = s.item_id
          WHERE s.branch_id = $1 AND i.is_active ${typeHasRoofing(branch.branch_type) ? '' : `AND i.item_type <> 'COIL'`}`,
         [branchId],
       );
@@ -326,6 +348,7 @@ export class InventoryService {
       const stock = Number(r.quantity);
       const reserved = Number(r.reserved_quantity);
       const reorder = Number(r.reorder_level);
+      const free = freeStock(stock, reserved, Number(r.shortfall ?? 0));
       return {
         item_id: r.item_id,
         name: r.name,
@@ -336,8 +359,9 @@ export class InventoryService {
         stock,
         reserved,
         available: round3(stock - reserved),
+        free,
         reorder_level: reorder,
-        level: stockLevel(stock, reorder),
+        level: stockLevel(free, reorder),
         open_request: open.get(r.item_id) ?? null,
       };
     });

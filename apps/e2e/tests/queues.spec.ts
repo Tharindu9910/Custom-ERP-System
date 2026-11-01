@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { CASHIER, CUSTOM_LINE, ROLLING_LINE, jobCard } from '../support/api';
+import { CASHIER, CUSTOM_LINE, ROLLING_LINE, jobCard, toWorkshop } from '../support/api';
 import { expect, test } from '../support/fixtures';
 import { row } from '../support/ui';
 
@@ -42,7 +42,7 @@ test.describe('cashier', () => {
 
 test.describe('supervisor', () => {
   test('QS-20 Workshop Queue search sends one request for a typed number; the date column shows when the card was created', async ({ page }) => {
-    const card = await jobCard({ lines: [ROLLING_LINE] });
+    const card = await toWorkshop(await jobCard({ lines: [ROLLING_LINE] }));
     const calls = count(page, '/workshop-queue');
     await page.goto('/workshop-queue');
     await page.waitForLoadState('networkidle');

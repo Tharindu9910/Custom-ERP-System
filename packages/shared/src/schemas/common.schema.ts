@@ -36,10 +36,9 @@ export type ReasonDto = z.infer<typeof ReasonSchema>;
 /** Optional id that also accepts null from JSON clients (null = not given). */
 export const OptionalId = z.string().uuid().nullish();
 
-/** Optional draft id (null = not given). */
-// Customer material picked from the order's gate pass; saved to the order when it is placed
-export const MaterialAllocationsSchema = z
-  .array(z.object({ gp_item_id: z.string().uuid(), quantity: z.number().int().min(1) }))
-  .min(1, 'Allocate at least one piece')
-  .refine((a) => new Set(a.map((x) => x.gp_item_id)).size === a.length, 'Each gate pass item can be allocated only once')
-  .nullish();
+// Customer-supplied material always comes from a gate pass item, one item per line (Docs/decisions/0007)
+export const CustomerMaterialSchema = z.object({
+  gp_item_id: z.string().uuid("Pick the customer's material from a gate pass"),
+  quantity: z.number().int().min(1, 'Gate pass quantity must be at least 1'),
+});
+export type CustomerMaterial = z.infer<typeof CustomerMaterialSchema>;

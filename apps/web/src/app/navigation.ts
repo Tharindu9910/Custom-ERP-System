@@ -23,6 +23,10 @@ export interface NavItem {
   transact?: boolean;
   /** Permission a global role needs instead of `permission` (the branch one is a write, e.g. request:stock) */
   globalPermission?: { action: string; subject: string };
+  /** Count bubble after the label (Docs/decisions/0009) */
+  badge?: 'stockAlerts';
+  /** Other pages that belong to this menu item (it stays highlighted there), e.g. edit forms */
+  activeFor?: RegExp[];
 }
 
 /**
@@ -40,14 +44,14 @@ export const MAIN_NAV: NavItem[] = [
   { label: 'Cashier Queue', to: '/cashier-queue', icon: 'creditCard', scope: 'branch', permission: { action: 'process', subject: 'payment' } },
   { label: 'Gate Pass', to: '/gate-pass', icon: 'fileText', scope: 'branch', permission: { action: 'view', subject: 'gate_pass' }, feature: 'gatePass' },
   { label: 'Create Order', to: '/orders/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'roofing_order' }, section: 'roofing' },
-  { label: 'Order Queue', to: '/order-queue', icon: 'listOrdered', scope: 'branch', permission: { action: 'view', subject: 'orders' }, section: 'roofing' },
+  { label: 'Order Queue', to: '/order-queue', icon: 'listOrdered', scope: 'branch', permission: { action: 'view', subject: 'orders' }, section: 'roofing', activeFor: [/^\/orders\/[^/]+\/edit$/] },
   { label: 'Create Job Card', to: '/job-cards/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'job_card' }, section: 'workshop' },
-  { label: 'Workshop Queue', to: '/workshop-queue', icon: 'clipboardList', scope: 'branch', permission: { action: 'view', subject: 'job_cards' }, section: 'workshop' },
+  { label: 'Workshop Queue', to: '/workshop-queue', icon: 'clipboardList', scope: 'branch', permission: { action: 'view', subject: 'job_cards' }, section: 'workshop', activeFor: [/^\/job-cards\/[^/]+\/edit$/] },
   // Hardware sales (Docs/decisions/0006): role permission says who, the branch switch says where
   { label: 'Hardware Store', to: '/hardware-store', icon: 'wrench', scope: 'branch', transact: true, permission: { action: 'create', subject: 'hardware_sale' }, feature: 'hardwareStore' },
   { label: 'Hardware Queue', to: '/hardware-queue', icon: 'wallet', scope: 'branch', permission: { action: 'view', subject: 'hardware_queue' }, feature: 'hardwareQueue' },
   { label: 'Inventory', to: '/inventory', icon: 'package', scope: 'network', permission: { action: 'view', subject: 'inventory' }, feature: 'inventory' },
-  { label: 'Stock Alerts', to: '/stock-alerts', icon: 'packageOpen', scope: 'network', permission: { action: 'view', subject: 'stock_alerts' }, feature: 'stockAlerts' },
+  { label: 'Stock Alerts', to: '/stock-alerts', icon: 'packageOpen', scope: 'network', permission: { action: 'view', subject: 'stock_alerts' }, feature: 'stockAlerts', badge: 'stockAlerts' },
   { label: 'Stock Request', to: '/stock-requests', icon: 'arrowRightLeft', scope: 'network', permission: { action: 'request', subject: 'stock' }, globalPermission: { action: 'view', subject: 'inventory' }, feature: 'stockRequest' },
   { label: 'Create Chief Profile', to: '/chiefs/new', icon: 'userCircle', scope: 'branch', transact: true, permission: { action: 'create', subject: 'chief_profile' }, feature: 'chiefProfiles' },
   { label: 'Customers', to: '/customers', icon: 'users', scope: 'global', permission: { action: 'complete', subject: 'customer_profile' } },
@@ -59,7 +63,7 @@ export const SETTINGS_NAV: NavItem[] = [
   { label: 'Branch Config', to: '/settings/branch-config', icon: 'settings', scope: 'global', permission: { action: 'configure', subject: 'branch' } },
   { label: 'Price List', to: '/settings/price-list', icon: 'banknote', scope: 'global', permission: { action: 'view', subject: 'price_list' } },
   { label: 'Users', to: '/settings/users', icon: 'users', scope: 'global', permission: { action: 'manage', subject: 'users' } },
-  { label: 'Workers', to: '/settings/workers', icon: 'userCircle', scope: 'branch', permission: { action: 'manage', subject: 'workers' } },
+  { label: 'Workers', to: '/settings/workers', icon: 'userCircle', scope: 'branch', permission: { action: 'manage', subject: 'workers' }, activeFor: [/^\/workers$/] },
 ];
 
 /** Super Admin only — rendered in its own sidebar section */
@@ -85,6 +89,15 @@ export function pageInfo(pathname: string): PageInfo {
   if (item) return { scope: item.scope, transact: !!item.transact, item };
   if (TRANSACT_PREFIXES.some((p) => pathname.startsWith(p))) return { scope: 'branch', transact: true };
   return { scope: 'branch', transact: false };
+}
+
+/**
+ * Is this menu item the current page? Pathname only: a page's own query string (a tab,
+ * an open checkout, a notice) never takes the highlight away. Edit forms count as their queue.
+ */
+export function isNavItemActive(item: NavItem, pathname: string): boolean {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  return path === item.to || !!item.activeFor?.some((re) => re.test(path));
 }
 
 export interface BranchLike {

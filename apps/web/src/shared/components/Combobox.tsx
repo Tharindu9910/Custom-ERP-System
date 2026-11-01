@@ -9,27 +9,42 @@ interface Props {
   noun?: string;
   placeholder?: string;
   className?: string;
+  autoFocus?: boolean;
 }
 
 /**
  * Free-text input with a suggestion list: every typed word must match (as SearchableSelect).
  * Anything typed is kept, and a name not in the list is offered as a new one.
  */
-export function Combobox({ value, onChange, suggestions, noun = 'item', placeholder, className }: Props) {
+export function Combobox({ value, onChange, suggestions, noun = 'item', placeholder, className, autoFocus }: Props) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  // Filter only once the user types; opening on a chosen value shows the whole list
+  const [filtering, setFiltering] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const typed = value.trim();
   const filtered = useMemo(() => {
-    const terms = typed.toLowerCase().split(/\s+/).filter(Boolean);
+    const terms = filtering ? typed.toLowerCase().split(/\s+/).filter(Boolean) : [];
     if (terms.length === 0) return suggestions;
     return suggestions.filter((s) => terms.every((t) => s.toLowerCase().includes(t)));
-  }, [suggestions, typed]);
+  }, [suggestions, typed, filtering]);
   const exact = suggestions.some((s) => s.toLowerCase() === typed.toLowerCase());
   // Last row: keep what was typed as a new name
-  const rows = typed && !exact ? [...filtered, null] : filtered;
+  const rows = filtering && typed && !exact ? [...filtered, null] : filtered;
+
+  const openList = () => {
+    setFiltering(false);
+    setHighlight(
+      Math.max(
+        0,
+        suggestions.findIndex((s) => s.toLowerCase() === typed.toLowerCase()),
+      ),
+    );
+    setOpen(true);
+  };
 
   // Close when clicking outside
   useEffect(() => {
@@ -61,7 +76,7 @@ export function Combobox({ value, onChange, suggestions, noun = 'item', placehol
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setOpen(true);
+      if (!open) return openList();
       setHighlight((h) => Math.min(h + 1, rows.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
@@ -69,7 +84,11 @@ export function Combobox({ value, onChange, suggestions, noun = 'item', placehol
     } else if (e.key === 'Enter' && open && rows.length > 0) {
       e.preventDefault();
       choose(rows[highlight] ?? null);
-    } else if (e.key === 'Escape' || e.key === 'Tab') {
+    } else if (e.key === 'Escape' && open) {
+      // Handled: closing the list shouldn't also cancel whatever contains the field
+      e.preventDefault();
+      setOpen(false);
+    } else if (e.key === 'Tab') {
       setOpen(false);
     }
   };
@@ -77,21 +96,42 @@ export function Combobox({ value, onChange, suggestions, noun = 'item', placehol
   return (
     <div ref={wrapperRef} className="relative">
       <input
+        ref={inputRef}
         type="text"
         value={value}
         placeholder={placeholder}
+        autoFocus={autoFocus}
         autoComplete="off"
         onChange={(e) => {
           onChange(e.target.value);
+          setFiltering(true);
           setHighlight(0);
           setOpen(true);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={openList}
+        // Already focused (e.g. right after picking): a click reopens the list
+        onClick={() => !open && openList()}
         onBlur={settle}
         onKeyDown={onKeyDown}
         className={`${className ?? ''} pr-8`}
       />
-      <Icon name="chevronDown" className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={open ? 'Hide suggestions' : 'Show suggestions'}
+        // Keep focus in the input; the arrow toggles the full list
+        onMouseDown={(e) => {
+          e.preventDefault();
+          if (open) setOpen(false);
+          else {
+            inputRef.current?.focus();
+            openList();
+          }
+        }}
+        className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:text-slate-600"
+      >
+        <Icon name="chevronDown" className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
 
       {open && rows.length > 0 && (
         <ul ref={listRef} className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">

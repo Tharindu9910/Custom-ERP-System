@@ -1,4 +1,4 @@
-import { SA, SUP, setFeature } from '../support/api';
+import { CASHIER, SA, SUP, jobCard, roofingOrder, setFeature } from '../support/api';
 import { expect, test } from '../support/fixtures';
 import { menuLabels, navLink, pickBranch, scopeSelect, sidebar } from '../support/ui';
 
@@ -36,9 +36,12 @@ test.describe('supervisor URL guards', () => {
     });
   }
 
-  test('NAV-03 the cashier-only order edit page redirects a supervisor', async ({ page }) => {
-    await page.goto('/orders/00000000-0000-0000-0000-000000000000/edit');
-    await expect(page).toHaveURL(/\/gate-pass$/);
+  test('NAV-03 a supervisor opens an order edit page, but a paid order in the Order Queue is locked to the cashier', async ({ page }) => {
+    // Unpaid orders at the cashier are the supervisor's to edit (from Create Order → Order History)
+    const o = await roofingOrder();
+    await page.goto(`/orders/${o.order_id}/edit`);
+    await expect(page.getByText('A payment has been taken on this order, so only the cashier can edit it.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Update Order' })).toBeDisabled();
   });
 
   test('NAV-04 the root URL goes to the first screen (Gate Pass)', async ({ page }) => {
@@ -185,3 +188,37 @@ for (const user of ['admin', 'auditor1']) {
     });
   });
 }
+
+/** NAV-22/23: the menu item stays highlighted on its own tabs, open checkouts and edit forms. */
+test.describe('active menu item (supervisor)', () => {
+  test.use({ user: SUP.thangalla });
+
+  test('NAV-22 tabs, query strings and edit forms keep the right item highlighted', async ({ page }) => {
+    const card = await jobCard();
+    for (const [url, label] of [
+      ['/gate-pass?tab=queue', 'Gate Pass'],
+      ['/stock-requests?tab=ours', 'Stock Request'],
+      ['/job-cards/new?tab=history', 'Create Job Card'],
+      ['/workshop-queue?notice=Saved', 'Workshop Queue'],
+      [`/job-cards/${card.order_id}/edit`, 'Workshop Queue'],
+    ] as const) {
+      await page.goto(url);
+      await expect(navLink(page, label)).toHaveAttribute('aria-current', 'page');
+      await expect(sidebar(page).locator('[aria-current="page"]')).toHaveCount(1);
+    }
+  });
+});
+
+test.describe('active menu item (cashier)', () => {
+  test.use({ user: CASHIER.thangalla });
+
+  test('NAV-23 Cashier Queue stays highlighted on the checkout, and its link goes back to the board', async ({ page }) => {
+    const card = await jobCard();
+    await page.goto(`/cashier-queue?checkout=${card.order_id}`);
+    await expect(page.getByRole('heading', { name: 'Check Items' })).toBeVisible();
+    await expect(navLink(page, 'Cashier Queue')).toHaveAttribute('aria-current', 'page');
+    await navLink(page, 'Cashier Queue').click();
+    await expect(page).toHaveURL(/\/cashier-queue$/);
+    await expect(navLink(page, 'Cashier Queue')).toHaveAttribute('aria-current', 'page');
+  });
+});

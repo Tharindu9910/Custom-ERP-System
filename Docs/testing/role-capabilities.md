@@ -49,16 +49,16 @@ Seeded branches:
 | | Colour dropped at a workshop-only branch | `supervisor_veyangoda` → Nimal Perera |
 | Cashier Queue · Awaiting Payment | Nothing paid | Kamal Stores (every workshop branch) |
 | | Part paid | `supervisor_thangalla` → Part Paid Customer |
-| | Edited before work (sub-job added, coil cutting line) | `supervisor_thangalla` → Edited Card Customer |
+| | Edited before any payment (sub-job added, coil cutting line) | `supervisor_thangalla` → Edited Card Customer |
 | | Voided | `supervisor_thangalla` → Voided Card Customer (Create Job Card → History only; voided cards leave the boards) |
 | Workshop Queue · In Queue | Paid, using customer material | Nimal Perera |
 | | Made by the chief | `supervisor_thangalla` → Chief Card Customer |
 | Workshop Queue · In Progress | One sub-job started, one still to start (Mark Completed disabled) | Rathna Builders |
 | | Every sub-job done, ready for **Mark Completed** | Priya Welding |
 | | Started after a **stock override**, plus a manually customized line | `supervisor_thangalla` → Override Card Customer |
-| Workshop Queue · Completed / Cashier · Ready for Collection | Balance due (**Collect & Close**) | Saman Engineering |
-| | Paid in full (**Close & Hand Over**) | Dilan Motors, `supervisor_thangalla` → Closed Pass Customer |
-| Closed | Collected and handed over (History only) | Chaminda Traders |
+| Workshop Queue · Finished / Cashier · Finished – Balance Due | Balance due (cashier **Collect Balance**; read-only on the Workshop Queue) | Saman Engineering |
+| Workshop Queue · Ready for Collection | Paid in full (supervisor **Check & Hand Over**) | Dilan Motors, `supervisor_thangalla` → Closed Pass Customer |
+| Closed | Checked and handed over by the supervisor (History only) | Chaminda Traders |
 | Order Queue | Placed (order coil, accessories) | Ajith Constructions |
 | | Placed: customized item with a design photo + customer-supplied item | Lakmal Perera |
 | | Placed: discount, paid by card | `supervisor_thangalla` → Discount Card Customer |
@@ -127,11 +127,13 @@ The e2e suites leave their own test records behind. To get back to just the samp
 |---|---|---|---|
 | Create. Needs at least one worker and one sub-job; the Add button says what is still needed; the live quote shows the total and the advance. | ✅ | ❌ (lock page; `CTX_003`) | JC-01, JC-03, JC-20…23, JC-43 |
 | An all-standard card (0% advance) goes straight to the queue | ✅ | n/a | JC-02 |
+| Sub-job advance (Docs/decisions/0010): standard Cut / Bend on branch sheets takes the sheet cost (fixed); custom sub-jobs show an Advance box pre-filled with the suggestion (sheet cost for branch sheets, else the branch custom %), editable 0 to the sub-job total (`ORD_026` above it); typing does not call the API; a custom advance of 0 can send the card straight to the queue | ✅ | n/a | JC-13, JC-14 |
 | Edit or delete sub-jobs before submitting; Cancel clears the form | ✅ | n/a | JC-22, JC-25 |
 | No standard rate: the line is flagged and submit is blocked (`PRC_001`) | ✅ | n/a | JC-05, JC-24 |
 | Worker from another branch | `ORD_014` | n/a | JC-04 |
 | Customer material per sub-job: each customer sub-job takes one gate pass item and pieces (always needed); items shared by sub-jobs are checked on their total (`ALC_001`); another customer's pass is refused (`GP_003`); edits move material between sub-jobs (Docs/decisions/0007) | ✅ | n/a | JC-06…06e, JC-30…32 |
-| Edit while DRAFT or IN_QUEUE with nothing started; the advance is recalculated and the queue shows a notice | ✅ | ❌ (no Edit button, G1) | JC-08, JC-40, JC-42, WQ-30 |
+| Edit while DRAFT or IN_QUEUE with nothing paid and nothing started; advances are recalculated (typed ones go back to the suggestion) and the queue shows a notice | ✅ | ❌ (no Edit button, G1) | JC-08, JC-40, JC-42, WQ-30 |
+| Edit after any payment | No Edit button; the edit page opens locked (`ORD_027`) | n/a | JC-12 |
 | Edit after work started | Opens locked (`ORD_004`) | n/a | JC-41, WQ-08 |
 | Stale version | `ORD_003` | n/a | JC-09, WQ-04 |
 | Safe to retry | ✅ | n/a | JC-07 |
@@ -157,10 +159,12 @@ The e2e suites leave their own test records behind. To get back to just the samp
 | Duplicate, edit and remove items; the list is grouped by category | ✅ | n/a | RO-21 |
 | A customized item needs a design photo (upload with preview; images only) | ✅ | ❌ (`CTX_003`) | RO-02, RO-03, RO-22, ACC-13 |
 | Accessory items | ✅ | n/a | RO-23 |
-| Place an order: `WO-FORM-` number, banner, then New Order or Go to Order Queue. The server total matches the quote. Safe to retry. | ✅ | ❌ | RO-05, RO-30, RO-31 |
+| Submit an order: no date to pick; **Pricing** only (no discount or payment); it waits on Cashier Queue → Awaiting Payment (DRAFT) until the cashier takes the minimum. A payment (`ORD_029`) or discount (`ORD_028`) is refused. The cashier places with the payment (`WO-FORM-` number, banner, Open Order). The server total matches the quote. Safe to retry. | ✅ | ❌ | RO-05, RO-25, RO-30, RO-31, RS-01, RS-02 |
+| Each item has an advance (standard fixed at the branch %, customized typed 0..total, `ORD_031`); the order minimum is their sum (Docs/decisions/0011) | ✅ | n/a | RA-01, RO-27 |
+| Edit an unpaid order from Create Order → Order History (not once paid or in the Order Queue: `AUTH_004`) | ✅ | ❌ | RO-26, RS-03, NAV-03 |
 | Refusals: missing items, below the minimum (`PAY_002`), above the total (`PAY_003`), card without a reference (`PAY_004`), discount over the limit (`ORD_010`), unknown coil (`ORD_016`) | ✅ | n/a | RO-03, RO-04, RO-32, RO-33 |
 | Offline: placing is blocked (BR18) | ✅ | n/a | RO-34 |
-| Customer material from a gate pass | ✅ | n/a | RO-06, RO-35 |
+| Customer material per item: one gate pass item and pieces per item (always needed); shared items checked on their total (`ALC_001`); another customer's pass refused (`GP_003`); pieces suggested from the item size; edits move material between items (Docs/decisions/0007) | ✅ | n/a | RO-06…06c, RO-35…35c |
 | The coil list shows our stock | ✅ | n/a | RO-01, RO-36 |
 | Workshop-only branch | Not run (`CTX_002`) | n/a | RO-07, NAV-06 |
 
@@ -168,10 +172,10 @@ The e2e suites leave their own test records behind. To get back to just the samp
 
 | Action | Supervisor | Super Admin | Tests |
 |---|---|---|---|
-| Tab counts equal their rows and add up; search; placed-on filter | ✅ | ✅ (read) | OQ-01, OQ-20, OQ-21 |
-| Start (deducts coil feet), then Complete (Ready) | ✅ | ❌ | OQ-02, OQ-05, OQ-22 |
+| Board: In Queue → Ongoing → Finished → Ready for Release cards (as the Workshop Queue), each count equals its rows; search; no tabs or date filter; History lists released and cancelled orders (Docs/decisions/0005) | ✅ | ✅ (read) | OQ-01, OQ-20, OQ-21, RO-09 |
+| Start Job (deducts coil feet), then Mark Finished (Finished, or Ready for Release when paid), each confirmed | ✅ | ❌ | OQ-02, OQ-05, OQ-22 |
 | Short coil: override | Only once granted `override:stock` (`AUTH_004` otherwise) | ❌ | OQ-04, OQ-24 |
-| Release: locked while a balance is due (`ORD_006`) and not before Ready (`ORD_017`); needs "handed to"; the timeline is filled in | ✅ | ❌ | OQ-03, OQ-06, OQ-22, OQ-25 |
+| Check & Release in the page: only once fully paid (Finished says "Waiting for cashier" otherwise; `ORD_006`) and not before Ready (`ORD_017`); every item ticked; needs "Received by"; the timeline is filled in | ✅ | ❌ | OQ-03, OQ-06, OQ-22, OQ-25 |
 | Collect payment, edit or cancel an order | ❌ (hidden; `AUTH_004`) | ❌ | OQ-06, OQ-07, OQ-22 |
 | Chief: BR21 message; no Release | n/a | n/a | OQ-07, OQ-08, OQ-26 |
 | Detail modal: items, payments, timeline | ✅ | ✅ (no actions) | OQ-23, OQ-27 |

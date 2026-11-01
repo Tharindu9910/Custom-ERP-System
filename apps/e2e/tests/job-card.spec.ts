@@ -25,9 +25,12 @@ async function cutCharge(page: Page, description: string) {
   await field(page, 'Cut Rate').fill('50');
   await field(page, 'Cut Quantity').fill('4');
 }
-/** Branch Cut / Bend priced by hand (Custom with a reason), so the card needs an advance. */
+/** Branch Cut / Bend priced by hand (Custom with a reason): the sheets are still named (Docs/decisions/0008). */
 async function addCustomCut(page: Page) {
   await page.getByRole('button', { name: 'Cut / Bend', exact: true }).click();
+  await pick(page, 'Material Type', 'MS Plain Sheet');
+  await pick(page, 'Thickness', '2mm');
+  await field(page, 'Material Qty').fill('1');
   await page.getByRole('button', { name: 'Custom', exact: true }).click();
   await pick(page, 'Reason for custom pricing');
   await cutCharge(page, 'Cut sheet to design');
@@ -325,7 +328,7 @@ test.describe('unfinished card is kept (sessionStorage draft)', () => {
   });
 });
 
-test.describe('history popup', () => {
+test.describe('history tab', () => {
   test('JC-60 History lists the branch\'s job cards by date; search waits for typing to stop; a row opens the card read-only', async ({ page }) => {
     const card = await jobCard({ lines: [ROLLING_LINE] });
     const calls: string[] = [];
@@ -333,9 +336,11 @@ test.describe('history popup', () => {
       if (r.url().includes('/job-cards/history')) calls.push(r.url());
     });
     await page.goto('/job-cards/new');
-    expect(calls).toHaveLength(0); // nothing loads until the popup is opened
-    await page.getByRole('button', { name: 'History' }).click();
-    const h = page.getByRole('dialog').filter({ hasText: 'Job Card History' });
+    expect(calls).toHaveLength(0); // nothing loads until the History tab is opened
+    await page.getByRole('tab', { name: 'Job Card History' }).click();
+    await expect(page).toHaveURL(/tab=history/);
+    // A full-page tab, not a popup (the form is kept, hidden, behind it)
+    const h = page.locator('main');
     await expect(h.getByRole('button', { name: 'Last 7 days' })).toBeVisible();
     await expect(h.locator('tbody tr').first()).toBeVisible();
     await expect.poll(() => calls.length).toBe(1);

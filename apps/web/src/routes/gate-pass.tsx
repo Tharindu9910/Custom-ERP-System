@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { DEFAULT_BRANCH_SETTINGS, Role } from '@erp/shared';
-import { Icon } from '@/shared/components/Icon';
 import { Notice } from '@/shared/components/Notice';
+import { PageTabs } from '@/shared/components/PageTabs';
 import { useBranchContext } from '@/shared/hooks/useBranchContext';
 import { usePermission } from '@/shared/hooks/usePermission';
 import { useCanTransact } from '@/shared/hooks/useCanTransact';
@@ -39,11 +39,6 @@ export function GatePassPage() {
     setTab('queue');
   };
 
-  const tabCls = (active: boolean) =>
-    `flex flex-1 items-center justify-center gap-2 border-b-2 px-4 py-3.5 text-sm font-semibold transition-all ${
-      active ? 'border-[#0033A0] bg-white text-[#0033A0]' : 'border-transparent text-slate-500 hover:bg-slate-100/60 hover:text-slate-800'
-    }`;
-
   return (
     <div className="mx-auto mb-10 max-w-5xl">
       {search.return_to && (
@@ -58,18 +53,14 @@ export function GatePassPage() {
         </Notice>
       )}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex border-b border-slate-200 bg-slate-50/70">
-          {canCreate && (
-            <button type="button" onClick={() => setTab('create')} className={tabCls(tab === 'create')}>
-              <Icon name="plus" />
-              <span>Create Gate Pass</span>
-            </button>
-          )}
-          <button type="button" onClick={() => setTab('queue')} className={tabCls(tab === 'queue' || !canCreate)}>
-            <Icon name="search" />
-            <span>Gate Pass Queue</span>
-          </button>
-        </div>
+        <PageTabs
+          tabs={[
+            ...(canCreate ? [{ value: 'create' as const, label: 'Create Gate Pass', icon: 'plus' as const }] : []),
+            { value: 'queue' as const, label: 'Gate Pass Queue', icon: 'search' as const },
+          ]}
+          value={canCreate ? tab : 'queue'}
+          onChange={setTab}
+        />
 
         {tab === 'create' && canCreate ? (
           <GatePassCreateForm

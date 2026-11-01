@@ -41,6 +41,7 @@ export const queryKeys = {
     detail: (id: string) => ['gate-passes', 'detail', id] as const,
     available: (phone: string) => ['gate-passes', 'available', phone] as const,
     materials: () => ['gate-passes', 'materials'] as const,
+    catalogMaterials: () => ['gate-passes', 'catalog-materials'] as const,
   },
   orders: {
     detail: (id: string) => ['orders', 'detail', id] as const,
@@ -56,6 +57,7 @@ export const queryKeys = {
   hardwareQueue: () => ['hardware-queue'] as const,
   items: {
     coils: () => ['items', 'coils'] as const,
+    workshopCatalog: () => ['items', 'workshop-catalog'] as const,
     search: (params?: object) => withParams(['items', 'search'] as const, params),
   },
   inventory: {
@@ -69,6 +71,8 @@ export const queryKeys = {
     transfers: (params?: object) => withParams(['network', 'stock-transfers'] as const, params),
   },
   stockAlerts: (params?: object) => withParams(['stock-alerts'] as const, params),
+  /** Sidebar badge: under ['stock-alerts'], so the live stock / transfers topics refresh it (no polling) */
+  stockAlertCount: (scope: string) => ['stock-alerts', 'count', scope] as const,
   priceList: {
     rates: (params?: object) => withParams(['price-list', 'rates'] as const, params),
     items: (params?: object) => withParams(['price-list', 'items'] as const, params),

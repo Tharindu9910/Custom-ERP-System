@@ -49,6 +49,8 @@ export interface OrderLineView {
   price_basis: string | null;
   unit_price: number;
   line_total: number;
+  /** Advance this sub-job needs before work (job cards, Docs/decisions/0010) */
+  advance: number;
   is_customized: boolean;
   customized_reason_code: string | null;
   work_info: string | null;
@@ -207,7 +209,7 @@ export interface WorkshopQueueRow {
   can_edit: boolean;
 }
 
-export type CashierColumn = 'AWAITING_PAYMENT' | 'READY_FOR_COLLECTION' | 'ROOFING_BALANCE';
+export type CashierColumn = 'AWAITING_PAYMENT' | 'IN_WORKSHOP' | 'FINISHED_BALANCE_DUE' | 'ROOFING_BALANCE';
 
 /** One job card or roofing order in the History popup. */
 export interface OrderHistoryRow {
@@ -319,6 +321,7 @@ export class OrderQueriesService {
         price_basis: l.price_basis,
         unit_price: l.unit_price,
         line_total: l.line_total,
+        advance: l.suggested_advance,
         is_customized: l.is_customized,
         customized_reason_code: l.customized_reason_code,
         work_info: l.work_info,
@@ -343,7 +346,7 @@ export class OrderQueriesService {
       ? hardwareDisplayStatus(o.status)
       : isRoofing
         ? roofingDisplayStatus(o.status, statuses)
-        : workshopDisplayStatus(o.status);
+        : workshopDisplayStatus(o.status, balanceDue(o.total, o.paid_amount));
     const label = isHardware
       ? HARDWARE_STATUS_LABEL[display as keyof typeof HARDWARE_STATUS_LABEL]
       : isRoofing
@@ -369,7 +372,8 @@ export class OrderQueriesService {
       paid_amount: o.paid_amount,
       balance: balanceDue(o.total, o.paid_amount),
       payment_state: paymentStateFor(o.total, o.paid_amount),
-      min_advance: isRoofing || isHardware ? 0 : jobCardMinAdvance(active, settings),
+      // A roofing order waiting at the cashier needs the minimum fixed when it was submitted
+      min_advance: isHardware ? 0 : isRoofing ? (o.status === OrderStatus.DRAFT ? Number(o.header?.min_to_place ?? 0) : 0) : jobCardMinAdvance(active),
       created_at: iso(o.created_at)!,
       created_by: o.created_by,
       created_by_name: o.created_by_name,
@@ -381,8 +385,11 @@ export class OrderQueriesService {
       can_edit: isHardware
         ? false
         : isRoofing
-        ? o.status === OrderStatus.IN_QUEUE && settings.orders.allow_cashier_edit_before_start && !active.some((l) => lineHasStarted(l.status))
-        : (o.status === OrderStatus.DRAFT || o.status === OrderStatus.IN_QUEUE) && !active.some((l) => lineHasStarted(l.status)),
+        ? // Unpaid at the cashier: whoever creates orders; in the Order Queue (or paid): the cashier's edit
+          (o.status === OrderStatus.DRAFT && o.paid_amount === 0) ||
+          ((o.status === OrderStatus.DRAFT || o.status === OrderStatus.IN_QUEUE) && settings.orders.allow_cashier_edit_before_start && !active.some((l) => lineHasStarted(l.status)))
+        : // Job cards: until a payment is taken or a line starts (Docs/decisions/0010)
+          (o.status === OrderStatus.DRAFT || o.status === OrderStatus.IN_QUEUE) && o.paid_amount === 0 && !active.some((l) => lineHasStarted(l.status)),
       origin_branch_name: o.origin_branch_name ?? null,
       milestones: isRoofing ? milestones(o, hist, active) : null,
       workers: [...workerMap.values()],
@@ -529,7 +536,7 @@ export class OrderQueriesService {
           status: r.status,
           display_label:
             type === OrderType.JOB_CARD
-              ? WORKSHOP_STATUS_LABEL[workshopDisplayStatus(r.status)]
+              ? WORKSHOP_STATUS_LABEL[workshopDisplayStatus(r.status, balanceDue(r.total, r.paid_amount))]
               : ROOFING_STATUS_LABEL[roofingDisplayStatus(r.status, statuses)],
         };
       }),
@@ -542,7 +549,8 @@ export class OrderQueriesService {
 
   /**
    * Workshop Queue board (Docs/decisions/0005): the supervisor's columns side by side,
-   * In Queue → In Progress → Completed. Unpaid (DRAFT) cards belong to the cashier.
+   * In Queue → In Progress → Completed → Ready for Collection (completed and paid in full,
+   * handed over here). Unpaid (DRAFT) cards belong to the cashier.
    * Counts are taken over the same search as the rows, so a column count equals its cards.
    */
   async workshopQueue(q: WorkshopQueueQuery, branchId: string) {
@@ -556,8 +564,7 @@ export class OrderQueriesService {
       `SELECT o.order_id, o.order_number, o.status, o.total, o.paid_amount, o.version, o.created_at, o.header->>'job_date' AS job_date,
               c.name AS customer_name, c.phone AS customer_phone,
               array_agg(l.status ORDER BY l.line_no) FILTER (WHERE l.status <> 'CANCELLED') AS line_statuses,
-              array_agg(l.line_total) FILTER (WHERE l.status <> 'CANCELLED') AS line_totals,
-              array_agg(l.is_customized) FILTER (WHERE l.status <> 'CANCELLED') AS line_custom
+              COALESCE(SUM(l.suggested_advance) FILTER (WHERE l.status <> 'CANCELLED'), 0)::int AS min_advance
        FROM "order" o JOIN customer c ON c.customer_id = o.customer_id
        LEFT JOIN order_line l ON l.order_id = o.order_id
        WHERE ${where.join(' AND ')}
@@ -565,13 +572,10 @@ export class OrderQueriesService {
        ORDER BY o.created_at`,
       params,
     );
-    const settings = (await this.branches.get(branchId)).settings;
 
     const all: WorkshopQueueRow[] = rows.map((r: Record<string, any>) => {
       const statuses = parsePgArray(r.line_statuses) as LineStatus[];
-      const totals = (r.line_totals ?? []) as number[];
-      const custom = (r.line_custom ?? []) as boolean[];
-      const display = workshopDisplayStatus(r.status);
+      const display = workshopDisplayStatus(r.status, balanceDue(r.total, r.paid_amount));
       return {
         order_id: r.order_id,
         order_number: r.order_number,
@@ -588,10 +592,10 @@ export class OrderQueriesService {
         total: r.total,
         paid_amount: r.paid_amount,
         balance: balanceDue(r.total, r.paid_amount),
-        min_advance: jobCardMinAdvance(totals.map((t, i) => ({ line_total: t, is_customized: custom[i] })), settings),
+        min_advance: r.min_advance,
         payment_state: paymentStateFor(r.total, r.paid_amount),
         version: r.version,
-        can_edit: (r.status === OrderStatus.DRAFT || r.status === OrderStatus.IN_QUEUE) && !statuses.some((s) => lineHasStarted(s)),
+        can_edit: (r.status === OrderStatus.DRAFT || r.status === OrderStatus.IN_QUEUE) && r.paid_amount === 0 && !statuses.some((s) => lineHasStarted(s)),
       };
     });
 
@@ -599,39 +603,49 @@ export class OrderQueriesService {
       pending: all.filter((r) => r.display_status === 'PENDING').length,
       in_progress: all.filter((r) => r.display_status === 'IN_PROGRESS').length,
       completed: all.filter((r) => r.display_status === 'COMPLETED').length,
+      ready: all.filter((r) => r.display_status === 'READY_FOR_COLLECTION').length,
     };
     return { rows: all, counts };
   }
 
   /**
-   * Cashier Queue board (Docs/decisions/0005): job cards waiting for the advance,
-   * completed job cards waiting for collection, and roofing orders with a balance due.
+   * Cashier Queue board (Docs/decisions/0005): job cards and unpaid roofing orders waiting
+   * for the advance / minimum, every job card in the workshop (paid any time while it is
+   * there; the card does not move), finished job cards with a balance due, and roofing
+   * orders in the Order Queue with a balance due. Once a finished card is paid in full it
+   * leaves for the supervisor's hand-over.
    */
   async cashierQueue(branchId: string) {
     const rows = await this.ds.query(
       `SELECT o.order_id, o.order_number, o.order_type, o.status, o.total, o.paid_amount, o.version, o.created_at,
+              COALESCE((o.header->>'min_to_place')::int, 0) AS min_to_place,
               c.name AS customer_name, c.phone AS customer_phone,
               array_agg(l.status) FILTER (WHERE l.status <> 'CANCELLED') AS line_statuses,
-              array_agg(l.line_total) FILTER (WHERE l.status <> 'CANCELLED') AS line_totals,
-              array_agg(l.is_customized) FILTER (WHERE l.status <> 'CANCELLED') AS line_custom
+              COALESCE(SUM(l.suggested_advance) FILTER (WHERE l.status <> 'CANCELLED'), 0)::int AS min_advance
        FROM "order" o LEFT JOIN customer c ON c.customer_id = o.customer_id
        LEFT JOIN order_line l ON l.order_id = o.order_id
        WHERE o.branch_id = $1
-         AND ((o.order_type = 'JOB_CARD' AND o.status IN ('DRAFT', 'COMPLETED'))
+         AND ((o.order_type IN ('JOB_CARD', 'ROOFING_ORDER') AND o.status = 'DRAFT')
+           OR (o.order_type = 'JOB_CARD' AND o.status IN ('IN_QUEUE', 'IN_PROGRESS'))
+           OR (o.order_type = 'JOB_CARD' AND o.status = 'COMPLETED' AND o.paid_amount < o.total)
            OR (o.order_type = 'ROOFING_ORDER' AND o.status IN ('IN_QUEUE', 'IN_PROGRESS') AND o.paid_amount < o.total))
        GROUP BY o.order_id, c.name, c.phone
        ORDER BY o.created_at`,
       [branchId],
     );
-    const settings = (await this.branches.get(branchId)).settings;
     return rows.map((r: Record<string, any>) => {
       const statuses = parsePgArray(r.line_statuses) as LineStatus[];
-      const totals = (r.line_totals ?? []) as number[];
-      const custom = (r.line_custom ?? []) as boolean[];
       const isRoofing = r.order_type === OrderType.ROOFING_ORDER;
       const display = isRoofing ? roofingDisplayStatus(r.status, statuses) : workshopDisplayStatus(r.status);
-      const column: CashierColumn = isRoofing ? 'ROOFING_BALANCE' : r.status === OrderStatus.DRAFT ? 'AWAITING_PAYMENT' : 'READY_FOR_COLLECTION';
-      const minAdvance = isRoofing ? 0 : jobCardMinAdvance(totals.map((t, i) => ({ line_total: t, is_customized: custom[i] })), settings);
+      const column: CashierColumn =
+        r.status === OrderStatus.DRAFT
+          ? 'AWAITING_PAYMENT'
+          : isRoofing
+            ? 'ROOFING_BALANCE'
+            : r.status === OrderStatus.COMPLETED
+              ? 'FINISHED_BALANCE_DUE'
+              : 'IN_WORKSHOP';
+      const minAdvance: number = isRoofing ? (r.status === OrderStatus.DRAFT ? r.min_to_place : 0) : r.min_advance;
       return {
         order_id: r.order_id,
         order_number: r.order_number,

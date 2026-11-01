@@ -70,6 +70,8 @@ The detail modal reuses `GET /orders/:id`. `POST /orders/:id/payments` refuses h
 - The prototype's Store paid every sale on the spot, and its Queue was never fed by anything. Here supervisor orders are unpaid and go to the Queue.
 - The prototype's Queue had no stock effect. Here payment deducts the held stock.
 - There is no discount on hardware sales: neither the prototype store nor this decision has one.
+- **Store UX:** the prototype opened a "How many?" keypad on every tap. Here a tap adds 1 (or the rest of a decimal-stock item), and a tile already in the sale shows a − / + stepper. For bulk entry, type the quantity in the cart line, or search with a quantity prefix (`25*nut`, `25 x nut`) and press Enter. Enter adds the top match, or the one chosen with ↑/↓, and an exact SKU match comes first, so a barcode scanner works. Quantities above stock are not clamped: the line turns red and Place Order is blocked.
+- **Place Order (no popup):** for a supervisor it sends the sale straight to the Hardware Queue: walk-in, no note, no confirmation step. For a cashier it opens an in-page checkout in place of the store, using the Cashier Queue checkout layout: step 1 Review Sale (items, optional customer, note), step 2 Take Payment (the full total, or an advance when ordering from another branch). Unlike the Cashier Queue there is no per-item tick-off, because the cashier has just built the sale.
 
 ## Follow-ups (not built)
 

@@ -42,6 +42,8 @@ export interface OrderLineDto {
   price_basis: string | null;
   unit_price: number;
   line_total: number;
+  /** Advance this sub-job needs (job cards, Docs/decisions/0010) */
+  advance: number;
   is_customized: boolean;
   customized_reason_code: string | null;
   work_info: string | null;
@@ -176,13 +178,14 @@ export interface WorkshopQueueRow {
 }
 
 export interface QuoteResult {
-  lines: PricedWorkshopLine[];
+  /** Each line with its advance (Docs/decisions/0010): the suggestion, and whether the supervisor may change it */
+  lines: (PricedWorkshopLine & { suggested_advance: number; advance: number; advance_editable: boolean })[];
   subtotal: number;
   min_advance: number;
   missing_rates: { line_index: number; missing: string }[];
 }
 
-export type CashierColumn = 'AWAITING_PAYMENT' | 'READY_FOR_COLLECTION' | 'ROOFING_BALANCE';
+export type CashierColumn = 'AWAITING_PAYMENT' | 'IN_WORKSHOP' | 'FINISHED_BALANCE_DUE' | 'ROOFING_BALANCE';
 
 export interface CashierQueueRow {
   order_id: string;
@@ -281,7 +284,7 @@ export function useUpdateJobCard(orderId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (dto: UpdateJobCardDto) =>
-      (await apiClient.put<{ data: OrderDetailDto & { advance_shortfall: number } }>(`/job-cards/${orderId}`, dto)).data.data,
+      (await apiClient.put<{ data: OrderDetailDto }>(`/job-cards/${orderId}`, dto)).data.data,
     onSuccess: () => invalidateOrders(qc),
   });
 }
@@ -301,7 +304,7 @@ export function useWorkshopQueue(params: { search?: string }) {
     queryFn: async () =>
       (
         await apiClient.get<{
-          data: { rows: WorkshopQueueRow[]; counts: { pending: number; in_progress: number; completed: number } };
+          data: { rows: WorkshopQueueRow[]; counts: { pending: number; in_progress: number; completed: number; ready: number } };
         }>('/workshop-queue', { params })
       ).data.data,
     placeholderData: keepPreviousData,
@@ -359,6 +362,26 @@ export function useRecordPayment() {
   return useMutation({
     mutationFn: async ({ orderId, dto }: { orderId: string; dto: RecordPaymentDto }) =>
       (await apiClient.post<{ data: OrderDetailDto }>(`/orders/${orderId}/payments`, dto)).data.data,
+    onSuccess: () => invalidateOrders(qc),
+  });
+}
+
+/** A job card with nothing due (Rs 0 minimum advance) leaves the cashier for the Workshop Queue without a payment. */
+export function useSendToWorkshop() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, version }: { orderId: string; version: number }) =>
+      (await apiClient.post<{ data: OrderDetailDto }>(`/job-cards/${orderId}/send-to-workshop`, { version })).data.data,
+    onSuccess: () => invalidateOrders(qc),
+  });
+}
+
+/** An unpaid roofing order with nothing due goes to the Order Queue without a payment. */
+export function useSendRoofingToQueue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, version }: { orderId: string; version: number }) =>
+      (await apiClient.post<{ data: OrderDetailDto }>(`/roofing-orders/${orderId}/send-to-queue`, { version })).data.data,
     onSuccess: () => invalidateOrders(qc),
   });
 }

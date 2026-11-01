@@ -20,11 +20,16 @@ export const RecordPaymentSchema = z.object({
   amount: z.number().int().positive('Amount must be more than 0'),
   mode: z.nativeEnum(PaymentMode),
   reference: z.string().trim().max(80).optional(),
-  // Completed job card: close it in the same transaction once nothing is owed (Docs/decisions/0005)
-  close: z.boolean().optional(),
-  released_to: z.string().trim().max(120).optional(),
-});
+})
+  // A payment never closes a card: the supervisor hands it over (Docs/decisions/0005)
+  .strict();
 export type RecordPaymentDto = z.infer<typeof RecordPaymentSchema>;
+
+/** Cashier sends a card with nothing due (Rs 0 minimum advance) to the Workshop Queue without a payment. */
+export const SendToWorkshopSchema = z.object({
+  version: z.number().int().positive(),
+});
+export type SendToWorkshopDto = z.infer<typeof SendToWorkshopSchema>;
 
 /** Card-level Start Job: the card moves to In Progress and the chosen sub-jobs start. */
 export const StartJobCardSchema = z.object({
@@ -38,10 +43,10 @@ export type StartJobCardDto = z.infer<typeof StartJobCardSchema>;
 export const CompleteJobCardSchema = CompleteWorkSchema;
 export type CompleteJobCardDto = CompleteWorkDto;
 
-/** Close & hand over a completed, fully paid job card. */
+/** Check & hand over a completed, fully paid job card (supervisor, Docs/decisions/0005). */
 export const CloseJobCardSchema = z.object({
   version: z.number().int().positive(),
-  released_to: z.string().trim().max(120).optional(),
+  released_to: z.string().trim().min(1, 'Enter who collected the items').max(120),
   notes: z.string().trim().max(500).optional(),
 });
 export type CloseJobCardDto = z.infer<typeof CloseJobCardSchema>;

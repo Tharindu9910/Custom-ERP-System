@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { PAYMENT_STATE_LABEL, type WorkshopDisplayStatus } from '@erp/shared';
-import { Icon, type IconName } from '@/shared/components/Icon';
+import { Icon } from '@/shared/components/Icon';
 import { Notice } from '@/shared/components/Notice';
 import { SearchInput } from '@/shared/components/SearchInput';
+import { BoardSection, StatusCards, type StatusStep } from '@/shared/components/StatusBoard';
+import { TONES } from '@/shared/lib/status-tones';
 import { formatDateTime, formatLocalDate, formatRs } from '@/shared/lib/format';
-import { cn } from '@/shared/lib/utils';
 import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
+import { HandOverCheckout } from '@/modules/job-cards/components/HandOverCheckout';
 import { CompleteJobDialog, StartJobDialog } from '@/modules/job-cards/components/JobCardMoveDialogs';
 import { WorkOrderModal } from '@/modules/job-cards/components/WorkOrderModal';
 import { useWorkshopQueue, type WorkshopQueueRow } from '@/modules/orders/hooks/useOrders';
@@ -19,38 +21,47 @@ const PAYMENT_PILL: Record<string, string> = {
   ADVANCE_PAID: 'bg-blue-50 text-blue-700',
 };
 
-type StepKey = Extract<WorkshopDisplayStatus, 'PENDING' | 'IN_PROGRESS' | 'COMPLETED'>;
+type StepKey = Extract<WorkshopDisplayStatus, 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'READY_FOR_COLLECTION'>;
 
 // The supervisor's area of the lifecycle, in order (Docs/decisions/0005)
-const STEPS: { key: StepKey; title: string; icon: IconName; empty: string; tone: { ring: string; count: string; icon: string } }[] = [
+const STEPS: StatusStep<StepKey>[] = [
   {
     key: 'PENDING',
-    title: 'In Queue',
+    title: 'In Workshop Queue',
     icon: 'clock',
     empty: 'No job cards waiting.',
-    tone: { ring: 'border-amber-400 ring-amber-200', count: 'text-amber-600', icon: 'bg-amber-100 text-amber-700' },
+    tone: TONES.amber,
   },
   {
     key: 'IN_PROGRESS',
     title: 'Ongoing',
     icon: 'wrench',
     empty: 'Nothing ongoing.',
-    tone: { ring: 'border-blue-400 ring-blue-200', count: 'text-blue-600', icon: 'bg-blue-100 text-blue-700' },
+    tone: TONES.blue,
   },
   {
     key: 'COMPLETED',
     title: 'Finished',
     icon: 'checkCircle',
-    empty: 'No finished job cards.',
-    tone: { ring: 'border-emerald-400 ring-emerald-200', count: 'text-emerald-600', icon: 'bg-emerald-100 text-emerald-700' },
+    empty: 'No finished job cards waiting for payment.',
+    tone: TONES.slate,
+  },
+  {
+    key: 'READY_FOR_COLLECTION',
+    title: 'Ready for Collection',
+    icon: 'packageCheck',
+    empty: 'Nothing ready for collection.',
+    tone: TONES.emerald,
   },
 ];
 
 /**
  * Workshop Queue (Docs/decisions/0005): the supervisor's statuses as cards, In Queue →
- * Ongoing → Finished. Picking a card shows only its job cards, full width, each
- * with the button that moves it on. Unpaid cards stay at the cashier and completed
- * ones wait there for collection.
+ * Ongoing → Finished → Ready for Collection. Picking a card shows only its job cards,
+ * full width, each with the button that moves it on. Unpaid drafts stay at the cashier;
+ * finished cards wait under Finished until the cashier has the full amount, then under
+ * Ready for Collection, where Check & Hand Over (?handover=<order>) opens in place of the
+ * board: the supervisor ticks off each item and closes the card.
  */
 export function WorkshopQueuePage() {
   const navigate = useNavigate();
@@ -59,7 +70,8 @@ export function WorkshopQueuePage() {
   const canStart = canTransact && can('update', 'job_card_status');
   const canComplete = canTransact && can('complete', 'work_order');
   const canEdit = canTransact && can('create', 'job_card');
-  const { notice } = useSearch({ strict: false }) as { notice?: string };
+  const canHandOver = canTransact && can('close', 'job_card');
+  const { notice, handover } = useSearch({ strict: false }) as { notice?: string; handover?: string };
   const [step, setStep] = useState<StepKey>('PENDING');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
@@ -71,6 +83,9 @@ export function WorkshopQueuePage() {
   const rows = data?.rows ?? [];
   const current = STEPS.find((s) => s.key === step)!;
   const list = rows.filter((r) => r.display_status === step);
+  const handOverRow = handover ? rows.find((r) => r.order_id === handover && r.display_status === 'READY_FOR_COLLECTION') : undefined;
+  const openHandOver = (orderId: string) => void navigate({ to: '/workshop-queue', search: { handover: orderId } });
+  const closeHandOver = () => void navigate({ to: '/workshop-queue', search: {} });
 
   const edit = (orderId: string) => void navigate({ to: '/job-cards/$orderId/edit', params: { orderId } });
   const finish = (msg: string) => {
@@ -100,10 +115,15 @@ export function WorkshopQueuePage() {
       );
     }
     if (job.display_status === 'COMPLETED') {
-      return (
-        <span className="whitespace-nowrap text-xs font-semibold text-slate-500">
-          {job.balance > 0 ? `Waiting for cashier · ${formatRs(job.balance)} due` : 'Waiting for cashier to hand over'}
-        </span>
+      return <span className="whitespace-nowrap text-xs font-semibold text-slate-500">Waiting for cashier · {formatRs(job.balance)} due</span>;
+    }
+    if (job.display_status === 'READY_FOR_COLLECTION') {
+      return canHandOver ? (
+        <button onClick={() => openHandOver(job.order_id)} className="btn-primary whitespace-nowrap bg-emerald-600 hover:bg-emerald-700">
+          <Icon name="packageCheck" className="h-4 w-4" /> Check & Hand Over
+        </button>
+      ) : (
+        <span className="whitespace-nowrap text-xs font-semibold text-slate-500">Waiting for supervisor to hand over</span>
       );
     }
     return null;
@@ -124,9 +144,11 @@ export function WorkshopQueuePage() {
               <Icon name="refresh" className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
             </button>
           </div>
-          <div className="w-full lg:max-w-md">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search work order, customer name, or phone..." />
-          </div>
+          {!handover && (
+            <div className="w-full lg:max-w-md">
+              <SearchInput value={search} onChange={setSearch} placeholder="Search work order, customer name, or phone..." />
+            </div>
+          )}
         </div>
       </header>
 
@@ -134,105 +156,106 @@ export function WorkshopQueuePage() {
         {notice && <Notice tone="success">{notice}</Notice>}
         {done && <Notice tone="success">{done}</Notice>}
 
-        {/* One card per status, in lifecycle order; the picked one shows its list below */}
-        <div className="grid gap-4 sm:grid-cols-3">
-          {STEPS.map((s, i) => {
-            const on = s.key === step;
-            const count = rows.filter((r) => r.display_status === s.key).length;
-            return (
-              <button
-                key={s.key}
-                type="button"
-                onClick={() => setStep(s.key)}
-                aria-pressed={on}
-                className={cn(
-                  'relative flex items-center gap-4 rounded-xl border bg-white p-5 text-left shadow-sm transition-all hover:shadow-md',
-                  on ? cn('ring-2', s.tone.ring) : 'border-slate-200',
-                )}
-              >
-                <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-lg', s.tone.icon)}>
-                  <Icon name={s.icon} className="h-5 w-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-base font-bold text-slate-900">{s.title}</span>
-                </span>
-                <span className={cn('text-3xl font-bold leading-none', count ? s.tone.count : 'text-slate-300')}>{isLoading ? '–' : count}</span>
-                {i < STEPS.length - 1 && (
-                  <Icon name="chevronRight" className="absolute -right-3.5 top-1/2 z-10 hidden h-5 w-5 -translate-y-1/2 rounded-full bg-slate-50 text-slate-300 sm:block" />
-                )}
+        {handover ? (
+          handOverRow ? (
+            <HandOverCheckout
+              key={handOverRow.order_id}
+              row={handOverRow}
+              onBack={closeHandOver}
+              onClosed={(msg) => {
+                setDone(msg);
+                closeHandOver();
+              }}
+            />
+          ) : isLoading ? (
+            <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
+          ) : (
+            <Notice tone="warning">
+              This job card is no longer ready for collection.{' '}
+              <button onClick={closeHandOver} className="font-semibold underline">
+                Back to queue
               </button>
-            );
-          })}
-        </div>
+            </Notice>
+          )
+        ) : (
+          <>
+            {/* One card per status, in lifecycle order; the picked one shows its list below */}
+            <StatusCards
+              steps={STEPS}
+              value={step}
+              onChange={setStep}
+              loading={isLoading}
+              counts={Object.fromEntries(STEPS.map((s) => [s.key, rows.filter((r) => r.display_status === s.key).length]))}
+            />
 
-        <section className="flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-              {current.title} <span className="ml-1 font-semibold text-slate-400">({list.length})</span>
-            </h2>
-          </header>
-          <div className="flex-1 overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-6 py-3 text-left">Job Card</th>
-                  <th className="px-6 py-3 text-left">Date</th>
-                  <th className="px-6 py-3 text-left">Sub-jobs</th>
-                  <th className="px-6 py-3 text-left">Payment</th>
-                  <th className="px-6 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {isLoading && (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-16 text-center text-slate-400">
-                      Loading…
-                    </td>
-                  </tr>
-                )}
-                {!isLoading && list.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-16 text-center text-slate-400">
-                      {search.trim() ? `No ${current.title.toLowerCase()} job cards match “${search.trim()}”.` : current.empty}
-                    </td>
-                  </tr>
-                )}
-                {list.map((job) => (
-                  <tr key={job.order_id} onClick={() => setSelected(job.order_id)} className="cursor-pointer transition-colors hover:bg-slate-50/70">
-                    <td className="whitespace-nowrap px-6 py-4">
-                      <div className="font-bold text-slate-900">{job.order_number}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">
-                        {job.customer_name} ({job.customer_phone})
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-slate-700">
-                      {formatLocalDate(job.job_date)}
-                      <div className="mt-0.5 text-xs text-slate-400">Created {formatDateTime(job.created_at)}</div>
-                    </td>
-                    <td className="min-w-[10rem] px-6 py-4">
-                      <Progress done={job.completed_count} started={job.started_count} total={job.line_count} />
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4">
-                      <span className={`rounded px-2 py-0.5 text-xs font-medium ${PAYMENT_PILL[job.payment_state]}`}>
-                        {PAYMENT_STATE_LABEL[job.payment_state]} {job.paid_amount > 0 ? `(${formatRs(job.paid_amount)})` : ''}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-2">
-                        {canEdit && job.can_edit && (
-                          <button onClick={() => edit(job.order_id)} className="rounded bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-800">
-                            Edit
-                          </button>
-                        )}
-                        {actionFor(job)}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+            <BoardSection title={current.title} count={list.length}>
+              <div className="flex-1 overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-6 py-3 text-left">Job Card</th>
+                      <th className="px-6 py-3 text-left">Date</th>
+                      <th className="px-6 py-3 text-left">Sub-jobs</th>
+                      <th className="px-6 py-3 text-left">Payment</th>
+                      <th className="px-6 py-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {isLoading && (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-16 text-center text-slate-400">
+                          Loading…
+                        </td>
+                      </tr>
+                    )}
+                    {!isLoading && list.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-16 text-center text-slate-400">
+                          {search.trim() ? `No ${current.title.toLowerCase()} job cards match “${search.trim()}”.` : current.empty}
+                        </td>
+                      </tr>
+                    )}
+                    {list.map((job) => (
+                      <tr key={job.order_id} onClick={() => setSelected(job.order_id)} className="cursor-pointer transition-colors hover:bg-slate-50/70">
+                        <td className="whitespace-nowrap px-6 py-4">
+                          <div className="font-bold text-slate-900">{job.order_number}</div>
+                          <div className="mt-0.5 text-xs text-slate-500">
+                            {job.customer_name} ({job.customer_phone})
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4 text-slate-700">
+                          {formatLocalDate(job.job_date)}
+                          <div className="mt-0.5 text-xs text-slate-400">Created {formatDateTime(job.created_at)}</div>
+                        </td>
+                        <td className="min-w-[10rem] px-6 py-4">
+                          <Progress done={job.completed_count} started={job.started_count} total={job.line_count} />
+                        </td>
+                        <td className="whitespace-nowrap px-6 py-4">
+                          <span className={`rounded px-2 py-0.5 text-xs font-medium ${PAYMENT_PILL[job.payment_state]}`}>
+                            {PAYMENT_STATE_LABEL[job.payment_state]} {job.paid_amount > 0 ? `(${formatRs(job.paid_amount)})` : ''}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-2">
+                            {canEdit && job.can_edit && (
+                              <button
+                                onClick={() => edit(job.order_id)}
+                                className="rounded bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-800"
+                              >
+                                Edit
+                              </button>
+                            )}
+                            {actionFor(job)}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </BoardSection>
+          </>
+        )}
       </main>
 
       {selected && <WorkOrderModal orderId={selected} onClose={() => setSelected(null)} onEdit={() => edit(selected)} onMoved={finish} />}

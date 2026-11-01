@@ -27,8 +27,11 @@ export interface CoilOption {
   stock_ft: number;
 }
 
+/** A priced item with its advance (Docs/decisions/0011). */
+export type PricedRoofingQuoteLine = PricedRoofingLine & { suggested_advance: number; advance: number; advance_editable: boolean };
+
 export interface RoofingQuote {
-  lines: PricedRoofingLine[];
+  lines: PricedRoofingQuoteLine[];
   subtotal: number;
   discount: number;
   max_discount: number;

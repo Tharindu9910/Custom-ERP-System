@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { CUSTOM_LINE, OVERRIDE_PASSWORD, ROLLING_LINE, SA, SUP, call, jobCard, material, newPhone, payAdvance, reserved, sql, stock, withGrant } from '../support/api';
+import { CUSTOM_LINE, OVERRIDE_PASSWORD, ROLLING_LINE, SA, SUP, call, jobCard, material, newPhone, payAdvance, reserved, sql, stock, toWorkshop, withGrant } from '../support/api';
 import { expect, test } from '../support/fixtures';
 import { dialog, field, pick, row } from '../support/ui';
 
@@ -148,7 +148,7 @@ test.describe('supervisor', () => {
   });
 
   test('WQ-27 the queue refreshes by itself when another user changes a card (live updates)', async ({ page }) => {
-    const card = await jobCard({ lines: [ROLLING_LINE] });
+    const card = await toWorkshop(await jobCard({ lines: [ROLLING_LINE] }));
     await page.goto('/workshop-queue');
     await page.getByPlaceholder('Search work order, customer name, or phone...').fill(card.order_number);
     await expect(row(page, card.order_number)).toContainText(/In Queue|Pending/);
@@ -176,7 +176,7 @@ test.describe('veyangoda (no stock override)', () => {
 test.describe('chief while the supervisor is active (BR21)', () => {
   test.use({ user: 'chief_thangalla' });
   test('WQ-29 the chief sees the coordination message instead of starting the supervisor\'s card', async ({ page }) => {
-    const card = await jobCard({ lines: [ROLLING_LINE] }); // created by the supervisor, who is signed in
+    const card = await toWorkshop(await jobCard({ lines: [ROLLING_LINE] })); // created by the supervisor, who is signed in
     await openCard(page, card.order_number, 'In Queue');
     await dialog(page).getByRole('button', { name: 'Start' }).click();
     await expect(dialog(page).getByText('A Supervisor is active. Coordinate with them to modify this record.')).toBeVisible();

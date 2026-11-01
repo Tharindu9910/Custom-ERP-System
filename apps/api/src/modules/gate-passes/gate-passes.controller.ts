@@ -21,18 +21,12 @@ export class GatePassesController {
   @Get('gate-passes/available')
   available(
     @Query('phone') phone: string = '',
-    @Query('include') include: string | undefined,
     @Query('order_id') orderId: string | undefined,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
   ) {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return this.gatePasses.available(
-      phone,
-      toActor(u, b).branch_id,
-      include && uuid.test(include) ? include : undefined,
-      orderId && uuid.test(orderId) ? orderId : undefined,
-    );
+    return this.gatePasses.available(phone, toActor(u, b).branch_id, orderId && uuid.test(orderId) ? orderId : undefined);
   }
 
   // Material names used on earlier passes, so new names become suggestions
@@ -40,6 +34,13 @@ export class GatePassesController {
   @RequirePermissions('view:gate_pass')
   materials(@CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.gatePasses.materials(toActor(u, b).branch_id);
+  }
+
+  // Inventory material types (+ their thicknesses), listed first in Material Type suggestions
+  @Get('gate-passes/catalog-materials')
+  @RequirePermissions('view:gate_pass')
+  catalogMaterials() {
+    return this.gatePasses.catalogMaterials();
   }
 
   @Get('gate-passes/:id')

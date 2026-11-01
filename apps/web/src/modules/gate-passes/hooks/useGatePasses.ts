@@ -100,17 +100,28 @@ export function useGatePassMaterials() {
   });
 }
 
-/** The customer's passes with material still to allocate (order forms). */
-/**
- * The customer's passes that still have material. `include` keeps one pass even when used up
- * (roofing edit); `orderId` keeps every pass that order draws on (job card edit).
- */
-export function useAvailableGatePasses(phone: string, include?: string | null, enabled = true, orderId?: string) {
+export interface CatalogMaterial {
+  material_type: string;
+  thicknesses: string[];
+}
+
+/** Inventory material types with their stocked thicknesses (listed first in the suggestions). */
+export function useCatalogMaterials() {
   return useQuery({
-    queryKey: queryKeys.gatePasses.available(`${phone}|${include ?? ''}|${orderId ?? ''}`),
+    queryKey: queryKeys.gatePasses.catalogMaterials(),
+    queryFn: async () => (await apiClient.get<{ data: CatalogMaterial[] }>('/gate-passes/catalog-materials')).data.data,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** The customer's passes with material still to allocate (order forms). */
+/** The customer's passes that still have material, plus (with `orderId`) every pass that order draws on (edit). */
+export function useAvailableGatePasses(phone: string, enabled = true, orderId?: string) {
+  return useQuery({
+    queryKey: queryKeys.gatePasses.available(`${phone}|${orderId ?? ''}`),
     queryFn: async () => {
       const { data } = await apiClient.get<{ data: GatePassDto[] }>('/gate-passes/available', {
-        params: { phone, include: include || undefined, order_id: orderId || undefined },
+        params: { phone, order_id: orderId || undefined },
       });
       return data.data;
     },

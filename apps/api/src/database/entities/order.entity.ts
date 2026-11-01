@@ -4,7 +4,8 @@ import { OrderLineEntity } from './order-line.entity';
 
 /**
  * Header fields kept as jsonb (ER-v6 `header`).
- * Roofing: technician, department, b_no, issued_to, approved_by, order_date, global_coil_item_id.
+ * Roofing: technician, department, b_no, issued_to, approved_by, order_date, global_coil_item_id,
+ * min_to_place (what the cashier must take before an unpaid order enters the Order Queue).
  * Job card: job_date, notes. Both: gate_pass_id of the linked gate pass.
  */
 export interface OrderHeader {
@@ -16,6 +17,7 @@ export interface OrderHeader {
   issued_to?: string;
   approved_by?: string;
   global_coil_item_id?: string;
+  min_to_place?: number;
   gate_pass_id?: string;
   material_source?: string;
   notes?: string;

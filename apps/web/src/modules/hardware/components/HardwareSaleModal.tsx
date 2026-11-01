@@ -1,3 +1,4 @@
+import { SectionTitle } from '@/shared/components/DetailParts';
 import { Modal } from '@/shared/components/Modal';
 import { IdChip } from '@/shared/components/Marks';
 import { formatDateTime, formatRs } from '@/shared/lib/format';
@@ -67,7 +68,7 @@ export function HardwareSaleModal({ orderId, onClose, footer }: { orderId: strin
             )}
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-slate-200">
+          <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 <tr>
@@ -119,8 +120,8 @@ export function HardwareSaleModal({ orderId, onClose, footer }: { orderId: strin
 
           {o.payments.length > 0 && (
             <div>
-              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Payments</h3>
-              <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
+              <SectionTitle title="Payments" count={o.payments.length} />
+              <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 text-sm">
                 {o.payments.map((p) => (
                   <li key={p.payment_id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
                     <div>
@@ -139,21 +140,6 @@ export function HardwareSaleModal({ orderId, onClose, footer }: { orderId: strin
               </ul>
             </div>
           )}
-
-          <div>
-            <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">History</h3>
-            <ul className="space-y-1.5 text-sm">
-              {o.history.map((h) => (
-                <li key={h.history_id} className="flex gap-3">
-                  <span className="w-36 shrink-0 text-xs text-slate-400">{formatDateTime(h.created_at)}</span>
-                  <span className="text-slate-700">
-                    {h.note ?? `${h.from_status ?? '—'} → ${h.to_status}`}
-                    {h.actor_name && <span className="text-slate-400"> · {h.actor_name}</span>}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
         </div>
       )}
     </Modal>

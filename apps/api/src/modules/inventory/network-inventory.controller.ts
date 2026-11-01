@@ -21,6 +21,13 @@ export class NetworkInventoryController {
     return this.inventory.networkList(q);
   }
 
+  @Get('stock-alerts/count')
+  @RequirePermissions('view:stock_alerts')
+  alertCount(@CurrentUser() u: RequestUser) {
+    requireGlobal(u);
+    return this.inventory.networkAlertCount();
+  }
+
   @Get('stock-alerts')
   @RequirePermissions('view:stock_alerts')
   alerts(@Query(new ZodPipe(StockAlertQuerySchema)) q: StockAlertQuery, @CurrentUser() u: RequestUser) {

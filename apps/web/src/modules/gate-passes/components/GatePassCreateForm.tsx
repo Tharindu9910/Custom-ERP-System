@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { LengthUnit, formatGatePassLength, type GatePassItemInput } from '@erp/shared';
 import { Icon } from '@/shared/components/Icon';
 import { Combobox } from '@/shared/components/Combobox';
@@ -6,10 +6,19 @@ import { ColorDot } from '@/shared/components/Marks';
 import { Notice } from '@/shared/components/Notice';
 import { apiError, newRequestId } from '@/shared/api/errors';
 import { accentFor } from '@/shared/lib/tones';
-import { useCreateGatePass, useGatePassMaterials, type GatePassDto } from '../hooks/useGatePasses';
+import { useCatalogMaterials, useCreateGatePass, useGatePassMaterials, type GatePassDto } from '../hooks/useGatePasses';
 
 interface DraftItem extends GatePassItemInput {
   key: string;
+}
+
+/** Quick-edit buffer for an added row — strings so the inputs can be cleared mid-edit. */
+interface RowEdit {
+  key: string;
+  thickness: string;
+  length: string;
+  unit: LengthUnit;
+  qty: string;
 }
 
 interface Props {
@@ -23,6 +32,8 @@ interface Props {
 
 const inputCls =
   'block w-full rounded-lg border border-slate-300 py-2 px-3 text-sm text-slate-900 shadow-sm focus:border-[#0033A0] focus:outline-none focus:ring-2 focus:ring-[#0033A0]/20';
+const editInputCls =
+  'rounded-md border border-slate-300 py-1 px-2 text-xs text-slate-900 focus:border-[#0033A0] focus:outline-none focus:ring-2 focus:ring-[#0033A0]/20';
 
 /** "Create Gate Pass" tab — ported from the prototype GatePassView. */
 export function GatePassCreateForm({ materials, colors, hideColor, initialPhone = '', initialName = '', onCreated }: Props) {
@@ -40,17 +51,22 @@ export function GatePassCreateForm({ materials, colors, hideColor, initialPhone 
   const [qty, setQty] = useState('');
   const [remarks, setRemarks] = useState('');
   const [error, setError] = useState<string | null>(null);
-  // Branch list first, then names already used on earlier passes (one spelling each)
+  const [rowEdit, setRowEdit] = useState<RowEdit | null>(null);
+  // Inventory types first (exact spelling pricing matches on), then the branch list,
+  // then names already used on earlier passes (one spelling each). Free typing still allowed.
+  const { data: catalog } = useCatalogMaterials();
   const { data: usedMaterials } = useGatePassMaterials();
   const materialOptions = useMemo(() => {
     const seen = new Set<string>();
-    return [...materials, ...(usedMaterials ?? [])].filter((m) => {
+    return [...(catalog ?? []).map((c) => c.material_type), ...materials, ...(usedMaterials ?? [])].filter((m) => {
       const k = m.trim().toLowerCase();
       if (!k || seen.has(k)) return false;
       seen.add(k);
       return true;
     });
-  }, [materials, usedMaterials]);
+  }, [catalog, materials, usedMaterials]);
+  // Thicknesses the inventory stocks for a material (suggestions only)
+  const thicknessesFor = (material: string) => catalog?.find((c) => c.material_type.toLowerCase() === material.trim().toLowerCase())?.thicknesses ?? [];
 
   const canAdd = !!materialType.trim() && (!!thickness.trim() || !!length.trim() || qty !== '');
 
@@ -79,9 +95,52 @@ export function GatePassCreateForm({ materials, colors, hideColor, initialPhone 
     setRemarks('');
   };
 
+  const startRowEdit = (item: DraftItem) =>
+    setRowEdit({
+      key: item.key,
+      thickness: item.thickness ?? '',
+      length: item.length ? String(item.length) : '',
+      unit: item.length_unit ?? LengthUnit.FT,
+      qty: String(item.quantity ?? 1),
+    });
+
+  const saveRowEdit = () => {
+    if (!rowEdit) return;
+    const lengthNum = rowEdit.length.trim() ? Number(rowEdit.length) : undefined;
+    const qtyNum = Math.floor(Number(rowEdit.qty));
+    setItems((prev) =>
+      prev.map((i) =>
+        i.key === rowEdit.key
+          ? {
+              ...i,
+              thickness: rowEdit.thickness.trim() || undefined,
+              length: lengthNum && lengthNum > 0 ? lengthNum : undefined,
+              length_unit: rowEdit.unit,
+              quantity: qtyNum >= 1 ? qtyNum : 1,
+            }
+          : i,
+      ),
+    );
+    setRowEdit(null);
+  };
+
+  // Enter saves / Escape cancels, and Enter must not submit the whole form
+  const rowEditKeys = (e: KeyboardEvent<HTMLElement>) => {
+    // Already handled by the thickness suggestion list (picked a row / closed the list)
+    if (e.defaultPrevented) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveRowEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setRowEdit(null);
+    }
+  };
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (rowEdit) return setError('Save or cancel the item you are editing first.');
     if (!phone.trim() || !name.trim()) return setError('Customer phone number and customer name are required.');
     if (items.length === 0) return setError('Add at least one material item.');
     try {
@@ -141,7 +200,7 @@ export function GatePassCreateForm({ materials, colors, hideColor, initialPhone 
             </div>
             <div className={hideColor ? 'sm:col-span-6 lg:col-span-3' : 'sm:col-span-4 lg:col-span-2'}>
               <label className="field-label">Thickness (mm)</label>
-              <input type="text" value={thickness} onChange={(e) => setThickness(e.target.value)} className={inputCls} />
+              <Combobox value={thickness} onChange={setThickness} suggestions={thicknessesFor(materialType)} noun="thickness" className={inputCls} />
             </div>
             <div className={hideColor ? 'sm:col-span-6 lg:col-span-4' : 'sm:col-span-4 lg:col-span-3'}>
               <label className="field-label">Length &amp; Unit</label>
@@ -210,7 +269,8 @@ export function GatePassCreateForm({ materials, colors, hideColor, initialPhone 
         {items.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 px-4 py-6 text-center text-sm text-slate-500">None</div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+          // Not clipped while editing, so the thickness suggestion list can drop below the last row
+          <div className={`${rowEdit ? 'overflow-visible' : 'overflow-x-auto'} rounded-xl border border-slate-200 shadow-sm`}>
             <table className="min-w-full divide-y divide-slate-200 text-xs">
               <thead className="bg-slate-50/80">
                 <tr className="text-left font-bold uppercase tracking-wider text-slate-600">
@@ -221,57 +281,165 @@ export function GatePassCreateForm({ materials, colors, hideColor, initialPhone 
                   {!hideColor && <th className="px-4 py-3">Color</th>}
                   <th className="px-4 py-3">Quantity</th>
                   <th className="px-4 py-3">Remarks</th>
-                  <th className="w-16 px-4 py-3 text-center">Action</th>
+                  <th className="w-24 px-4 py-3 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
-                {items.map((item, idx) => (
-                  <tr key={item.key} className="hover:bg-slate-50/75" style={{ boxShadow: `inset 4px 0 0 ${accentFor(item.material_type)}` }}>
-                    <td className="px-4 py-3.5 font-bold text-slate-400">{idx + 1}</td>
-                    <td className="px-4 py-3.5 font-bold text-slate-900">{item.material_type}</td>
-                    <td className="px-4 py-3.5">{item.thickness ? <span className="spec-chip">{item.thickness}</span> : <Dash />}</td>
-                    <td className="px-4 py-3.5">
-                      {item.length ? <span className="spec-chip">{formatGatePassLength(item.length, item.length_unit)}</span> : <Dash />}
-                    </td>
-                    {!hideColor && (
+                {items.map((item, idx) => {
+                  const editing = rowEdit?.key === item.key ? rowEdit : null;
+                  return (
+                    <tr
+                      key={item.key}
+                      className={editing ? 'bg-blue-50/40' : 'hover:bg-slate-50/75'}
+                      style={{
+                        boxShadow: `inset 4px 0 0 ${accentFor(item.material_type)}`,
+                      }}
+                    >
+                      <td className="px-4 py-3.5 font-bold text-slate-400">{idx + 1}</td>
+                      <td className="px-4 py-3.5 font-bold text-slate-900">{item.material_type}</td>
                       <td className="px-4 py-3.5">
-                        {item.color ? (
-                          <span className="spec-chip">
-                            <ColorDot color={item.color} />
-                            {item.color}
+                        {editing ? (
+                          <div className="w-28" onKeyDown={rowEditKeys}>
+                            <Combobox
+                              autoFocus
+                              value={editing.thickness}
+                              onChange={(v) => setRowEdit({ ...editing, thickness: v })}
+                              suggestions={thicknessesFor(item.material_type)}
+                              noun="thickness"
+                              className={`${editInputCls} w-full`}
+                            />
+                          </div>
+                        ) : item.thickness ? (
+                          <span className="spec-chip">{item.thickness}</span>
+                        ) : (
+                          <Dash />
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        {editing ? (
+                          <div className="flex">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              aria-label="Length"
+                              value={editing.length}
+                              onChange={(e) =>
+                                setRowEdit({
+                                  ...editing,
+                                  length: e.target.value,
+                                })
+                              }
+                              onKeyDown={rowEditKeys}
+                              className={`${editInputCls} w-20 rounded-r-none`}
+                            />
+                            <select
+                              aria-label="Length unit"
+                              value={editing.unit}
+                              onChange={(e) =>
+                                setRowEdit({
+                                  ...editing,
+                                  unit: e.target.value as LengthUnit,
+                                })
+                              }
+                              onKeyDown={rowEditKeys}
+                              className="cursor-pointer rounded-r-md border border-l-0 border-slate-300 bg-slate-50 px-2 text-xs font-semibold text-slate-700 focus:outline-none"
+                            >
+                              <option value={LengthUnit.FT}>ft</option>
+                              <option value={LengthUnit.INCHES}>inches</option>
+                            </select>
+                          </div>
+                        ) : item.length ? (
+                          <span className="spec-chip">{formatGatePassLength(item.length, item.length_unit)}</span>
+                        ) : (
+                          <Dash />
+                        )}
+                      </td>
+                      {!hideColor && (
+                        <td className="px-4 py-3.5">
+                          {item.color ? (
+                            <span className="spec-chip">
+                              <ColorDot color={item.color} />
+                              {item.color}
+                            </span>
+                          ) : (
+                            <Dash />
+                          )}
+                        </td>
+                      )}
+                      <td className="px-4 py-3.5">
+                        {editing ? (
+                          <input
+                            type="number"
+                            min="1"
+                            aria-label="Quantity"
+                            value={editing.qty}
+                            onChange={(e) => setRowEdit({ ...editing, qty: e.target.value })}
+                            onKeyDown={rowEditKeys}
+                            className={`${editInputCls} w-16`}
+                          />
+                        ) : (
+                          <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-[#0033A0]">
+                            Qty: {item.quantity ?? 1}
+                          </span>
+                        )}
+                      </td>
+                      <td className="max-w-xs px-4 py-3.5">
+                        {item.condition_note ? (
+                          <span className="inline-flex items-start rounded-md border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
+                            <span className="mr-1 shrink-0 font-bold text-amber-700">Remarks:</span>
+                            {item.condition_note}
                           </span>
                         ) : (
                           <Dash />
                         )}
                       </td>
-                    )}
-                    <td className="px-4 py-3.5">
-                      <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-[#0033A0]">
-                        Qty: {item.quantity ?? 1}
-                      </span>
-                    </td>
-                    <td className="max-w-xs px-4 py-3.5">
-                      {item.condition_note ? (
-                        <span className="inline-flex items-start rounded-md border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900">
-                          <span className="mr-1 shrink-0 font-bold text-amber-700">Remarks:</span>
-                          {item.condition_note}
-                        </span>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
-                    <td className="px-4 py-3.5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => setItems((prev) => prev.filter((i) => i.key !== item.key))}
-                        className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                        title="Remove item"
-                      >
-                        <Icon name="trash" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-4 py-3.5 text-center">
+                        <div className="inline-flex items-center gap-1">
+                          {editing ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={saveRowEdit}
+                                className="rounded-md p-1.5 text-emerald-600 transition-colors hover:bg-emerald-50"
+                                title="Save changes"
+                              >
+                                <Icon name="check" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRowEdit(null)}
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                                title="Cancel edit"
+                              >
+                                <Icon name="x" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startRowEdit(item)}
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-[#0033A0]"
+                                title="Edit item"
+                              >
+                                <Icon name="edit" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setItems((prev) => prev.filter((i) => i.key !== item.key))}
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                                title="Remove item"
+                              >
+                                <Icon name="trash" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

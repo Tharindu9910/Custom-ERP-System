@@ -10,6 +10,7 @@ import {
   isReservationActive,
   roofingDisplayStatus,
   workshopDisplayStatus,
+  balanceDue,
   type AllocationLike,
   type GatePassItemLike,
   type GatePassSummary,
@@ -75,12 +76,14 @@ export async function buildGatePassViews(em: EntityManager, passes: GatePassRow[
     order_number: string;
     order_type: OrderType;
     status: OrderStatus;
+    total: number;
+    paid_amount: number;
     released_at: Date | null;
     line_statuses: LineStatus[];
     last_completed: Date | null;
   }[] = orderIds.length
     ? await em.query(
-        `SELECT o.order_id, o.order_number, o.order_type, o.status, o.released_at,
+        `SELECT o.order_id, o.order_number, o.order_type, o.status, o.total, o.paid_amount, o.released_at,
                 COALESCE(array_agg(l.status) FILTER (WHERE l.line_id IS NOT NULL), '{}') AS line_statuses,
                 max(l.completed_at) AS last_completed
          FROM "order" o LEFT JOIN order_line l ON l.order_id = o.order_id
@@ -103,7 +106,7 @@ export async function buildGatePassViews(em: EntityManager, passes: GatePassRow[
         closed_at: o.released_at,
       });
     } else {
-      const d = workshopDisplayStatus(o.status);
+      const d = workshopDisplayStatus(o.status, balanceDue(o.total, o.paid_amount));
       linked.set(o.order_id, {
         order_id: o.order_id,
         order_number: o.order_number,
@@ -111,7 +114,7 @@ export async function buildGatePassViews(em: EntityManager, passes: GatePassRow[
         status_label: WORKSHOP_STATUS_LABEL[d],
         // The material is used once the work is completed (prototype rule): every sub-job
         // done counts, even before the supervisor marks the card Completed
-        terminal: d === 'COMPLETED' || d === 'CLOSED' || allActiveLinesCompleted(statuses),
+        terminal: d === 'COMPLETED' || d === 'READY_FOR_COLLECTION' || d === 'CLOSED' || allActiveLinesCompleted(statuses),
         closed_at: o.last_completed,
       });
     }

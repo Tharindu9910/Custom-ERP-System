@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import {
@@ -6,12 +6,12 @@ import {
   OrderStatus,
   OrderType,
   PaymentMode,
-  Role,
   jobCardMinAdvance,
   paymentKindFor,
   type BranchSettings,
   type CloseJobCardDto,
   type RecordPaymentDto,
+  type SendToWorkshopDto,
 } from '@erp/shared';
 import type { Actor } from '../../common/actor';
 import { ERR, errWith } from '../../common/errors';
@@ -19,7 +19,6 @@ import { AuditService } from '../../core/audit.service';
 import { BranchContextService } from '../../core/branch-context.service';
 import { EventsService } from '../../core/events.service';
 import { NumberService } from '../../core/number.service';
-import { RolePermissionsService } from '../../core/role-permissions.service';
 import type { OrderEntity } from '../../database/entities/order.entity';
 import { LedgerService } from '../ledger/ledger.service';
 import { OrderAccessService } from './order-access.service';
@@ -41,7 +40,6 @@ export class PaymentsService {
     private readonly queries: OrderQueriesService,
     private readonly audit: AuditService,
     private readonly events: EventsService,
-    private readonly rolePermissions: RolePermissionsService,
   ) {}
 
   async record(orderId: string, dto: RecordPaymentDto, actor: Actor): Promise<OrderDetail> {
@@ -50,12 +48,8 @@ export class PaymentsService {
     ]);
     if (duplicate[0]) return this.queries.detail(duplicate[0].order_id, actor.branch_id);
 
-    // Collect & Close also closes the card, which needs its own permission
-    if (dto.close && !(await this.mayClose(actor))) throw new ForbiddenException(ERR.AUTH_INSUFFICIENT_PERMISSION);
-
     const settings = (await this.branches.get(actor.branch_id)).settings;
     let paymentId = '';
-    let closed = false;
     await this.ds.transaction(async (em) => {
       const order = await this.access.lockOrder(em, orderId, actor.branch_id);
       // Hardware sales are paid in full through /hardware-sales/:id/pay, which also deducts stock
@@ -67,38 +61,77 @@ export class PaymentsService {
 
       // BR05: a job card enters the Workshop Queue once the minimum advance is paid
       if (order.order_type === OrderType.JOB_CARD && order.status === OrderStatus.DRAFT) {
-        const lines: { line_total: number; is_customized: boolean }[] = await em.query(
-          `SELECT line_total, is_customized FROM order_line WHERE order_id = $1 AND status <> 'CANCELLED'`,
-          [orderId],
-        );
-        if (order.paid_amount + dto.amount >= jobCardMinAdvance(lines, settings)) {
-          await this.access.setOrderStatus(em, orderId, OrderStatus.IN_QUEUE);
-          await this.access.history(em, actor, {
-            order_id: orderId,
-            event_type: HistoryEventType.STATUS_CHANGE,
-            from_status: OrderStatus.DRAFT,
-            to_status: OrderStatus.IN_QUEUE,
-            note: 'Minimum advance paid — sent to the Workshop Queue',
-          });
+        if (order.paid_amount + dto.amount >= (await this.minAdvance(em, orderId))) {
+          await this.enterQueue(em, orderId, actor, 'Minimum advance paid — sent to the Workshop Queue');
         }
       }
-
-      // Collect & Close: the balance is now 0, so the completed card is handed over in the same transaction
-      if (dto.close && order.order_type === OrderType.JOB_CARD && order.status === OrderStatus.COMPLETED && order.paid_amount + dto.amount >= order.total) {
-        await this.closeLocked(em, order, { released_to: dto.released_to }, actor);
-        closed = true;
+      // An unpaid roofing order enters the Order Queue once the minimum to place is paid
+      if (order.order_type === OrderType.ROOFING_ORDER && order.status === OrderStatus.DRAFT) {
+        if (order.paid_amount + dto.amount >= minToPlace(order)) {
+          await this.enterQueue(em, orderId, actor, 'Minimum paid — sent to the Order Queue');
+        }
       }
+      // A completed card paid in full waits for the supervisor's hand-over (Docs/decisions/0005); paying never closes it
     });
 
     this.audit.record(actor, { type: 'payment', id: paymentId }, 'RECORD_PAYMENT', {
       after: { order_id: orderId, amount: dto.amount, mode: dto.mode },
     });
-    if (closed) this.audit.record(actor, { type: 'order', id: orderId }, 'CLOSE_JOB_CARD', { after: { released_to: dto.released_to ?? null } });
     this.events.changed(actor.branch_id, 'orders', 'payments');
     return this.queries.detail(orderId, actor.branch_id);
   }
 
-  /** Close & Hand Over: a completed job card with nothing owed becomes CLOSED (Docs/decisions/0005). */
+  /**
+   * Every new job card waits at the cashier (Docs/decisions/0005). With nothing due (a Rs 0
+   * minimum advance) the cashier sends it on without taking money.
+   */
+  async sendToWorkshop(orderId: string, dto: SendToWorkshopDto, actor: Actor): Promise<OrderDetail> {
+    await this.ds.transaction(async (em) => {
+      const order = await this.access.lockOrder(em, orderId, actor.branch_id, OrderType.JOB_CARD);
+      this.access.assertVersion(order.version, dto.version);
+      if (order.status !== OrderStatus.DRAFT) throw new ConflictException(ERR.ORDER_INVALID_TRANSITION);
+      if (order.paid_amount < (await this.minAdvance(em, orderId))) throw new ConflictException(ERR.ORDER_NOT_PAID);
+      await this.enterQueue(em, orderId, actor, 'No advance required — sent to the Workshop Queue by the cashier');
+    });
+    this.events.changed(actor.branch_id, 'orders');
+    return this.queries.detail(orderId, actor.branch_id);
+  }
+
+  /** The same for an unpaid roofing order whose branch minimum to place is Rs 0 (or already paid). */
+  async sendToOrderQueue(orderId: string, dto: SendToWorkshopDto, actor: Actor): Promise<OrderDetail> {
+    await this.ds.transaction(async (em) => {
+      const order = await this.access.lockOrder(em, orderId, actor.branch_id, OrderType.ROOFING_ORDER);
+      this.access.assertVersion(order.version, dto.version);
+      if (order.status !== OrderStatus.DRAFT) throw new ConflictException(ERR.ORDER_INVALID_TRANSITION);
+      if (order.paid_amount < minToPlace(order)) throw new ConflictException(ERR.ORDER_NOT_PAID);
+      await this.enterQueue(em, orderId, actor, 'No payment required — sent to the Order Queue by the cashier');
+    });
+    this.events.changed(actor.branch_id, 'orders');
+    return this.queries.detail(orderId, actor.branch_id);
+  }
+
+  /** The sum of the sub-job advances saved with the card (Docs/decisions/0010). */
+  private async minAdvance(em: EntityManager, orderId: string): Promise<number> {
+    const lines: { advance: number }[] = await em.query(
+      `SELECT suggested_advance AS advance FROM order_line WHERE order_id = $1 AND status <> 'CANCELLED'`,
+      [orderId],
+    );
+    return jobCardMinAdvance(lines);
+  }
+
+  /** DRAFT → IN_QUEUE: the order leaves the cashier for the Workshop or Order Queue. */
+  private async enterQueue(em: EntityManager, orderId: string, actor: Actor, note: string): Promise<void> {
+    await this.access.setOrderStatus(em, orderId, OrderStatus.IN_QUEUE);
+    await this.access.history(em, actor, {
+      order_id: orderId,
+      event_type: HistoryEventType.STATUS_CHANGE,
+      from_status: OrderStatus.DRAFT,
+      to_status: OrderStatus.IN_QUEUE,
+      note,
+    });
+  }
+
+  /** Check & Hand Over (supervisor): a completed job card with nothing owed becomes CLOSED (Docs/decisions/0005). */
   async close(orderId: string, dto: CloseJobCardDto, actor: Actor): Promise<OrderDetail> {
     await this.ds.transaction(async (em) => {
       const order = await this.access.lockOrder(em, orderId, actor.branch_id, OrderType.JOB_CARD);
@@ -108,10 +141,6 @@ export class PaymentsService {
     this.audit.record(actor, { type: 'order', id: orderId }, 'CLOSE_JOB_CARD', { after: { released_to: dto.released_to ?? null } });
     this.events.changed(actor.branch_id, 'orders');
     return this.queries.detail(orderId, actor.branch_id);
-  }
-
-  private async mayClose(actor: Actor): Promise<boolean> {
-    return actor.role === Role.SUPER_ADMIN || this.rolePermissions.has(actor.role, 'close:job_card');
   }
 
   /** Closes a locked job card. Paid amount is re-read so a payment earlier in the transaction counts. */
@@ -170,3 +199,6 @@ export class PaymentsService {
     return payment_id;
   }
 }
+
+/** The minimum fixed when an unpaid roofing order was submitted (header.min_to_place). */
+const minToPlace = (order: Pick<OrderEntity, 'header'>) => Number(order.header?.min_to_place ?? 0);

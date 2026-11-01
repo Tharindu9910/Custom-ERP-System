@@ -46,6 +46,7 @@ describe('AUTH login', () => {
         'cancel:job_card_draft',
         'create:work_order',
         'complete:work_order',
+        'close:job_card',
         'assign:worker',
         'enter_price:customized',
         'enter_price:standard',

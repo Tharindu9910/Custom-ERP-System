@@ -25,6 +25,7 @@ import { InventoryPage } from '@/routes/inventory';
 import { StockAlertsPage } from '@/routes/stock-alerts';
 import { StockRequestsPage } from '@/routes/stock-requests';
 import {
+  validateCashierQueueSearch,
   validateGatePassSearch,
   validateJobCardSearch,
   validateOrderFormSearch,
@@ -150,13 +151,13 @@ const orderNewRoute = createRoute({
   beforeLoad: requirePermission('create', 'roofing_order'),
 });
 
-// Cashier only (edit:order), while the order is still Placed
+// Unpaid orders at the cashier: whoever creates orders (from History); placed ones need edit:order (the form and server check)
 const orderEditRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/orders/$orderId/edit',
   component: OrderFormPage,
   validateSearch: validateOrderFormSearch,
-  beforeLoad: requirePermission('edit', 'order'),
+  beforeLoad: requirePermission('create', 'roofing_order'),
 });
 
 const orderQueueRoute = createRoute({
@@ -195,6 +196,7 @@ const cashierQueueRoute = createRoute({
   getParentRoute: () => layoutRoute,
   path: '/cashier-queue',
   component: CashierQueuePage,
+  validateSearch: validateCashierQueueSearch,
   beforeLoad: requirePermission('process', 'payment'),
 });
 

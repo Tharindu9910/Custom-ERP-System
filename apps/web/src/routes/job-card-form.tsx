@@ -1,34 +1,35 @@
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { JobCardSearch } from '@/app/search-params';
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { DEFAULT_BRANCH_SETTINGS, MaterialSource, isSearchablePhone, toBranchDate, type StockOverride, type WorkshopJobType } from '@erp/shared';
+import { DEFAULT_BRANCH_SETTINGS, LineStatus, MaterialSource, isSearchablePhone, type StockOverride, type WorkshopJobType } from '@erp/shared';
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog';
 import { SectionHeader } from '@/shared/components/FormSection';
 import { Icon } from '@/shared/components/Icon';
 import { Notice } from '@/shared/components/Notice';
+import { PageTabs } from '@/shared/components/PageTabs';
 import { StockOverrideDialog, type StockShortageDetails } from '@/shared/components/StockOverrideDialog';
 import { apiError, newRequestId } from '@/shared/api/errors';
 import { useBranchContext } from '@/shared/hooks/useBranchContext';
 import { readFormDraft, useFormDraft } from '@/shared/hooks/useFormDraft';
 import { usePermission } from '@/shared/hooks/usePermission';
-import { formatRs } from '@/shared/lib/format';
+import { formatRs, parseMoney } from '@/shared/lib/format';
 import { CustomerPhoneInput } from '@/modules/customers/components/CustomerPhoneInput';
 import { useAvailableGatePasses, useGatePass, type GatePassDto } from '@/modules/gate-passes/hooks/useGatePasses';
-import { CustomerMaterialPanel } from '@/modules/job-cards/components/CustomerMaterialPanel';
+import { CustomerMaterialPanel } from '@/modules/gate-passes/components/CustomerMaterialPanel';
 import { SubJobList } from '@/modules/job-cards/components/SubJobList';
 import { WorkOrderModal } from '@/modules/job-cards/components/WorkOrderModal';
-import { OrderHistoryModal } from '@/modules/orders/components/OrderHistoryModal';
+import { OrderHistoryPanel } from '@/modules/orders/components/OrderHistoryPanel';
 import { SubJobTemplate } from '@/modules/job-cards/components/SubJobTemplate';
 import { WorkerMultiSelect } from '@/modules/job-cards/components/WorkerMultiSelect';
-import { customerMaterialOptions, materialLabel, materialSpecs, usedByCard } from '@/modules/job-cards/lib/customer-material';
-import { emptySubJob, fromLineSpec, subJobIssues, toLineInput, type SubJobForm } from '@/modules/job-cards/lib/sub-job-form';
+import { customerMaterialOptions, materialLabel, materialSpecs, usedByCard } from '@/modules/gate-passes/lib/customer-material';
+import { emptySubJob, fromLineSpec, sheetKey, sheetNeeds, subJobIssues, toLineInput, type SubJobForm } from '@/modules/job-cards/lib/sub-job-form';
+import { useWorkshopCatalog } from '@/modules/job-cards/hooks/useWorkshopCatalog';
 import { useCreateJobCard, useJobCardQuote, useOrderDetail, useUpdateJobCard, type OrderDetailDto } from '@/modules/orders/hooks/useOrders';
 
 /** Everything typed on Create Job Card, kept while the user visits other pages (sessionStorage, see useFormDraft). */
 interface SavedDraft {
   phone: string;
   name: string;
-  jobDate: string;
   workerIds: string[];
   subJobs: SubJobForm[];
   /** The half-filled sub-job panel */
@@ -44,7 +45,6 @@ const labelCls = 'mb-2 block text-xs font-bold uppercase tracking-wider text-gra
 interface InitialState {
   phone: string;
   name: string;
-  jobDate: string;
   workerIds: string[];
   subJobs: SubJobForm[];
   template: SubJobForm | null;
@@ -81,7 +81,6 @@ export function JobCardFormPage() {
   let initial: InitialState = {
     phone: '',
     name: '',
-    jobDate: toBranchDate(),
     workerIds: [],
     subJobs: [],
     template: null,
@@ -94,7 +93,6 @@ export function JobCardFormPage() {
       ...initial,
       phone: saved.phone,
       name: saved.name,
-      jobDate: saved.jobDate,
       workerIds: saved.workerIds,
       subJobs: saved.subJobs.map(withDefaults),
       template: saved.template ? withDefaults(saved.template) : null,
@@ -108,7 +106,6 @@ export function JobCardFormPage() {
       ...initial,
       phone: existing.customer?.phone ?? '',
       name: existing.customer?.name ?? '',
-      jobDate: existing.header.job_date ?? toBranchDate(existing.created_at),
       workerIds: existing.workers.map((w) => w.employee_id),
       subJobs: active.map((l) => fromLineSpec(l.spec, l.line_id)),
     };
@@ -141,7 +138,7 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
   const isEdit = !!orderId;
   const { can } = usePermission();
 
-  const { settings, branch, featureOn } = useBranchContext();
+  const { settings, featureOn } = useBranchContext();
   const workshop = settings?.workshop ?? DEFAULT_BRANCH_SETTINGS.workshop;
   const general = settings?.general ?? DEFAULT_BRANCH_SETTINGS.general;
   // Customer material always comes from a gate pass item (Docs/decisions/0007)
@@ -153,7 +150,6 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
 
   const [phone, setPhone] = useState(initial.phone);
   const [name, setName] = useState(initial.name);
-  const [jobDate, setJobDate] = useState(initial.jobDate);
   const [workerIds, setWorkerIds] = useState<string[]>(initial.workerIds);
   const [subJobs, setSubJobs] = useState<SubJobForm[]>(initial.subJobs);
   const defaults = useMemo(
@@ -173,15 +169,22 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
   const [overrideError, setOverrideError] = useState<string | null>(null);
   const [restored, setRestored] = useState(initial.restored);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [historyOrderId, setHistoryOrderId] = useState<string | null>(null);
+  // Create / History tabs on a new card (the edit page is only the form); the tab lives in the URL
+  const search = useSearch({ strict: false }) as JobCardSearch;
+  const tab: 'create' | 'history' = !isEdit && search.tab === 'history' ? 'history' : 'create';
+  // History mounts on first visit and then stays, so its filters survive switching back and forth
+  const [historySeen, setHistorySeen] = useState(tab === 'history');
+  const setTab = (t: 'create' | 'history') => {
+    if (t === 'history') setHistorySeen(true);
+    void navigate({ to: '/job-cards/new', search: { gatePass: search.gatePass, tab: t === 'history' ? 'history' : undefined }, replace: true });
+  };
 
   // ── Draft: a new card is kept while the user visits other pages ────────────
-  const draftValue: SavedDraft = { phone, name, jobDate, workerIds, subJobs, template, editingKey, lastSource };
+  const draftValue: SavedDraft = { phone, name, workerIds, subJobs, template, editingKey, lastSource };
   const isBlank = (d: SavedDraft) =>
     !d.phone.trim() &&
     !d.name.trim() &&
-    d.jobDate === toBranchDate() &&
     d.workerIds.length === 0 &&
     d.subJobs.length === 0 &&
     !d.editingKey &&
@@ -191,7 +194,7 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
 
   // ── Customer material: the customer's gate pass items (Docs/decisions/0007) ─
   const phoneReady = isSearchablePhone(phone);
-  const passesQ = useAvailableGatePasses(phone, null, customerOn && (phoneReady || isEdit), orderId);
+  const passesQ = useAvailableGatePasses(phone, customerOn && (phoneReady || isEdit), orderId);
   // The card's saved material counts as used on the server; it is this card's to use again
   const [committed] = useState(() => {
     const c: Record<string, number> = {};
@@ -212,9 +215,47 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
     return names;
   }, [existing, options]);
 
+  // ── Branch sheets vs free stock: worked out here from one catalog load (Docs/decisions/0009) ─
+  const catalogQ = useWorkshopCatalog();
+  const sheetStock = catalogQ.data?.materials;
+  const overrideAllowed = catalogQ.data?.override_allowed ?? true;
+  // What this card already holds comes back to it on save (lines not started yet)
+  const [heldByCard] = useState(() => {
+    const h: Record<string, number> = {};
+    for (const l of existing?.lines ?? []) {
+      if (l.item_id && (l.status === LineStatus.PENDING || l.status === LineStatus.ASSIGNED)) h[l.item_id] = (h[l.item_id] ?? 0) + Number(l.quantity ?? 0);
+    }
+    return h;
+  });
+  const cardSheets = useMemo(() => sheetNeeds(subJobs, sheetStock ?? [], heldByCard), [subJobs, sheetStock, heldByCard]);
+  const templateSheet = useMemo(() => {
+    // The template replaces the row being edited, or comes on top of the saved rows
+    const jobs = editingKey ? subJobs.map((j) => (j.key === editingKey ? template : j)) : [...subJobs, template];
+    return sheetNeeds(jobs, sheetStock ?? [], heldByCard).get(sheetKey(template.material_type, template.thickness)) ?? null;
+  }, [subJobs, template, editingKey, sheetStock, heldByCard]);
+  const shortSheets = [...cardSheets.values()].filter((n) => n.need > n.free);
+  // Per sub-job warnings for the list: sheets short (branch) and pieces over what is left (customer)
+  const rowWarnings = useMemo(() => {
+    const w: Record<string, { short?: number; over?: number }> = {};
+    for (const j of subJobs) {
+      if (j.job_type === 'CUT_BEND' && j.material_source === MaterialSource.BRANCH) {
+        const n = cardSheets.get(sheetKey(j.material_type, j.thickness));
+        if (n && n.need > n.free) w[j.key] = { short: n.need - Math.max(0, n.free) };
+      }
+      if (j.material_source === MaterialSource.CUSTOMER && j.gp_item_id) {
+        const o = options.find((x) => x.gp_item_id === j.gp_item_id);
+        const used = usedOnCard[j.gp_item_id] ?? 0;
+        if (o && used > o.max) w[j.key] = { over: used - o.max };
+      }
+    }
+    return w;
+  }, [subJobs, cardSheets, options, usedOnCard]);
+
   // ── Derived ────────────────────────────────────────────────────────────────
   const lines = useMemo(() => subJobs.map(toLineInput), [subJobs]);
-  const quote = useJobCardQuote(lines);
+  // Typed advances are left out of the quote, so typing one costs no request; the advances are added up here
+  const quoteLines = useMemo(() => lines.map((l) => ({ ...l, advance: undefined })), [lines]);
+  const quote = useJobCardQuote(quoteLines);
   const pickedMaterial = editorMaterials.find((m) => m.gp_item_id === template.gp_item_id);
   const templateIssues = [
     ...subJobIssues(template),
@@ -225,7 +266,22 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
   const locked = isEdit && existing ? !existing.can_edit : false;
   const missingRates = quote.data?.missing_rates ?? [];
   const subtotal = quote.data?.subtotal ?? 0;
-  const minAdvance = quote.data?.min_advance ?? 0;
+  // Each sub-job's advance (Docs/decisions/0010): fixed on standard work, the supervisor's amount on custom work
+  const advances = useMemo(
+    () =>
+      subJobs.map((j, i) => {
+        const p = quote.data?.lines[i];
+        if (!p) return { value: 0, suggested: 0, editable: false, over: false };
+        const value = p.advance_editable && j.advance.trim() ? parseMoney(j.advance) : p.suggested_advance;
+        return { value, suggested: p.suggested_advance, editable: p.advance_editable, over: value > p.line_total };
+      }),
+    [subJobs, quote.data],
+  );
+  const minAdvance = advances.reduce((s, a) => s + a.value, 0);
+  const advanceOver = advances.some((a) => a.over);
+  const setAdvance = (key: string, advance: string) => setSubJobs((prev) => prev.map((j) => (j.key === key ? { ...j, advance } : j)));
+  // A payment fixes the card (Docs/decisions/0010); started work also locks it
+  const paidLock = isEdit && !!existing && existing.paid_amount > 0;
   const alreadyPaid = existing?.paid_amount ?? 0;
   // Older cards held customer material for the whole card, not per sub-job
   const unlinked = subJobs.some((j) => j.material_source === MaterialSource.CUSTOMER && !j.gp_item_id);
@@ -251,7 +307,8 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
   const submitTemplate = () => {
     if (templateIssues.length) return;
     if (editingKey) {
-      setSubJobs((prev) => prev.map((j) => (j.key === editingKey ? { ...template, key: editingKey } : j)));
+      // An edited sub-job goes back to its suggested advance
+      setSubJobs((prev) => prev.map((j) => (j.key === editingKey ? { ...template, key: editingKey, advance: '' } : j)));
       setEditingKey(null);
     } else {
       setSubJobs((prev) => [...prev, { ...template, key: crypto.randomUUID() }]);
@@ -290,7 +347,6 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
   const resetForm = () => {
     setPhone('');
     setName('');
-    setJobDate(toBranchDate());
     setWorkerIds([]);
     setSubJobs([]);
     setEditingKey(null);
@@ -325,6 +381,7 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
     if (workerIds.length === 0) return setError('Assign at least one worker.');
     if (missingRates.length > 0) return setError('Some sub-jobs have no standard rate. Mark them Custom and enter a price.');
     if (unlinked) return setError("Pick the gate pass item for each sub-job on the customer's material.");
+    if (advanceOver) return setError('A sub-job advance is more than its total.');
     const over = options.find((o) => (usedOnCard[o.gp_item_id] ?? 0) > o.max);
     if (over) return setError(`The sub-jobs use more ${over.material_type} than is left on ${over.pass_number} (${over.max}).`);
     await save();
@@ -334,7 +391,6 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
     setOverrideError(null);
     const body = {
       customer: { phone: phone.trim(), name: name.trim() },
-      job_date: jobDate,
       worker_ids: workerIds,
       lines,
       override,
@@ -342,10 +398,7 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
     try {
       if (isEdit && existing) {
         const res = await update.mutateAsync({ ...body, version: existing.version });
-        void navigate({
-          to: '/workshop-queue',
-          search: { notice: res.advance_shortfall > 0 ? `${res.order_number} updated — ${formatRs(res.advance_shortfall)} more advance is due at the cashier.` : `${res.order_number} updated.` },
-        });
+        void navigate({ to: '/workshop-queue', search: { notice: `${res.order_number} updated.` } });
         return;
       }
       const res = await create.mutateAsync({ ...body, client_request_id: requestId.current });
@@ -376,12 +429,8 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
               : `Cut / bend, coil cutting and rolling work for ${branch?.name ?? 'this branch'}. Submitting sends it to the Cashier Queue for the advance.`}
           </p> */}
         </div>
-        {!isEdit && (
+        {!isEdit && tab === 'create' && (
           <div className="flex shrink-0 items-center gap-2">
-            <button type="button" onClick={() => setHistoryOpen(true)} className="btn-secondary inline-flex items-center gap-1.5">
-              <Icon name="clock" className="h-4 w-4" />
-              History
-            </button>
             <button type="button" onClick={() => setConfirmClear(true)} disabled={formIsBlank} className="btn-secondary inline-flex items-center gap-1.5 disabled:opacity-50">
               <Icon name="x" className="h-4 w-4" />
               Clear all
@@ -390,218 +439,253 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
         )}
       </div>
 
-      {restored && !formIsBlank && (
-        <Notice tone="info" className="mb-4">
-          Your unfinished job card was kept while you were away. Carry on, or use Clear all to start again.
-        </Notice>
-      )}
+      <div className={isEdit ? '' : 'overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm'}>
+        {!isEdit && (
+          <PageTabs
+            tabs={[
+              { value: 'create', label: 'Create Job Card', icon: 'plus' },
+              { value: 'history', label: 'Job Card History', icon: 'clock' },
+            ]}
+            value={tab}
+            onChange={setTab}
+          />
+        )}
+        {/* The form stays mounted on the History tab, so nothing typed is lost */}
+        <div className={tab === 'history' ? 'hidden' : ''}>
+          <div className={isEdit ? '' : 'px-6 pt-6 empty:hidden'}>
+            {restored && !formIsBlank && (
+              <Notice tone="info" className="mb-4">
+                Your unfinished job card was kept while you were away. Carry on, or use Clear all to start again.
+              </Notice>
+            )}
 
-      {created && (
-        <div className="mb-6 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
-            <Icon name="checkCircle" className="h-6 w-6 shrink-0 text-emerald-600" />
-            <div>
-              <p className="text-sm font-bold text-emerald-900">Job card {created.orderNumber} created and sent to the Cashier Queue</p>
-              <p className="mt-0.5 text-xs text-emerald-800">
-                Total {formatRs(created.total)} · Minimum advance {formatRs(created.minAdvance)}
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => setCreated(null)} className="rounded-md px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100">
-              New Job Card
-            </button>
-            <button
-              type="button"
-              onClick={() => setHistoryOrderId(created.orderId)}
-              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
-            >
-              Open Job Card <Icon name="arrowRight" className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {locked && (
-        <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <Icon name="lock" className="h-5 w-5 shrink-0 text-amber-600" />
-          <span>Work has started on this job card, so it can no longer be edited.</span>
-        </div>
-      )}
-
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-        <form onSubmit={submit}>
-          <fieldset disabled={locked} className="contents">
-            {/* 1. Customer, date and workers */}
-            <div className="border-b border-gray-200 p-6">
-              <SectionHeader step={nextStep()} title="Customer & Job Details"/>
-              <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
-                <div>
-                  <label className={labelCls}>
-                    Customer Phone <span className="text-red-500">*</span>
-                  </label>
-                  <CustomerPhoneInput
-                    required
-                    value={phone}
-                    onChange={setPhone}
-                    onSelect={(c) => {
-                      setPhone(c.phone);
-                      setName(c.name);
-                    }}
-                    className={inputCls}
-                    placeholder="+94 77 xxxx xxx"
-                  />
+            {created && (
+              <div className="mb-6 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <Icon name="checkCircle" className="h-6 w-6 shrink-0 text-emerald-600" />
+                  <div>
+                    <p className="text-sm font-bold text-emerald-900">Job card {created.orderNumber} created and sent to the Cashier Queue</p>
+                    <p className="mt-0.5 text-xs text-emerald-800">
+                      Total {formatRs(created.total)} · Minimum advance {formatRs(created.minAdvance)}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <label className={labelCls}>
-                    Customer Name <span className="text-red-500">*</span>
-                  </label>
-                  <input required type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setCreated(null)} className="rounded-md px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100">
+                    New Job Card
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryOrderId(created.orderId)}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
+                  >
+                    Open Job Card <Icon name="arrowRight" className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <div>
-                  <label className={labelCls}>Date</label>
-                  <input required type="date" value={jobDate} onChange={(e) => setJobDate(e.target.value)} className={`${inputCls} min-w-0`} />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-5 border-t border-dashed border-gray-200 pt-5 sm:grid-cols-3">
-                <div className="sm:col-span-2">
-                  <label className={labelCls}>
-                    Worker(s) <span className="text-red-500">*</span>
-                  </label>
-                  <WorkerMultiSelect value={workerIds} onChange={setWorkerIds} />
-                </div>
-              </div>
-              {customerOn && (
-                <CustomerMaterialPanel
-                  phoneReady={phoneReady}
-                  loading={passesQ.isLoading}
-                  options={options}
-                  used={usedOnCard}
-                  canCreate={can('create', 'gate_pass')}
-                  onCreateNew={goCreateGatePass}
-                />
-              )}
-            </div>
-
-            {unlinked && !locked && (
-              <div className="border-b border-gray-200 px-6 py-4">
-                <Notice tone="warning">
-                  Some sub-jobs on the customer's material have no gate pass item yet. Edit each one and pick the item it uses.
-                </Notice>
               </div>
             )}
 
-            {/* 2. Add / edit sub-job */}
-            {!locked && (
-              <SubJobTemplate
-                id="job-card-editor"
-                step={nextStep()}
-                form={template}
-                onChange={changeTemplate}
-                workshop={workshop}
-                customerOn={customerOn}
-                materials={editorMaterials}
-                phoneReady={phoneReady}
-                canCreateGatePass={can('create', 'gate_pass')}
-                onCreateGatePass={goCreateGatePass}
-                counts={counts}
-                editing={!!editingKey}
-                issues={templateIssues}
-                onSubmit={submitTemplate}
-                onCancelEdit={() => {
-                  setEditingKey(null);
-                  setTemplate(blankTemplate(lastSource, template.job_type));
-                }}
-              />
+            {locked && (
+              <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <Icon name="lock" className="h-5 w-5 shrink-0 text-amber-600" />
+                <span>
+                  {paidLock
+                    ? "A payment has been taken on this job card, so it can't be edited."
+                    : 'Work has started on this job card, so it can no longer be edited.'}
+                </span>
+              </div>
             )}
-
-            <SubJobList
-              subJobs={subJobs}
-              priced={quote.data?.lines ?? []}
-              editingKey={editingKey}
-              locked={locked}
-              materialNames={materialNames}
-              onEdit={startEditing}
-              onDuplicate={duplicateSubJob}
-              onRemove={removeSubJob}
-            />
-
-            {/* Pricing */}
-            {subJobs.length > 0 && (
-              <div className="border-t border-gray-200 p-6">
-                <SectionHeader
-                  step={nextStep()}
-                  title="Pricing"
-                  hint={
-                    isEdit
-                      ? 'Prices are recalculated from the branch rates. Payments already taken are kept.'
-                      : 'Prices come from the branch rate table. The advance is collected at the Cashier Queue.'
-                  }
-                />
-                {missingRates.length > 0 && (
-                  <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                    <Icon name="alertCircle" className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>
-                      {missingRates.length === 1 ? 'One sub-job has' : `${missingRates.length} sub-jobs have`} no standard rate. Edit {missingRates.length === 1 ? 'it' : 'them'},
-                      choose <strong>Custom</strong> pricing and enter the price.
-                    </span>
+          </div>
+          <div className={isEdit ? 'rounded-lg border border-gray-200 bg-white shadow-sm' : ''}>
+            <form onSubmit={submit}>
+              <fieldset disabled={locked} className="contents">
+                {/* 1. Customer and workers (the job date is stamped by the server on create) */}
+                <div className="border-b border-gray-200 p-6">
+                  <SectionHeader step={nextStep()} title="Customer & Job Details"/>
+                  <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                    <div>
+                      <label className={labelCls}>
+                        Customer Phone <span className="text-red-500">*</span>
+                      </label>
+                      <CustomerPhoneInput
+                        required
+                        value={phone}
+                        onChange={setPhone}
+                        onSelect={(c) => {
+                          setPhone(c.phone);
+                          setName(c.name);
+                        }}
+                        className={inputCls}
+                        placeholder="+94 77 xxxx xxx"
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>
+                        Customer Name <span className="text-red-500">*</span>
+                      </label>
+                      <input required type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
+                    </div>
                   </div>
-                )}
-                <div className="max-w-lg space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-5">
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-base font-bold text-gray-900">
-                      Total ({subJobs.length} sub-job{subJobs.length !== 1 && 's'})
-                    </span>
-                    <span className="text-xl font-bold tabular-nums text-[#0033A0]">{formatRs(subtotal)}</span>
+                  <div className="grid grid-cols-1 gap-5 border-t border-dashed border-gray-200 pt-5 sm:grid-cols-3">
+                    <div className="sm:col-span-2">
+                      <label className={labelCls}>
+                        Worker(s) <span className="text-red-500">*</span>
+                      </label>
+                      <WorkerMultiSelect value={workerIds} onChange={setWorkerIds} />
+                    </div>
                   </div>
-                  <div className="flex justify-between border-t border-gray-200 pt-3 text-sm text-gray-600">
-                    <span>Advance to collect at the cashier</span>
-                    <span className="font-semibold tabular-nums text-gray-900">{formatRs(minAdvance)}</span>
-                  </div>
-                  {existing && (
-                    <>
-                      <div className="flex justify-between text-sm text-gray-600">
-                        <span>Already paid</span>
-                        <span className="font-semibold tabular-nums text-emerald-700">{formatRs(alreadyPaid)}</span>
-                      </div>
-                      {alreadyPaid > subtotal ? (
-                        <p className="text-xs font-semibold text-amber-700">Refund due: {formatRs(alreadyPaid - subtotal)}</p>
-                      ) : (
-                        <div className="flex justify-between text-sm text-gray-600">
-                          <span>Balance</span>
-                          <span className="font-semibold tabular-nums text-amber-700">{formatRs(subtotal - alreadyPaid)}</span>
-                        </div>
-                      )}
-                    </>
+                  {customerOn && (
+                    <CustomerMaterialPanel
+                      phoneReady={phoneReady}
+                      loading={passesQ.isLoading}
+                      options={options}
+                      used={usedOnCard}
+                      canCreate={can('create', 'gate_pass')}
+                      onCreateNew={goCreateGatePass}
+                    />
                   )}
                 </div>
+
+                {unlinked && !locked && (
+                  <div className="border-b border-gray-200 px-6 py-4">
+                    <Notice tone="warning">
+                      Some sub-jobs on the customer's material have no gate pass item yet. Edit each one and pick the item it uses.
+                    </Notice>
+                  </div>
+                )}
+
+                {/* 2. Add / edit sub-job */}
+                {!locked && (
+                  <SubJobTemplate
+                    id="job-card-editor"
+                    step={nextStep()}
+                    form={template}
+                    onChange={changeTemplate}
+                    workshop={workshop}
+                    customerOn={customerOn}
+                    materials={editorMaterials}
+                    phoneReady={phoneReady}
+                    canCreateGatePass={can('create', 'gate_pass')}
+                    onCreateGatePass={goCreateGatePass}
+                    counts={counts}
+                    editing={!!editingKey}
+                    issues={templateIssues}
+                    coils={catalogQ.data?.coils}
+                    coilsLoading={catalogQ.isPending}
+                    sheet={templateSheet}
+                    overrideAllowed={overrideAllowed}
+                    onSubmit={submitTemplate}
+                    onCancelEdit={() => {
+                      setEditingKey(null);
+                      setTemplate(blankTemplate(lastSource, template.job_type));
+                    }}
+                  />
+                )}
+
+                <SubJobList
+                  subJobs={subJobs}
+                  priced={quote.data?.lines ?? []}
+                  editingKey={editingKey}
+                  locked={locked}
+                  materialNames={materialNames}
+                  warnings={rowWarnings}
+                  advances={advances}
+                  onAdvance={setAdvance}
+                  onEdit={startEditing}
+                  onDuplicate={duplicateSubJob}
+                  onRemove={removeSubJob}
+                />
+
+                {/* Pricing */}
+                {subJobs.length > 0 && (
+                  <div className="border-t border-gray-200 p-6">
+                    <SectionHeader
+                      step={nextStep()}
+                      title="Pricing"
+                      hint={
+                        isEdit
+                          ? 'Prices are recalculated from the branch rates. Payments already taken are kept.'
+                          : 'Prices come from the branch rate table. Standard work takes its material cost as the advance; set the advance of custom work on each sub-job.'
+                      }
+                    />
+                    {missingRates.length > 0 && (
+                      <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                        <Icon name="alertCircle" className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>
+                          {missingRates.length === 1 ? 'One sub-job has' : `${missingRates.length} sub-jobs have`} no standard rate. Edit {missingRates.length === 1 ? 'it' : 'them'},
+                          choose <strong>Custom</strong> pricing and enter the price.
+                        </span>
+                      </div>
+                    )}
+                    <div className="max-w-lg space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-5">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-base font-bold text-gray-900">
+                          Total ({subJobs.length} sub-job{subJobs.length !== 1 && 's'})
+                        </span>
+                        <span className="text-xl font-bold tabular-nums text-[#0033A0]">{formatRs(subtotal)}</span>
+                      </div>
+                      <div className="flex justify-between border-t border-gray-200 pt-3 text-sm text-gray-600">
+                        <span>Advance to collect at the cashier</span>
+                        <span className="font-semibold tabular-nums text-gray-900">{formatRs(minAdvance)}</span>
+                      </div>
+                      {existing && (
+                        <>
+                          <div className="flex justify-between text-sm text-gray-600">
+                            <span>Already paid</span>
+                            <span className="font-semibold tabular-nums text-emerald-700">{formatRs(alreadyPaid)}</span>
+                          </div>
+                          {alreadyPaid > subtotal ? (
+                            <p className="text-xs font-semibold text-amber-700">Refund due: {formatRs(alreadyPaid - subtotal)}</p>
+                          ) : (
+                            <div className="flex justify-between text-sm text-gray-600">
+                              <span>Balance</span>
+                              <span className="font-semibold tabular-nums text-amber-700">{formatRs(subtotal - alreadyPaid)}</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </fieldset>
+
+              {error && (
+                <div className="px-6 pb-4">
+                  <Notice tone="error">{error}</Notice>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-4 rounded-b-lg border-t border-gray-200 bg-gray-50 p-6">
+                {/* Shortages are known before saving; only a branch with overrides off stops here */}
+                {shortSheets.length > 0 && (
+                  <p className={`mr-auto inline-flex items-center gap-1.5 text-sm font-medium ${overrideAllowed ? 'text-amber-700' : 'text-red-700'}`}>
+                    <Icon name="alertCircle" className="h-4 w-4 shrink-0" />
+                    Not enough stock: {shortSheets.map((n) => `${n.label} (${Math.max(0, n.free)} free, ${n.need} needed)`).join(', ')}.{' '}
+                    {overrideAllowed ? 'Saving will ask for a stock override.' : 'Overrides are off at this branch.'}
+                  </p>
+                )}
+                <button type="button" onClick={cancel} className="text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={locked || busy || advanceOver || (shortSheets.length > 0 && !overrideAllowed)}
+                  className="inline-flex items-center justify-center rounded-md border border-transparent bg-[#0033A0] px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                >
+                  {busy ? 'Saving…' : isEdit ? 'Update Job Card' : 'Submit Job Card'}
+                  <Icon name="arrowRight" className="ml-2 h-4 w-4" />
+                </button>
               </div>
-            )}
-          </fieldset>
-
-          {error && (
-            <div className="px-6 pb-4">
-              <Notice tone="error">{error}</Notice>
-            </div>
-          )}
-
-          <div className="flex items-center justify-end space-x-4 rounded-b-lg border-t border-gray-200 bg-gray-50 p-6">
-            <button type="button" onClick={cancel} className="text-sm font-medium text-gray-700 hover:text-gray-900 focus:outline-none">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={locked || busy}
-              className="inline-flex items-center justify-center rounded-md border border-transparent bg-[#0033A0] px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-            >
-              {busy ? 'Saving…' : isEdit ? 'Update Job Card' : 'Submit Job Card'}
-              <Icon name="arrowRight" className="ml-2 h-4 w-4" />
-            </button>
+            </form>
           </div>
-        </form>
+        </div>
+        {historySeen && (
+          <div className={tab === 'history' ? 'p-6' : 'hidden'}>
+            <OrderHistoryPanel type="job-cards" onOpenOrder={setHistoryOrderId} />
+          </div>
+        )}
       </div>
 
-      {historyOpen && <OrderHistoryModal type="job-cards" hidden={!!historyOrderId} onClose={() => setHistoryOpen(false)} onOpenOrder={setHistoryOrderId} />}
       {historyOrderId && (
         <WorkOrderModal
           readOnly
@@ -610,7 +694,6 @@ function JobCardForm({ orderId, existing, initial }: { orderId?: string; existin
           // Unpaid drafts are edited from here: they are not on the Workshop Queue board (Docs/decisions/0005)
           onEdit={() => {
             setHistoryOrderId(null);
-            setHistoryOpen(false);
             void navigate({ to: '/job-cards/$orderId/edit', params: { orderId: historyOrderId } });
           }}
         />

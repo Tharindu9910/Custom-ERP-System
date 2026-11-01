@@ -24,6 +24,14 @@ export class InventoryController {
     return this.inventory.item(itemId, toActor(u, b).branch_id);
   }
 
+  // Sidebar badge: just the number, refetched on live "stock" nudges (no polling)
+  @Get('stock-alerts/count')
+  @RequirePermissions('view:stock_alerts')
+  @RequireFeature({ feature: 'stockAlerts' })
+  alertCount(@CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+    return this.inventory.alertCount(toActor(u, b).branch_id);
+  }
+
   @Get('stock-alerts')
   @RequirePermissions('view:stock_alerts')
   @RequireFeature({ feature: 'stockAlerts' })
