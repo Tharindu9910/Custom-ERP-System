@@ -74,7 +74,7 @@ test.describe('branch config', () => {
   test('SA-13 leaving with unsaved changes asks first', async ({ page }) => {
     await openBranch(page, 'Veyangoda');
     await section(page, 'Features').click();
-    await page.getByRole('switch', { name: 'Inventory' }).click();
+    await page.getByRole('switch', { name: 'Stock Levels' }).click();
     page.once('dialog', (d) => void d.dismiss());
     await page.getByRole('button', { name: 'All branches' }).click();
     await expect(page.getByText('You have unsaved changes.')).toBeVisible();
@@ -239,14 +239,14 @@ test.describe('role permissions', () => {
       await expect(save).toHaveText('Save');
       await signIn(supPage, SUP.thangalla);
       await supPage.goto('/gate-pass');
-      expect(await menuLabels(supPage)).not.toContain('Inventory');
+      expect(await menuLabels(supPage)).not.toContain('Stock Levels');
     } finally {
       await box.check();
       await save.click();
       await expect(save).toHaveText('Save');
     }
     await supPage.reload();
-    expect(await menuLabels(supPage)).toContain('Inventory');
+    expect(await menuLabels(supPage)).toContain('Stock Levels');
     await sup.close();
   });
 });

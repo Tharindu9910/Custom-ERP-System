@@ -122,9 +122,9 @@ async function screens(username: string): Promise<void> {
     check(`${who} Inventory available = on hand − reserved, never negative`, off.length === 0, off.map((r) => r.name).join(', '));
   }
 
-  const alerts = await tabs<{ needs_restock: number; critical: number; low: number; healthy: number }>(
+  const alerts = await tabs<{ needs_restock: number; critical: number; low: number; healthy: number; requested: number }>(
     who,
-    'Stock Alerts',
+    'Restock',
     token,
     (f) => `/stock-alerts?filter=${f}`,
     [
@@ -134,9 +134,9 @@ async function screens(username: string): Promise<void> {
     ],
   );
   if (alerts && inv) {
-    check(`${who} Stock Alerts critical = Inventory out`, alerts.critical === inv.out);
-    check(`${who} Stock Alerts low = Inventory low`, alerts.low === inv.low);
-    check(`${who} Stock Alerts healthy = Inventory healthy`, alerts.healthy === inv.healthy);
+    // Items already asked for are listed apart (Docs/decisions/0012)
+    check(`${who} Restock to-do + requested = Stock Levels low + out`, alerts.needs_restock + alerts.requested === inv.low + inv.out);
+    check(`${who} Restock healthy = Stock Levels healthy`, alerts.healthy === inv.healthy);
   }
 
   // Stock Requests: header totals and action badges against the full lists

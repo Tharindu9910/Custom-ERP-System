@@ -1,7 +1,7 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import type { AlertSeverity, InventoryQuery, ItemType, MovementType, OpenRequestInfo, StockAlertQuery, StockLevel } from '@erp/shared';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AlertSeverity, InventoryQuery, ItemType, MovementType, OpenRequestInfo, StockAlertQuery, StockLevel, UpdateStockMinimumDto } from '@erp/shared';
 import { apiClient } from '@/shared/api/client';
-import { queryKeys } from '@/shared/api/query-keys';
+import { LIVE_TOPIC_KEYS, queryKeys } from '@/shared/api/query-keys';
 import { LIVE_QUERY_OPTIONS } from '@/shared/live/useLiveUpdates';
 
 export interface StockRowDto {
@@ -11,12 +11,14 @@ export interface StockRowDto {
   category: string;
   unit: string;
   item_type: ItemType;
-  /** On hand; health and alerts are based on this */
+  /** On hand (on the shelf) */
   stock: number;
   /** Held for open orders until their work starts */
   reserved: number;
   /** On hand minus reserved */
   available: number;
+  /** Free for new work: available minus what orders booked beyond stock. Status follows this (Docs/decisions/0009) */
+  free: number;
   reorder_level: number;
   level: StockLevel;
   open_request: OpenRequestInfo | null;
@@ -55,8 +57,11 @@ export interface InventoryList {
 }
 
 export interface AlertList {
+  /** Below minimum and not asked for yet */
   rows: AlertRowDto[];
-  counts: { needs_restock: number; critical: number; low: number; healthy: number };
+  /** Below minimum, already on an open request (Docs/decisions/0012) */
+  requested: AlertRowDto[];
+  counts: { needs_restock: number; critical: number; low: number; healthy: number; requested: number };
   categories: string[];
 }
 
@@ -78,11 +83,22 @@ export function useInventoryItem(itemId: string | null, branchId?: string) {
     queryKey: queryKeys.inventory.item(itemId ?? '', branchId),
     queryFn: async () =>
       (
-        await apiClient.get<{ data: StockRowDto & { movements: MovementDto[]; reservations: ReservationDto[] } }>(`/inventory/${itemId}`, {
+        await apiClient.get<{ data: InventoryItemDto }>(`/inventory/${itemId}`, {
           headers: branchId ? { 'X-Branch-Id': branchId } : undefined,
         })
       ).data.data,
     enabled: !!itemId,
+  });
+}
+
+export type InventoryItemDto = StockRowDto & { movements: MovementDto[]; reservations: ReservationDto[] };
+
+/** Branch manager sets an item's minimum (Docs/decisions/0012); Restock and the badge follow. */
+export function useSetMinimum(itemId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (dto: UpdateStockMinimumDto) => (await apiClient.patch<{ data: InventoryItemDto }>(`/inventory/${itemId}/minimum`, dto)).data.data,
+    onSuccess: () => Promise.all(LIVE_TOPIC_KEYS.stock.map((key) => qc.invalidateQueries({ queryKey: key }))),
   });
 }
 
@@ -114,7 +130,7 @@ export interface NetworkStockRowDto {
   total: number;
   /** Worst level at any branch */
   level: StockLevel;
-  stocks: Record<string, { stock: number; reorder_level: number; level: StockLevel }>;
+  stocks: Record<string, { stock: number; reserved: number; reorder_level: number; level: StockLevel }>;
 }
 
 export interface NetworkInventoryList {
@@ -133,6 +149,7 @@ export interface NetworkAlertRowDto extends AlertRowDto {
 export interface NetworkAlertList {
   branches: NetworkBranchDto[];
   rows: NetworkAlertRowDto[];
+  requested: NetworkAlertRowDto[];
   counts: AlertList['counts'];
   categories: string[];
 }

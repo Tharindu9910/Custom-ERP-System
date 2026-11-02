@@ -1,13 +1,3 @@
-import type { TransferDisplayStatus } from '@erp/shared';
-
-export const TRANSFER_STATUS_STYLE: Record<TransferDisplayStatus, string> = {
-  WAITING: 'bg-amber-50 text-amber-800 border-amber-200',
-  SENT: 'bg-blue-50 text-blue-800 border-blue-200',
-  RECEIVED: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  REJECTED: 'bg-rose-50 text-rose-800 border-rose-200',
-  CANCELLED: 'bg-slate-100 text-slate-600 border-slate-200',
-};
-
 /** "piece" → "pieces"; kg and ft never change (prototype unitLabel). */
 export const unitLabel = (qty: number, unit?: string) => (!unit ? '' : qty === 1 || unit === 'kg' || unit === 'ft' ? unit : `${unit}s`);
 

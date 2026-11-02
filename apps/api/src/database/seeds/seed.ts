@@ -40,6 +40,8 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'view:price_list',
     'configure:price_list',
     'configure:item_prices',
+    // The catalogue is global master data, like the price list (Docs/decisions/0013)
+    'create:item',
     'configure:branch',
     'manage:users',
     'view:audit_log',
@@ -76,6 +78,8 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'view:stock_alerts',
     'request:stock',
     'send:stock',
+    // New products wait for the branch manager (Docs/decisions/0013)
+    'request:new_item',
     'create:chief_profile',
     // Hardware Store for own branch only; the cashier takes the money (Docs/decisions/0006)
     'create:hardware_sale',
@@ -126,6 +130,10 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'close:job_card',
     'manage:workers',
     'override:stock',
+    // Restock works from these minimums (Docs/decisions/0012)
+    'configure:stock_minimum',
+    'request:new_item',
+    'approve:item_request',
     'resolve:conflict_queue',
     'view:audit_log',
     'view:financial_report',

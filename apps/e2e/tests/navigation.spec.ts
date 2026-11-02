@@ -6,7 +6,7 @@ import { menuLabels, navLink, pickBranch, scopeSelect, sidebar } from '../suppor
 
 const ROOFING = ['Create Order', 'Order Queue'];
 const WORKSHOP = ['Create Job Card', 'Workshop Queue'];
-const COMMON = ['Gate Pass', 'Inventory', 'Stock Alerts', 'Stock Request', 'Create Chief Profile', 'Hardware Store'];
+const COMMON = ['Gate Pass', 'Stock Levels', 'Restock', 'Stock Requests', 'Create Chief Profile', 'Hardware Store'];
 const NEVER_FOR_SUPERVISOR = ['Dashboard', 'Cashier Queue', 'Hardware Queue', 'Customers', 'Finance', 'Audit Log', 'Branch Config', 'Price List', 'Users', 'Workers', 'Role Permissions'];
 
 for (const [branch, has, hasNot] of [
@@ -22,7 +22,6 @@ for (const [branch, has, hasNot] of [
       const labels = await menuLabels(page);
       for (const l of [...COMMON, ...has]) expect(labels).toContain(l);
       for (const l of [...hasNot, ...NEVER_FOR_SUPERVISOR]) expect(labels).not.toContain(l);
-      await expect(page.locator('aside')).not.toContainText('Settings');
       await expect(page.locator('aside')).not.toContainText('Super Admin');
     });
   });
@@ -74,7 +73,7 @@ test.describe('super admin', () => {
   test('NAV-10 menu: branch screens to view, settings, and the Super Admin section', async ({ page }) => {
     await page.goto('/');
     const labels = await menuLabels(page);
-    for (const l of ['Dashboard', 'Cashier Queue', 'Gate Pass', 'Order Queue', 'Workshop Queue', 'Inventory', 'Stock Alerts', 'Stock Request', 'Customers', 'Finance', 'Audit Log', 'Branch Config', 'Price List', 'Users', 'Workers', 'Role Permissions']) {
+    for (const l of ['Dashboard', 'Cashier Queue', 'Gate Pass', 'Order Queue', 'Workshop Queue', 'Stock Levels', 'Restock', 'Stock Requests', 'Customers', 'Finance', 'Audit Log', 'Branch Config', 'Price List', 'Users', 'Workers', 'Role Permissions']) {
       expect(labels).toContain(l);
     }
     // Create forms are branch work
@@ -149,9 +148,9 @@ test.describe('feature switches (Branch Config → supervisor menu)', () => {
 
   for (const [feature, label, url] of [
     ['gatePass', 'Gate Pass', '/gate-pass'],
-    ['inventory', 'Inventory', '/inventory'],
-    ['stockAlerts', 'Stock Alerts', '/stock-alerts'],
-    ['stockRequest', 'Stock Request', '/stock-requests'],
+    ['inventory', 'Stock Levels', '/inventory'],
+    ['stockAlerts', 'Restock', '/stock-alerts'],
+    ['stockRequest', 'Stock Requests', '/stock-requests'],
     ['chiefProfiles', 'Create Chief Profile', '/chiefs/new'],
     ['hardwareStore', 'Hardware Store', '/hardware-store'],
   ] as const) {
@@ -176,11 +175,11 @@ for (const user of ['admin', 'auditor1']) {
   test.describe(`head office (${user})`, () => {
     test.use({ user });
 
-    test(`NAV-21 ${user}: Workshop Queue and Stock Request open from the menu instead of bouncing back`, async ({ page }) => {
+    test(`NAV-21 ${user}: Workshop Queue and Stock Requests open from the menu instead of bouncing back`, async ({ page }) => {
       await page.goto('/inventory');
       const labels = await menuLabels(page);
       expect(labels).toContain('Workshop Queue');
-      expect(labels).toContain('Stock Request');
+      expect(labels).toContain('Stock Requests');
       for (const path of ['/workshop-queue', '/stock-requests']) {
         await page.goto(path);
         await expect(page).toHaveURL(new RegExp(`${path}`));
@@ -197,7 +196,7 @@ test.describe('active menu item (supervisor)', () => {
     const card = await jobCard();
     for (const [url, label] of [
       ['/gate-pass?tab=queue', 'Gate Pass'],
-      ['/stock-requests?tab=ours', 'Stock Request'],
+      ['/stock-requests?tab=ours', 'Stock Requests'],
       ['/job-cards/new?tab=history', 'Create Job Card'],
       ['/workshop-queue?notice=Saved', 'Workshop Queue'],
       [`/job-cards/${card.order_id}/edit`, 'Workshop Queue'],

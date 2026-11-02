@@ -32,9 +32,9 @@ const FEATURE_GROUPS: { title: string; items: { key: FeatureKey; label: string; 
     title: 'Supervisor & Chief',
     items: [
       { key: 'gatePass', label: 'Gate Pass', description: 'Record customer-supplied material coming into the branch.' },
-      { key: 'inventory', label: 'Inventory', description: 'View branch stock levels.' },
-      { key: 'stockAlerts', label: 'Stock Alerts', description: 'Low and out-of-stock warnings.' },
-      { key: 'stockRequest', label: 'Stock Request', description: 'Request stock from other branches.' },
+      { key: 'inventory', label: 'Stock Levels', description: 'Look up branch stock: on hand, booked and free.' },
+      { key: 'stockAlerts', label: 'Restock', description: 'Items below their minimum, ready to request.' },
+      { key: 'stockRequest', label: 'Stock Requests', description: 'Request stock from other branches, send and receive.' },
       { key: 'chiefProfiles', label: 'Chief Profiles', description: 'Supervisors can create chief accounts.' },
     ],
   },

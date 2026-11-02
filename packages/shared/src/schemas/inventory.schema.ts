@@ -15,7 +15,13 @@ export const InventoryQuerySchema = z.object({
 });
 export type InventoryQuery = z.infer<typeof InventoryQuerySchema>;
 
-export const STOCK_ALERT_FILTERS = ['NEEDS_RESTOCK', 'CRITICAL', 'LOW'] as const;
+/** A branch manager sets the minimum that Restock works from (Docs/decisions/0012). */
+export const UpdateStockMinimumSchema = z.object({
+  reorder_level: Quantity.min(0, 'The minimum cannot be negative'),
+});
+export type UpdateStockMinimumDto = z.infer<typeof UpdateStockMinimumSchema>;
+
+export const STOCK_ALERT_FILTERS =['NEEDS_RESTOCK', 'CRITICAL', 'LOW'] as const;
 export const StockAlertQuerySchema = z.object({
   filter: z.enum(STOCK_ALERT_FILTERS).default('NEEDS_RESTOCK'),
   category: z.string().trim().max(80).optional(),

@@ -40,6 +40,10 @@ import {
   roofingDisplayStatus,
   roofingTotals,
   freeStock,
+  itemDuplicateKey,
+  ApproveItemRequestSchema,
+  CreateItemRequestSchema,
+  ItemType,
   stockAlertInfo,
   stockLevel,
   toBranchDate,
@@ -371,6 +375,7 @@ describe('stock status (one definition for Inventory and Alerts)', () => {
     // Booked 3 beyond stock with an override → out, and the deficit covers the shortfall
     expect(freeStock(5, 5, 3)).toBe(-3);
     expect(stockLevel(freeStock(5, 5, 3), 2)).toBe('OUT');
+    expect(stockAlertInfo(freeStock(5, 5, 3), 2)).toEqual({ severity: 'CRITICAL', deficit: 5 });
     expect(stockLevel(freeStock(10, 2), 3)).toBe('HEALTHY');
   });
 });
@@ -567,5 +572,32 @@ describe('hardware sales (Docs/decisions/0006)', () => {
     expect(CreateHardwareSaleSchema.safeParse({ ...base, lines: [{ item_id: A, quantity: 1 }, { item_id: A, quantity: 2 }] }).success).toBe(false);
     const parsed = CreateHardwareSaleSchema.parse({ ...base, lines: [{ item_id: B, quantity: 1, unit_price: 1 }] });
     expect('unit_price' in parsed.lines[0]).toBe(false);
+  });
+});
+
+describe('new catalogue items (Docs/decisions/0013)', () => {
+  it('duplicate key: sheets by material + thickness, coils by origin + thickness + colour, hardware none', () => {
+    expect(itemDuplicateKey(ItemType.MATERIAL, { material_type: 'MS Plain', thickness: '2mm' })).toBe(
+      itemDuplicateKey(ItemType.MATERIAL, { material_type: ' ms plain ', thickness: '2MM', color: 'x' }),
+    );
+    expect(itemDuplicateKey(ItemType.MATERIAL, { material_type: 'MS Plain', thickness: '2mm' })).not.toBe(
+      itemDuplicateKey(ItemType.MATERIAL, { material_type: 'MS Plain', thickness: '3mm' }),
+    );
+    expect(itemDuplicateKey(ItemType.COIL, { origin: 'CN', thickness: '0.47mm', color: 'RED' })).toBe('cn|0.47mm|red');
+    expect(itemDuplicateKey(ItemType.HARDWARE, { size: '12mm' })).toBeNull();
+  });
+
+  const base = { name: 'GI sheet', category: 'Sheets', unit: 'sheet', client_request_id: '00000000-0000-4000-8000-000000000001' };
+  it('a request needs the attributes pricing uses; the approval needs a price (except coils)', () => {
+    expect(CreateItemRequestSchema.safeParse({ ...base, item_type: 'MATERIAL', attributes: { material_type: 'GI' } }).success).toBe(false);
+    expect(CreateItemRequestSchema.safeParse({ ...base, item_type: 'MATERIAL', attributes: { material_type: 'GI', thickness: '1mm' } }).success).toBe(true);
+    expect(CreateItemRequestSchema.safeParse({ ...base, item_type: 'HARDWARE' }).success).toBe(true);
+    const live = { name: 'Hinge', item_type: 'HARDWARE', category: 'Fittings', unit: 'piece', sku: 'fit-hg-001', unit_cost: 0, reorder_level: 5 };
+    expect(ApproveItemRequestSchema.safeParse({ ...live, price: 0 }).success).toBe(false);
+    const ok = ApproveItemRequestSchema.parse({ ...live, price: 1500 });
+    expect(ok.sku).toBe('FIT-HG-001');
+    const coil = { ...live, item_type: 'COIL', unit: 'ft', attributes: { origin: 'CN', thickness: '0.47mm', color: 'RED' }, price: 0 };
+    expect(ApproveItemRequestSchema.safeParse(coil).success).toBe(true);
+    expect(ApproveItemRequestSchema.safeParse({ ...live, sku: 'bad sku!', price: 100 }).success).toBe(false);
   });
 });

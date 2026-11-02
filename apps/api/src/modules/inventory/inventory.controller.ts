@@ -1,5 +1,12 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
-import { InventoryQuerySchema, StockAlertQuerySchema, type InventoryQuery, type StockAlertQuery } from '@erp/shared';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query } from '@nestjs/common';
+import {
+  InventoryQuerySchema,
+  StockAlertQuerySchema,
+  UpdateStockMinimumSchema,
+  type InventoryQuery,
+  type StockAlertQuery,
+  type UpdateStockMinimumDto,
+} from '@erp/shared';
 import { toActor } from '../../common/actor';
 import { BranchId, CurrentUser, RequireFeature, RequirePermissions } from '../../common/decorators';
 import type { RequestUser } from '../../common/types';
@@ -22,6 +29,19 @@ export class InventoryController {
   @RequireFeature({ feature: 'inventory' })
   item(@Param('itemId', ParseUUIDPipe) itemId: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.inventory.item(itemId, toActor(u, b).branch_id);
+  }
+
+  // Branch work (@BranchId): head office gets CTX_003, the branch manager sets it (Docs/decisions/0012)
+  @Patch('inventory/:itemId/minimum')
+  @RequirePermissions('configure:stock_minimum')
+  @RequireFeature({ feature: 'inventory' })
+  setMinimum(
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body(new ZodPipe(UpdateStockMinimumSchema)) dto: UpdateStockMinimumDto,
+    @CurrentUser() u: RequestUser,
+    @BranchId() b: string | null,
+  ) {
+    return this.inventory.setMinimum(itemId, dto.reorder_level, toActor(u, b));
   }
 
   // Sidebar badge: just the number, refetched on live "stock" nudges (no polling)

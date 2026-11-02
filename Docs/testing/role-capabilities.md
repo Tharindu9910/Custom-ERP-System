@@ -76,7 +76,7 @@ Seeded branches:
 | Hardware Queue · Paid Today | Counter sale paid in one step | `cashier_naiwala` |
 | Hardware sale · Cancelled | Held stock freed (detail only; leaves the board) | Veyangoda |
 | Hardware Store | Own branch only (supervisor) / own branch + other branches (cashier) | `supervisor_naiwala`, `cashier_naiwala` → Change branch |
-| Inventory / Alerts | Healthy, low and out-of-stock items | Every branch (opening stock); an open request shows on its item |
+| Stock Levels / Restock | Healthy, low and out-of-stock items | Every branch (opening stock); an open request shows on its item |
 | Stock Requests | Waiting (to send) | `supervisor_thangalla`: from Veyangoda (gate pipes); `supervisor_naiwala`: from Thangalla (urgent) |
 | | **Late** (needed by yesterday, still waiting) | `supervisor_naiwala` → Requests to Us, "Overdue example" |
 | | Sent in full, to receive | `supervisor_thangalla` → Our Requests (bolts) |
@@ -97,13 +97,13 @@ The e2e suites leave their own test records behind. To get back to just the samp
 
 | Case | Supervisor | Super Admin | Tests |
 |---|---|---|---|
-| Menu | Gate Pass, Inventory, Stock Alerts, Stock Request and Create Chief Profile at every branch. Roofing branches add Create Order and Order Queue; workshop branches add Create Job Card and Workshop Queue. No Settings section. | Every screen to view, plus Settings and Role Permissions. No create forms. Finance and Audit Log appear as disabled "Coming soon" entries. | NAV-01, NAV-10, NAV-11 |
+| Menu | Gate Pass and Create Chief Profile at every branch, plus a Stock section (Stock Levels, Restock, Stock Requests). Roofing branches add Create Order and Order Queue; workshop branches add Create Job Card and Workshop Queue. No Settings section. | Every screen to view, plus Settings and Role Permissions. No create forms. Finance and Audit Log appear as disabled "Coming soon" entries. | NAV-01, NAV-10, NAV-11 |
 | Landing page | Gate Pass | Dashboard placeholder | AUTH-13, AUTH-14, NAV-04 |
 | Cashier, Customers, Workers, Settings URLs | Redirected | Allowed (view only where it is branch work) | NAV-02, NAV-03, SA-40…42 |
 | Screen the branch doesn't run (module off, or wrong branch type) | Shows "<Screen> isn't used at <Branch>"; the API answers `CTX_002` | The picker lists only branches that run the screen; a wrong pick explains itself | NAV-06, NAV-14, NAV-15, NAV-20, ACC-06, ACC-23, SA-CFG-01 |
 | Create forms (`/orders/new`, `/job-cards/*`, `/chiefs/new`) | Allowed | Shows "This page is for branch staff" | NAV-18 |
 | Branch pages before a branch is picked | n/a | "Choose a branch to view"; then the page with a View only tag. The pick survives a reload. | NAV-13, NAV-16 |
-| Network pages (Inventory, Stock Alerts, Stock Requests) | Own branch only; `/network/*` answers `CTX_004` | Defaults to "All branches" | NAV-17, ACC-05, ACC-22 |
+| Network pages (Stock Levels, Restock, Stock Requests) | Own branch only; `/network/*` answers `CTX_004` | Defaults to "All branches" | NAV-17, ACC-05, ACC-22 |
 | Any write to branch work | Allowed on own branch | `403 CTX_003`, and nothing changes | ACC-10…13 |
 | Another branch's records | 404 | 404 unless that branch is picked | ACC-04, ACC-24…26 |
 | Permissions the supervisor lacks (cashier queue, payments, order edit and cancel, users, branches, role permissions, workers) | `403 AUTH_004` | Allowed | ACC-21 |
@@ -180,17 +180,30 @@ The e2e suites leave their own test records behind. To get back to just the samp
 | Chief: BR21 message; no Release | n/a | n/a | OQ-07, OQ-08, OQ-26 |
 | Detail modal: items, payments, timeline | ✅ | ✅ (no actions) | OQ-23, OQ-27 |
 
-## Inventory and Stock Alerts (INV, ALR)
+## Stock Levels and Restock (INV, ALR, RST) — Docs/decisions/0012
 
 | Action | Supervisor | Super Admin | Tests |
 |---|---|---|---|
-| Tabs All, Healthy, Low and Out: counts equal rows, and they add up | ✅ (own branch) | ✅ (per branch) | INV-01, INV-10 |
+| Look-up cards All items / Booked / Requested: counts equal rows; Below minimum opens Restock | ✅ (own branch) | ✅ (per branch) | INV-01, INV-10 |
 | Search, category, sort, Clear Filters | ✅ | ✅ | INV-02, INV-11 |
 | Details with recent movements and no other-branch figures (BR06) | ✅ | ✅ (read only) | INV-03, INV-12, INV-21 |
-| Request from another branch or View request; the open-request marker on the row | ✅ | ❌ | INV-05, INV-13, INV-14 |
+| On hand / Booked / Free; a low item's details link to Restock (requests start only there); View request; the open-request marker on the row | ✅ | ❌ | INV-05, INV-13, INV-14, INV-16 |
+| Set an item's minimum (MANAGER only; supervisor and head office 403) | ❌ | ❌ (403) | RST-01, RST-02, INV-17 |
 | Coils hidden at a workshop-only branch | ✅ | n/a | INV-04, INV-15 |
 | All-branches grid with totals | ❌ (`CTX_004`) | ✅ | INV-20, ACC-05 |
-| Alerts: KPIs agree with Inventory; deficit math; per-row Request; bulk select, Request selected, Clear | ✅ | Read only | ALR-01, ALR-02, ALR-10…12, ALR-20 |
+| Restock cards To restock → Requested → On the way = Stock Levels low + out; deficit math; tick, Send request from the floating bar, the item moves to Requested and leaves the badge; More options opens the New Request popup; Clear | ✅ | Read only | ALR-01, ALR-02, ALR-10…12, ALR-20, RST-03 |
+| Stock Requests badge = to send + to receive | ✅ | no badge | RST-04 |
+
+## New catalogue products (ITM) — Docs/decisions/0013
+
+| Action | Supervisor | Branch manager | Head office | Tests |
+|---|---|---|---|---|
+| Ask for a new product (Stock Levels → New item); it waits, not in the catalogue or stock-request search; retry-safe | ✅ | ✅ (posts directly) | ❌ (`CTX_003`) | ITM-01, ITM-06, ITM-10 |
+| Approve with SKU, price > 0 (coils may be 0) and minimum: item live, branch keeps it at qty 0, audited | ❌ (403) | ✅ own branch only (other branch `ITM_003`) | ❌ (403) | ITM-02, ITM-04, ITM-11 |
+| Reject with a reason; cancel own waiting request; decided requests are final (`ITM_004`) | cancel own | ✅ | ❌ | ITM-03 |
+| Duplicates refused: same sheet material + thickness, same coil, same hardware name, taken SKU | ✅ | ✅ | ✅ | ITM-05 |
+| Add directly from Price List → Item prices | ❌ | ❌ | ✅ (`create:item`) | ITM-06, ITM-12 |
+| Read a branch's requests | own branch | own branch | ✅ view only | ITM-04 |
 
 ## Stock Requests (TRF)
 

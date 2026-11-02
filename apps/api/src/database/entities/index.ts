@@ -31,6 +31,7 @@ import { StockMovementEntity } from './stock-movement.entity';
 import { StockReservationEntity } from './stock-reservation.entity';
 import { StockTransferLineEntity } from './stock-transfer-line.entity';
 import { StockTransferEntity } from './stock-transfer.entity';
+import { ItemRequestEntity } from './item-request.entity';
 import { SyncConflictEntity } from './sync-conflict.entity';
 import { UserRoleEntity } from './user-role.entity';
 import { UserSessionEntity } from './user-session.entity';
@@ -64,6 +65,7 @@ export const ALL_ENTITIES = [
   GatePassItemEntity,
   MaterialAllocationEntity,
   ItemEntity,
+  ItemRequestEntity,
   BranchStockEntity,
   StockMovementEntity,
   StockReservationEntity,

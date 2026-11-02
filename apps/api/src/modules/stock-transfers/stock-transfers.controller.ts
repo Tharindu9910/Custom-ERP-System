@@ -43,6 +43,13 @@ export class StockTransfersController {
     return this.transfers.list(q, toActor(u, b).branch_id);
   }
 
+  // Sidebar badge: just the number, refetched on live "transfers" nudges (no polling)
+  @Get('count')
+  @RequirePermissions('request:stock')
+  count(@CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+    return this.transfers.todoCount(toActor(u, b).branch_id);
+  }
+
   @Get(':id')
   @RequirePermissions('request:stock')
   get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {

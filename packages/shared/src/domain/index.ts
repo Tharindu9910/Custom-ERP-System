@@ -7,3 +7,4 @@ export * from './stock-status';
 export * from './order-status';
 export * from './locale';
 export * from './transfer-status';
+export * from './catalog-item';

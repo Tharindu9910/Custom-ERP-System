@@ -303,7 +303,17 @@ export class StockTransfersService {
     const views = await this.views(this.ds.manager, rows.slice(0, HISTORY_LIMIT), branchId);
 
     // Header totals and the action badges are for the whole branch, not the search
-    const [c]: { to_us: number; ours: number; to_send: number; to_receive: number }[] = await this.ds.query(
+    return { rows: views, counts: await this.counts(branchId), has_more };
+  }
+
+  /** Sidebar badge: requests waiting on this branch, to send or to receive (Docs/decisions/0012). */
+  async todoCount(branchId: string): Promise<{ count: number }> {
+    const c = await this.counts(branchId);
+    return { count: c.to_send + c.to_receive };
+  }
+
+  private async counts(branchId: string): Promise<TransferCounts> {
+    const [c]: TransferCounts[] = await this.ds.query(
       `SELECT count(*) FILTER (WHERE supplying_branch_id = $1)::int AS to_us,
               count(*) FILTER (WHERE requesting_branch_id = $1)::int AS ours,
               count(*) FILTER (WHERE supplying_branch_id = $1 AND status IN ('PENDING', 'APPROVED'))::int AS to_send,
@@ -311,7 +321,7 @@ export class StockTransfersService {
        FROM stock_transfer WHERE $1 IN (requesting_branch_id, supplying_branch_id)`,
       [branchId],
     );
-    return { rows: views, counts: c, has_more };
+    return c;
   }
 
   /**

@@ -80,14 +80,15 @@ export function StatusCards<T extends string>({
   );
 }
 
-/** The picked status's list: a titled, full-width frame. */
-export function BoardSection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+/** The picked status's list: a titled, full-width frame. `actions` sit on the right of its header (filters, sort). */
+export function BoardSection({ title, count, actions, children }: { title: string; count: number; actions?: ReactNode; children: ReactNode }) {
   return (
     <section className="flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
         <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
           {title} <span className="ml-1 font-semibold text-slate-400">({count})</span>
         </h2>
+        {actions && <div className="flex flex-wrap items-center gap-3">{actions}</div>}
       </header>
       {children}
     </section>

@@ -9,6 +9,8 @@
 > - **Stock reservation** (migration `1761200000000-StockReservation`, see `Docs/decisions/0003-stock-reservation.md`):
 >   - `reserved_quantity` on BRANCH_STOCK (held for open orders; available = quantity − reserved_quantity).
 >   - Extra table `stock_reservation` (branch_id, item_id, order_id, line_id, quantity, shortfall, status RESERVED|CONSUMED|RELEASED, override_reason, release_reason, created_by, created_at, closed_at).
+> - **New catalogue products** (migration `1761900000000-ItemRequests`, see `Docs/decisions/0013-new-catalogue-items.md`):
+>   - Extra table `item_request` (client_request_id, branch_id, status PENDING|APPROVED|REJECTED|CANCELLED, name, item_type, category, unit, attributes, suggested_price, suggested_cost, note, requested_by, created_at, decided_by, decided_at, reject_reason, item_id). A draft until approved; approval creates the ITEM and links it.
 > - **Not used yet:** STOCK_TRANSFER status `APPROVED` and `approved_by` / `approved_at` (stock requests have no approval step).
 > - **Global scope** (migration `1761100000000-GlobalScopeMainBranch`, see `Docs/decisions/0002-global-scope-and-main-branch.md`):
 >   - `branch.is_main` marks the one main (distribution) branch, Naiwala.

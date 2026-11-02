@@ -77,15 +77,30 @@ export interface TransferListQuery {
   q?: string;
 }
 
-export function useTransferTargets() {
+export function useTransferTargets(enabled = true) {
   return useQuery({
     queryKey: queryKeys.stockTransfers.targets(),
     queryFn: async () => (await apiClient.get<{ data: { branch_id: string; name: string; is_main: boolean }[] }>('/stock-transfers/targets')).data.data,
     staleTime: 5 * 60_000,
+    enabled,
   });
 }
 
-/** Item picker results; `ids` loads items handed over from Inventory / Stock Alerts. */
+/**
+ * Requests waiting on this branch (to send + to receive), for the sidebar badge. Fetched once;
+ * the live transfers nudge refetches it (key under ['stock-transfers']), so it never polls.
+ */
+export function useStockRequestCount(enabled: boolean, branchId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.stockTransfers.count(branchId ?? ''),
+    queryFn: async () => (await apiClient.get<{ data: { count: number } }>('/stock-transfers/count')).data.data.count,
+    enabled,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** Item picker results; `ids` loads items handed over from Restock. */
 export function useTransferItems(params: { q?: string; ids?: string[] }, enabled = true) {
   const query = { q: params.q || undefined, ids: params.ids?.length ? params.ids.join(',') : undefined };
   return useQuery({
@@ -96,8 +111,10 @@ export function useTransferItems(params: { q?: string; ids?: string[] }, enabled
   });
 }
 
-export function useStockTransfers(query: TransferListQuery) {
+/** `enabled` false: not loaded until needed (e.g. History, Docs/decisions/0012). */
+export function useStockTransfers(query: TransferListQuery, enabled = true) {
   return useQuery({
+    enabled,
     queryKey: queryKeys.stockTransfers.list(query),
     queryFn: async () =>
       (await apiClient.get<{ data: { rows: TransferDto[]; counts: TransferCounts; has_more: boolean } }>('/stock-transfers', { params: query })).data.data,
@@ -135,8 +152,9 @@ export function useTransferAction() {
 }
 
 /** Head office: every request between branches, read-only (global roles only). */
-export function useNetworkTransfers(query: { open: 'true' | 'false'; q?: string }) {
+export function useNetworkTransfers(query: { open: 'true' | 'false'; q?: string }, enabled = true) {
   return useQuery({
+    enabled,
     queryKey: queryKeys.network.transfers(query),
     queryFn: async () =>
       (await apiClient.get<{ data: { rows: TransferDto[]; counts: { waiting: number; sent: number; late: number }; has_more: boolean } }>('/network/stock-transfers', { params: query }))

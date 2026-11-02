@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { TRANSFER_STATUS_LABEL } from '@erp/shared';
 import { Modal } from '@/shared/components/Modal';
 import { Notice } from '@/shared/components/Notice';
 import { apiError } from '@/shared/api/errors';
 import { formatDate, formatLocalDate } from '@/shared/lib/format';
 import { useTransferAction, type TransferDto } from '../hooks/useStockTransfers';
-import { TRANSFER_STATUS_STYLE, formatQty, unitLabel } from '../lib/transfer';
+import { TransferStatusBadge, UrgentBadge, fieldCls } from '@/modules/inventory/components/StockBadges';
+import { formatQty, unitLabel } from '../lib/transfer';
 
 export type TransferModalMode = 'send' | 'receive' | 'view';
 
@@ -79,7 +79,6 @@ export function TransferModal({
     run(() => action.mutateAsync({ action: 'reject', id: t.transfer_id, body: { reason: rejectReason.trim() } }), `Request ${t.transfer_number} rejected.`);
 
   const title = mode === 'send' ? 'Check & Send' : mode === 'receive' ? 'Receive stock' : 'Request details';
-  const btn = 'rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40';
 
   return (
     <Modal
@@ -90,29 +89,29 @@ export function TransferModal({
       subtitle={
         <span className="flex flex-wrap items-center gap-2">
           <span className="font-mono font-bold text-slate-800">{t.transfer_number}</span>
-          <span className={`inline-block rounded border px-2.5 py-0.5 text-xs font-bold ${TRANSFER_STATUS_STYLE[t.display_status]}`}>{TRANSFER_STATUS_LABEL[t.display_status]}</span>
-          {t.is_urgent && <span className="rounded border border-rose-200 bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-800">Urgent</span>}
+          <TransferStatusBadge status={t.display_status} />
+          {t.is_urgent && <UrgentBadge />}
         </span>
       }
       footer={
         <div className="flex w-full flex-wrap items-center justify-end gap-3">
           {mode === 'view' && (
-            <button onClick={onClose} className={`${btn} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}>
+            <button onClick={onClose} className="btn-secondary">
               Close
             </button>
           )}
           {mode === 'send' && !rejecting && (
             <>
-              <button onClick={() => setRejecting(true)} className={`${btn} mr-auto border border-rose-300 bg-white text-rose-700 hover:bg-rose-50`}>
+              <button onClick={() => setRejecting(true)} className="btn-secondary mr-auto border-red-300 text-red-700 hover:bg-red-50">
                 Reject
               </button>
-              <button onClick={onClose} className={`${btn} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}>
+              <button onClick={onClose} className="btn-secondary">
                 Close
               </button>
               <button
                 disabled={overCount > 0 || total === 0 || action.isPending}
                 onClick={() => void send()}
-                className={`${btn} bg-blue-600 px-6 font-bold text-white shadow-sm hover:bg-blue-700`}
+                className="btn-primary"
               >
                 {action.isPending ? 'Sending…' : `Send ${formatQty(total)} units`}
               </button>
@@ -120,13 +119,13 @@ export function TransferModal({
           )}
           {mode === 'send' && rejecting && (
             <>
-              <button onClick={() => setRejecting(false)} className={`${btn} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}>
+              <button onClick={() => setRejecting(false)} className="btn-secondary">
                 Back
               </button>
               <button
                 disabled={rejectReason.trim().length < 3 || action.isPending}
                 onClick={() => void reject()}
-                className={`${btn} bg-rose-600 px-6 font-bold text-white shadow-sm hover:bg-rose-700`}
+                className="btn-primary bg-red-600 hover:bg-red-700"
               >
                 Reject request
               </button>
@@ -134,13 +133,13 @@ export function TransferModal({
           )}
           {mode === 'receive' && (
             <>
-              <button onClick={onClose} className={`${btn} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}>
+              <button onClick={onClose} className="btn-secondary">
                 Close
               </button>
               <button
                 disabled={overCount > 0 || action.isPending}
                 onClick={() => void receive()}
-                className={`${btn} bg-emerald-600 px-6 font-bold text-white shadow-sm hover:bg-emerald-700`}
+                className="btn-primary bg-emerald-600 hover:bg-emerald-700"
               >
                 {action.isPending ? 'Saving…' : 'Add to our stock'}
               </button>
@@ -162,7 +161,7 @@ export function TransferModal({
             {!incoming && ' (you)'}
           </span>
           <span className="text-slate-500">Needed by</span>
-          <span className={`text-right font-semibold ${t.late ? 'text-rose-600' : 'text-slate-900'}`}>
+          <span className={`text-right font-semibold ${t.late ? 'text-red-600' : 'text-slate-900'}`}>
             {formatLocalDate(t.needed_before)}
             {t.late && <span className="ml-1.5 text-[10px] uppercase tracking-wider">Late</span>}
           </span>
@@ -179,7 +178,7 @@ export function TransferModal({
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm">
             <thead>
-              <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <tr className="bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 <th className="rounded-l-lg px-4 py-3">Item</th>
                 <th className="px-4 py-3 text-right">Asked</th>
                 {mode === 'send' && <th className="px-4 py-3 text-right">We can send</th>}
@@ -226,7 +225,7 @@ export function TransferModal({
                         }}
                         aria-label={`Amount of ${l.name}`}
                         className={`w-20 rounded-lg border px-2.5 py-2 text-right font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                          over ? 'border-rose-400 bg-rose-50' : short ? 'border-amber-400 bg-amber-50' : 'border-slate-300'
+                          over ? 'border-red-400 bg-red-50' : short ? 'border-amber-400 bg-amber-50' : 'border-slate-300'
                         }`}
                       />
                     </td>
@@ -262,14 +261,14 @@ export function TransferModal({
 
         {mode === 'send' &&
           (overCount > 0 ? (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+            <Notice tone="error">
               <strong>
                 {overCount} item{overCount > 1 ? 's are' : ' is'} more than you have or more than was asked.
               </strong>{' '}
               Lower the amount to send.
-            </div>
+            </Notice>
           ) : (
-            <div className={`rounded-lg border p-3 text-xs ${shortCount > 0 ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
+            <Notice tone={shortCount > 0 ? 'warning' : 'info'}>
               {shortCount > 0 && (
                 <>
                   <strong>
@@ -278,18 +277,18 @@ export function TransferModal({
                 </>
               )}
               Sending will remove <strong>{formatQty(total)} units</strong> from {ourBranchName} stock.
-            </div>
+            </Notice>
           ))}
         {mode === 'receive' &&
           (overCount > 0 ? (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+            <Notice tone="error">
               <strong>
                 {overCount} item{overCount > 1 ? 's are' : ' is'} more than was sent.
               </strong>{' '}
               Check the count again.
-            </div>
+            </Notice>
           ) : (
-            <div className={`rounded-lg border p-3 text-xs ${shortCount > 0 ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
+            <Notice tone={shortCount > 0 ? 'warning' : 'success'}>
               {shortCount > 0 ? (
                 <>
                   <strong>
@@ -303,19 +302,19 @@ export function TransferModal({
                 </>
               )}
               <strong>{formatQty(total)} units</strong> will be added to {ourBranchName} stock.
-            </div>
+            </Notice>
           ))}
 
         {mode === 'receive' && (
           <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">Note (optional)</label>
+            <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-slate-500">Note (optional)</label>
             <textarea
               rows={2}
               maxLength={500}
               value={receiveNote}
               onChange={(e) => setReceiveNote(e.target.value)}
               placeholder="e.g. 2 plates bent on arrival."
-              className="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`${fieldCls} w-full`}
             />
           </div>
         )}
@@ -323,9 +322,9 @@ export function TransferModal({
         {mode === 'view' && (
           <div className="space-y-2 text-xs">
             {t.reject_reason && (
-              <p className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">
+              <Notice tone="error">
                 <strong>Rejected:</strong> {t.reject_reason}
-              </p>
+              </Notice>
             )}
             {t.receive_notes && (
               <p className="rounded-lg bg-slate-50 p-3 text-slate-700">
@@ -356,9 +355,9 @@ export function TransferModal({
         )}
 
         {mode === 'send' && rejecting && (
-          <div className="space-y-2 rounded-xl border border-rose-200 bg-rose-50/50 p-4">
-            <label className="block text-xs font-semibold text-rose-900">
-              Why are you rejecting? <span className="text-rose-500">*</span>
+          <div>
+            <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Why are you rejecting? <span className="text-red-500">*</span>
             </label>
             <textarea
               rows={2}
@@ -367,7 +366,7 @@ export function TransferModal({
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder={`This will be shown to ${t.requesting_branch.name}.`}
-              className="w-full rounded-lg border border-rose-300 bg-white px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+              className={`${fieldCls} w-full`}
             />
           </div>
         )}

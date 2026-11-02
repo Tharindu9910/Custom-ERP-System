@@ -58,6 +58,11 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   p('view:inventory', 'inventory', 'View branch stock levels'),
   p('view:stock_alerts', 'inventory', 'View low and out-of-stock alerts'),
   p('override:stock', 'inventory', 'Use the stock override password when stock is short', { branchWrite: true }),
+  p('configure:stock_minimum', 'inventory', "Set the branch's minimum stock for each item", { branchWrite: true }),
+  // New catalogue products (Docs/decisions/0013): a branch asks, its manager approves; head office adds directly
+  p('request:new_item', 'items', 'Ask for a new product to be added to the catalogue', { branchWrite: true }),
+  p('approve:item_request', 'items', "Approve or reject the branch's new-product requests (sets SKU and price)", { branchWrite: true }),
+  p('create:item', 'items', 'Add new products to the catalogue directly'),
   p('request:stock', 'stock-transfers', 'Request stock from another branch and receive it', { branchWrite: true }),
   p('send:stock', 'stock-transfers', 'Send or reject stock requested by another branch', { branchWrite: true }),
   // Branches

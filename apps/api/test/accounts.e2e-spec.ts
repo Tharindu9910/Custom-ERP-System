@@ -61,6 +61,7 @@ describe('AUTH login', () => {
         'view:stock_alerts',
         'request:stock',
         'send:stock',
+        'request:new_item',
         'create:chief_profile',
         'create:hardware_sale',
         'cancel:hardware_sale',

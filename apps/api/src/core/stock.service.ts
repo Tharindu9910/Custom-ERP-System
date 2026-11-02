@@ -259,6 +259,31 @@ export class StockService {
     await this.syncAlerts(em, branchId, [item.item_id]);
   }
 
+  /**
+   * Sets an item's minimum at a branch (Docs/decisions/0012) and re-checks its alert.
+   * Returns the old minimum, or null when the branch keeps no stock of the item.
+   */
+  async setMinimum(em: EntityManager, branchId: string, itemId: string, reorderLevel: number): Promise<number | null> {
+    const locked = await this.lock(em, branchId, [itemId]);
+    const before = locked.get(itemId);
+    if (!before) return null;
+    await em.query(`UPDATE branch_stock SET reorder_level = $3 WHERE branch_id = $1 AND item_id = $2`, [branchId, itemId, reorderLevel]);
+    await this.syncAlerts(em, branchId, [itemId]);
+    return before.reorder_level;
+  }
+
+  /**
+   * Starts keeping an item at a branch (a new catalogue product, Docs/decisions/0013):
+   * a stock row with nothing on hand and the given minimum, alert in step.
+   */
+  async track(em: EntityManager, branchId: string, itemId: string, reorderLevel: number): Promise<void> {
+    await em.query(
+      `INSERT INTO branch_stock (branch_id, item_id, quantity, reorder_level) VALUES ($1, $2, 0, $3) ON CONFLICT (branch_id, item_id) DO NOTHING`,
+      [branchId, itemId, reorderLevel],
+    );
+    await this.setMinimum(em, branchId, itemId, reorderLevel);
+  }
+
   /** Current quantities for the given items at a branch (0 when there is no row). */
   async quantities(em: EntityManager, branchId: string, itemIds: string[]): Promise<Map<string, number>> {
     if (itemIds.length === 0) return new Map();

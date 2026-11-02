@@ -8,12 +8,13 @@ import { useAuthStore } from '@/shared/stores/auth.store';
 export function HomePage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const { main, branchLoaded } = useVisibleNav();
+  const { items, branchLoaded } = useVisibleNav();
   const operational = !!user && OPERATIONAL_ROLES.includes(user.role);
+  const first = items[0];
 
   useEffect(() => {
-    if (operational && branchLoaded && main.length > 0) void navigate({ to: main[0].to, replace: true });
-  }, [operational, branchLoaded, main, navigate]);
+    if (operational && branchLoaded && first) void navigate({ to: first.to, replace: true });
+  }, [operational, branchLoaded, first, navigate]);
 
   if (operational) return <div className="py-24 text-center text-sm text-slate-400">Loading…</div>;
   return (

@@ -75,15 +75,23 @@ export const validateOrderQueueSearch = (s: Record<string, unknown>): OrderQueue
   notice: typeof s.notice === 'string' ? s.notice : undefined,
 });
 
-export type StockRequestTab = 'create' | 'toUs' | 'ours';
+/** Stock Requests status cards (Docs/decisions/0012). */
+export type StockRequestTab = 'toSend' | 'toReceive' | 'waiting' | 'history';
 
 export interface StockRequestSearch {
   tab?: StockRequestTab;
-  /** Items handed over from Inventory / Stock Alerts, "itemId:qty,…" */
+  /** Opens the New Request popup */
+  new?: boolean;
+  /** Items handed over from Restock ("More options"), "itemId:qty,…" */
   items?: string;
 }
 
+// Links from before the status cards keep working
+const OLD_TABS: Record<string, StockRequestTab> = { todo: 'toSend', toUs: 'toSend', ours: 'waiting' };
+const TABS: StockRequestTab[] = ['toSend', 'toReceive', 'waiting', 'history'];
+
 export const validateStockRequestSearch = (s: Record<string, unknown>): StockRequestSearch => ({
-  tab: s.tab === 'create' || s.tab === 'toUs' || s.tab === 'ours' ? s.tab : undefined,
+  tab: typeof s.tab === 'string' ? (TABS.includes(s.tab as StockRequestTab) ? (s.tab as StockRequestTab) : OLD_TABS[s.tab]) : undefined,
+  new: s.new === true || s.new === 1 || s.new === '1' || s.tab === 'create' || undefined,
   items: typeof s.items === 'string' ? s.items : undefined,
 });

@@ -3,7 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomBytes } from 'crypto';
 
 /** What changed — screens refetch the matching queries. */
-export type LiveTopic = 'orders' | 'gate_passes' | 'stock' | 'transfers' | 'payments' | 'permissions' | 'prices';
+export type LiveTopic = 'orders' | 'gate_passes' | 'stock' | 'transfers' | 'payments' | 'permissions' | 'prices' | 'item_requests';
 
 export interface BranchChangedEvent {
   /** null = everyone, whatever branch they watch (e.g. role permissions changed) */

@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
-import { coilDetails, type RoofingConfig } from '@erp/shared';
+import { coilDetails, type CreateItemDto, type RoofingConfig } from '@erp/shared';
+import type { RequestUser } from '../../common/types';
 import { BranchContextService } from '../../core/branch-context.service';
+import { ItemCatalogService } from './item-catalog.service';
 
 export interface CoilOption {
   item_id: string;
@@ -63,7 +65,29 @@ export class ItemsService {
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
     private readonly branches: BranchContextService,
+    private readonly catalog: ItemCatalogService,
   ) {}
+
+  /**
+   * The categories and units already used in the catalogue, per item type: the choices on the
+   * New item form, so a new product doesn't start a near-duplicate category (Docs/decisions/0013).
+   */
+  async catalogOptions(): Promise<Record<string, { categories: string[]; units: string[] }>> {
+    const rows: { item_type: string; categories: string[]; units: string[] }[] = await this.ds.query(
+      `SELECT item_type, array_agg(DISTINCT category ORDER BY category) FILTER (WHERE category IS NOT NULL) AS categories,
+              array_agg(DISTINCT unit ORDER BY unit) AS units
+       FROM item WHERE is_active GROUP BY item_type`,
+    );
+    return Object.fromEntries(rows.map((r) => [r.item_type, { categories: r.categories ?? [], units: r.units }]));
+  }
+
+  /** Head office adds a product directly (Docs/decisions/0013). It belongs to no branch. */
+  async create(dto: CreateItemDto, user: RequestUser): Promise<{ item_id: string; sku: string }> {
+    const actor = { user_id: user.user_id, role: user.role, branch_id: null };
+    const itemId = await this.ds.transaction((em) => this.catalog.createItem(em, dto, actor));
+    this.catalog.created(itemId, dto, actor);
+    return { item_id: itemId, sku: dto.sku };
+  }
 
   /** Coils the branch's roofing settings allow (thickness, colour, origin), with own stock. */
   async coils(branchId: string, em: EntityManager = this.ds.manager): Promise<CoilOption[]> {

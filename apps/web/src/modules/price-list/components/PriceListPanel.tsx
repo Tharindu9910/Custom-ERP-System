@@ -12,6 +12,7 @@ import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 import { usePermission } from '@/shared/hooks/usePermission';
 import { useItemPrices, usePriceRates, useUpdateItemPrice, useUpdateRate } from '../hooks/usePriceList';
 import { BASIS_LABEL, LINE_TYPE_LABEL, RATE_LINE_TYPES, describeRate } from '../lib/price-labels';
+import { ItemForm } from '@/modules/items/components/ItemForm';
 import { AddRateModal } from './AddRateModal';
 import { PriceInput } from './PriceInput';
 
@@ -161,6 +162,10 @@ const ITEM_TYPE_TABS: { key: ItemType | 'ALL'; label: string }[] = [
 function ItemsTab() {
   const { can } = usePermission();
   const canEdit = can('configure', 'item_prices');
+  // Head office adds products directly; branches ask from Stock Levels (Docs/decisions/0013)
+  const canAdd = can('create', 'item');
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState('');
   const [itemType, setItemType] = useState<ItemType | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
   const q = useDebouncedValue(search.trim(), 300);
@@ -201,10 +206,26 @@ function ItemsTab() {
         <div className="min-w-[240px] flex-1">
           <SearchInput value={search} onChange={setSearch} placeholder="Search by name, SKU or category" />
         </div>
+        {canAdd && (
+          <button className="btn-primary" onClick={() => setAdding(true)}>
+            Add Item
+          </button>
+        )}
       </div>
       {error && <Notice tone="error" className="mb-3">{error}</Notice>}
+      {added && <Notice tone="success" className="mb-3">{added}</Notice>}
       {canEdit && <p className="mb-3 text-xs text-gray-500">Click a price to change it. Material sheet prices are used for Cut &amp; Bend jobs.</p>}
       <DataTable columns={columns} data={items} loading={isLoading} emptyMessage="No items found." />
+      {adding && (
+        <ItemForm
+          mode="headOffice"
+          onClose={() => setAdding(false)}
+          onDone={(message) => {
+            setAdding(false);
+            setAdded(message);
+          }}
+        />
+      )}
     </div>
   );
 }

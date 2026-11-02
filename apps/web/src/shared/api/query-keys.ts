@@ -58,6 +58,8 @@ export const queryKeys = {
   items: {
     coils: () => ['items', 'coils'] as const,
     workshopCatalog: () => ['items', 'workshop-catalog'] as const,
+    /** Categories and units in use, per item type (New item form) */
+    options: () => ['items', 'options'] as const,
     search: (params?: object) => withParams(['items', 'search'] as const, params),
   },
   inventory: {
@@ -73,6 +75,12 @@ export const queryKeys = {
   stockAlerts: (params?: object) => withParams(['stock-alerts'] as const, params),
   /** Sidebar badge: under ['stock-alerts'], so the live stock / transfers topics refresh it (no polling) */
   stockAlertCount: (scope: string) => ['stock-alerts', 'count', scope] as const,
+  /** New catalogue products asked for by a branch (Docs/decisions/0013) */
+  itemRequests: {
+    list: (params?: object) => withParams(['item-requests', 'list'] as const, params),
+    /** Manager's sidebar badge: under ['item-requests'], so the live topic refreshes it */
+    count: (branchId: string) => ['item-requests', 'count', branchId] as const,
+  },
   priceList: {
     rates: (params?: object) => withParams(['price-list', 'rates'] as const, params),
     items: (params?: object) => withParams(['price-list', 'items'] as const, params),
@@ -81,6 +89,8 @@ export const queryKeys = {
     list: (params?: object) => withParams(['stock-transfers', 'list'] as const, params),
     detail: (id: string) => ['stock-transfers', 'detail', id] as const,
     targets: () => ['stock-transfers', 'targets'] as const,
+    /** Sidebar badge: under ['stock-transfers'], so the live transfers topic refreshes it */
+    count: (branchId: string) => ['stock-transfers', 'count', branchId] as const,
   },
 };
 
@@ -95,4 +105,6 @@ export const LIVE_TOPIC_KEYS: Record<string, readonly (readonly string[])[]> = {
   permissions: [['auth', 'me'], ['permissions']],
   // Price List saved: refresh the list and re-quote any open order form
   prices: [['price-list'], ['orders', 'quote'], ['hardware-store']],
+  // A branch asked for, or decided on, a new catalogue product
+  item_requests: [['item-requests']],
 };

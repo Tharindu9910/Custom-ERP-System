@@ -23,8 +23,8 @@ export interface NavItem {
   transact?: boolean;
   /** Permission a global role needs instead of `permission` (the branch one is a write, e.g. request:stock) */
   globalPermission?: { action: string; subject: string };
-  /** Count bubble after the label (Docs/decisions/0009) */
-  badge?: 'stockAlerts';
+  /** Count bubble after the label (Docs/decisions/0009, 0012) */
+  badge?: NavBadge;
   /** Other pages that belong to this menu item (it stays highlighted there), e.g. edit forms */
   activeFor?: RegExp[];
 }
@@ -36,34 +36,66 @@ export interface NavItem {
  */
 export type PageScope = 'global' | 'network' | 'branch';
 
+/** stockAlerts = items still to restock; stockRequests = requests to send or receive; itemRequests = new products waiting for the manager */
+export type NavBadge = 'stockAlerts' | 'stockRequests' | 'itemRequests';
+
 export const OPERATIONAL_ROLES = [Role.SUPERVISOR, Role.CHIEF, Role.CASHIER];
 
-// Order follows the approved prototype sidebar
-export const MAIN_NAV: NavItem[] = [
-  { label: 'Dashboard', to: '/', icon: 'barChart', scope: 'global', hideFor: OPERATIONAL_ROLES, comingSoon: true },
-  { label: 'Cashier Queue', to: '/cashier-queue', icon: 'creditCard', scope: 'branch', permission: { action: 'process', subject: 'payment' } },
-  { label: 'Gate Pass', to: '/gate-pass', icon: 'fileText', scope: 'branch', permission: { action: 'view', subject: 'gate_pass' }, feature: 'gatePass' },
-  { label: 'Create Order', to: '/orders/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'roofing_order' }, section: 'roofing' },
-  { label: 'Order Queue', to: '/order-queue', icon: 'listOrdered', scope: 'branch', permission: { action: 'view', subject: 'orders' }, section: 'roofing', activeFor: [/^\/orders\/[^/]+\/edit$/] },
-  { label: 'Create Job Card', to: '/job-cards/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'job_card' }, section: 'workshop' },
-  { label: 'Workshop Queue', to: '/workshop-queue', icon: 'clipboardList', scope: 'branch', permission: { action: 'view', subject: 'job_cards' }, section: 'workshop', activeFor: [/^\/job-cards\/[^/]+\/edit$/] },
-  // Hardware sales (Docs/decisions/0006): role permission says who, the branch switch says where
-  { label: 'Hardware Store', to: '/hardware-store', icon: 'wrench', scope: 'branch', transact: true, permission: { action: 'create', subject: 'hardware_sale' }, feature: 'hardwareStore' },
-  { label: 'Hardware Queue', to: '/hardware-queue', icon: 'wallet', scope: 'branch', permission: { action: 'view', subject: 'hardware_queue' }, feature: 'hardwareQueue' },
-  { label: 'Inventory', to: '/inventory', icon: 'package', scope: 'network', permission: { action: 'view', subject: 'inventory' }, feature: 'inventory' },
-  { label: 'Stock Alerts', to: '/stock-alerts', icon: 'packageOpen', scope: 'network', permission: { action: 'view', subject: 'stock_alerts' }, feature: 'stockAlerts', badge: 'stockAlerts' },
-  { label: 'Stock Request', to: '/stock-requests', icon: 'arrowRightLeft', scope: 'network', permission: { action: 'request', subject: 'stock' }, globalPermission: { action: 'view', subject: 'inventory' }, feature: 'stockRequest' },
-  { label: 'Create Chief Profile', to: '/chiefs/new', icon: 'userCircle', scope: 'branch', transact: true, permission: { action: 'create', subject: 'chief_profile' }, feature: 'chiefProfiles' },
-  { label: 'Customers', to: '/customers', icon: 'users', scope: 'global', permission: { action: 'complete', subject: 'customer_profile' } },
-  { label: 'Finance', to: '/ledger', icon: 'barChart', scope: 'global', permission: { action: 'view', subject: 'financial_report' } },
-  { label: 'Audit Log', to: '/audit-log', icon: 'history', scope: 'global', permission: { action: 'view', subject: 'audit_log' } },
-];
+/** A sidebar section; the header shows only when the user can see one of its items */
+export interface NavGroup {
+  label?: string;
+  items: NavItem[];
+}
 
-export const SETTINGS_NAV: NavItem[] = [
-  { label: 'Branch Config', to: '/settings/branch-config', icon: 'settings', scope: 'global', permission: { action: 'configure', subject: 'branch' } },
-  { label: 'Price List', to: '/settings/price-list', icon: 'banknote', scope: 'global', permission: { action: 'view', subject: 'price_list' } },
-  { label: 'Users', to: '/settings/users', icon: 'users', scope: 'global', permission: { action: 'manage', subject: 'users' } },
-  { label: 'Workers', to: '/settings/workers', icon: 'userCircle', scope: 'branch', permission: { action: 'manage', subject: 'workers' }, activeFor: [/^\/workers$/] },
+// Item order follows the approved prototype sidebar; the first visible item is an operational role's landing page
+export const NAV_GROUPS: NavGroup[] = [
+  {
+    items: [{ label: 'Dashboard', to: '/', icon: 'barChart', scope: 'global', hideFor: OPERATIONAL_ROLES, comingSoon: true }],
+  },
+  {
+    label: 'Operations',
+    items: [
+      { label: 'Cashier Queue', to: '/cashier-queue', icon: 'creditCard', scope: 'branch', permission: { action: 'process', subject: 'payment' } },
+      { label: 'Gate Pass', to: '/gate-pass', icon: 'fileText', scope: 'branch', permission: { action: 'view', subject: 'gate_pass' }, feature: 'gatePass' },
+      { label: 'Create Order', to: '/orders/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'roofing_order' }, section: 'roofing' },
+      { label: 'Order Queue', to: '/order-queue', icon: 'listOrdered', scope: 'branch', permission: { action: 'view', subject: 'orders' }, section: 'roofing', activeFor: [/^\/orders\/[^/]+\/edit$/] },
+      { label: 'Create Job Card', to: '/job-cards/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'job_card' }, section: 'workshop' },
+      { label: 'Workshop Queue', to: '/workshop-queue', icon: 'clipboardList', scope: 'branch', permission: { action: 'view', subject: 'job_cards' }, section: 'workshop', activeFor: [/^\/job-cards\/[^/]+\/edit$/] },
+      // Hardware sales (Docs/decisions/0006): role permission says who, the branch switch says where
+      { label: 'Hardware Store', to: '/hardware-store', icon: 'wrench', scope: 'branch', transact: true, permission: { action: 'create', subject: 'hardware_sale' }, feature: 'hardwareStore' },
+      { label: 'Hardware Queue', to: '/hardware-queue', icon: 'wallet', scope: 'branch', permission: { action: 'view', subject: 'hardware_queue' }, feature: 'hardwareQueue' },
+      { label: 'Customers', to: '/customers', icon: 'users', scope: 'global', permission: { action: 'complete', subject: 'customer_profile' } },
+    ],
+  },
+  /**
+   * Stock, one job per page (Docs/decisions/0012, after Odoo's Stock report / Replenishment / Transfers):
+   * look up what we have, act on what is below its minimum, move stock between branches.
+   */
+  {
+    label: 'Stock',
+    items: [
+      { label: 'Stock Levels', to: '/inventory', icon: 'package', scope: 'network', permission: { action: 'view', subject: 'inventory' }, feature: 'inventory', badge: 'itemRequests' },
+      { label: 'Restock', to: '/stock-alerts', icon: 'packageOpen', scope: 'network', permission: { action: 'view', subject: 'stock_alerts' }, feature: 'stockAlerts', badge: 'stockAlerts' },
+      { label: 'Stock Requests', to: '/stock-requests', icon: 'arrowRightLeft', scope: 'network', permission: { action: 'request', subject: 'stock' }, globalPermission: { action: 'view', subject: 'inventory' }, feature: 'stockRequest', badge: 'stockRequests' },
+    ],
+  },
+  {
+    label: 'Reports',
+    items: [
+      { label: 'Finance', to: '/ledger', icon: 'barChart', scope: 'global', permission: { action: 'view', subject: 'financial_report' } },
+      { label: 'Audit Log', to: '/audit-log', icon: 'history', scope: 'global', permission: { action: 'view', subject: 'audit_log' } },
+    ],
+  },
+  {
+    label: 'Settings',
+    items: [
+      { label: 'Branch Config', to: '/settings/branch-config', icon: 'settings', scope: 'global', permission: { action: 'configure', subject: 'branch' } },
+      { label: 'Price List', to: '/settings/price-list', icon: 'banknote', scope: 'global', permission: { action: 'view', subject: 'price_list' } },
+      { label: 'Users', to: '/settings/users', icon: 'users', scope: 'global', permission: { action: 'manage', subject: 'users' } },
+      { label: 'Workers', to: '/settings/workers', icon: 'userCircle', scope: 'branch', permission: { action: 'manage', subject: 'workers' }, activeFor: [/^\/workers$/] },
+      { label: 'Create Chief Profile', to: '/chiefs/new', icon: 'userCircle', scope: 'branch', transact: true, permission: { action: 'create', subject: 'chief_profile' }, feature: 'chiefProfiles' },
+    ],
+  },
 ];
 
 /** Super Admin only — rendered in its own sidebar section */
@@ -71,7 +103,7 @@ export const SUPER_ADMIN_NAV: NavItem[] = [
   { label: 'Role Permissions', to: '/settings/permissions', icon: 'lock', scope: 'global' },
 ];
 
-const ALL_NAV = [...MAIN_NAV, ...SETTINGS_NAV, ...SUPER_ADMIN_NAV];
+const ALL_NAV = [...NAV_GROUPS.flatMap((g) => g.items), ...SUPER_ADMIN_NAV];
 
 // Edit forms and the old Workers path are not in the menu but still belong to one branch
 const TRANSACT_PREFIXES = ['/orders/', '/job-cards/', '/chiefs/'];
@@ -114,7 +146,7 @@ export function pageRunsAt(item: NavItem | undefined, branch: BranchLike): boole
   return true;
 }
 
-/** Visible main-nav items for the current user and branch (also used to pick the landing page). */
+/** Visible sidebar groups and items for the current user and branch (items also pick the landing page). */
 export function useVisibleNav() {
   const user = useAuthStore((s) => s.user);
   const { can } = usePermission();
@@ -135,6 +167,7 @@ export function useVisibleNav() {
     if (item.section === 'workshop' && !hasWorkshop) return false;
     return true;
   };
-  return { main: MAIN_NAV.filter(visible), settings: SETTINGS_NAV.filter(visible), branchLoaded: global || !!branch };
+  const groups = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter(visible) })).filter((g) => g.items.length > 0);
+  return { groups, items: groups.flatMap((g) => g.items), branchLoaded: global || !!branch };
 }
 

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { Outlet, Link, useNavigate, useRouter, useRouterState } from '@tanstack/react-router';
 import { Role, isGlobalRole } from '@erp/shared';
 import { SUPER_ADMIN_NAV, isNavItemActive, pageRunsAt, useVisibleNav, type NavItem } from '@/app/navigation';
@@ -11,6 +11,9 @@ import { apiClient } from '@/shared/api/client';
 import { queryClient } from '@/app/query-client';
 import { useBranchOptions } from '@/modules/branches/hooks/useBranches';
 import { useStockAlertCount } from '@/modules/inventory/hooks/useInventory';
+import { useStockRequestCount } from '@/modules/stock-transfers/hooks/useStockTransfers';
+import { useItemRequestCount } from '@/modules/items/hooks/useItemRequests';
+import { usePermission } from '@/shared/hooks/usePermission';
 import { EmptyState } from '@/shared/components/EmptyState';
 import { Icon } from '@/shared/components/Icon';
 import { branchOptionLabel } from '@/shared/lib/branch';
@@ -24,16 +27,31 @@ const BRANCH_TYPE_LABEL: Record<string, string> = {
   ROOFING_WORKSHOP: 'Roofing + Workshop',
 };
 
+const BADGE_TITLE = {
+  stockAlerts: (n: number) => `${n} item(s) to restock`,
+  stockRequests: (n: number) => `${n} request(s) to send or receive`,
+  itemRequests: (n: number) => `${n} new item request(s) waiting for approval`,
+} as const;
+
 /** Count for a menu item's bubble: loaded once, refreshed by live nudges only. */
 function useNavBadge(item: NavItem): number {
   const activeBranchId = useAuthStore((s) => s.activeBranchId);
   const user = useAuthStore((s) => s.user);
   const { branch } = useBranchContext();
-  const network = !!user && isGlobalRole(user.role) && !activeBranchId;
-  const enabled = item.badge === 'stockAlerts' && (network || (!!branch && pageRunsAt(item, branch)));
-  const { data } = useStockAlertCount(enabled, network, activeBranchId);
-  // Every link shares the cached count (a disabled query still returns cached data): only badge items show it
-  return enabled ? (data ?? 0) : 0;
+  const { can } = usePermission();
+  const global = !!user && isGlobalRole(user.role);
+  const network = global && !activeBranchId;
+  const runsHere = !!branch && pageRunsAt(item, branch);
+  const alerts = item.badge === 'stockAlerts' && (network || runsHere);
+  // Requests to act on are branch work: head office only watches, so it gets no to-do bubble
+  const requests = item.badge === 'stockRequests' && !global && runsHere;
+  // New products waiting for this branch's manager (Docs/decisions/0013)
+  const items = item.badge === 'itemRequests' && !global && runsHere && can('approve', 'item_request');
+  const alertCount = useStockAlertCount(alerts, network, activeBranchId).data;
+  const requestCount = useStockRequestCount(requests, activeBranchId).data;
+  const itemCount = useItemRequestCount(items, activeBranchId).data;
+  // Every link shares the cached counts (a disabled query still returns cached data): only badge items show them
+  return alerts ? (alertCount ?? 0) : requests ? (requestCount ?? 0) : items ? (itemCount ?? 0) : 0;
 }
 
 function NavLink({ item }: { item: NavItem }) {
@@ -72,7 +90,7 @@ function NavLink({ item }: { item: NavItem }) {
       <span className="flex-1">{item.label}</span>
       {badge > 0 && (
         <span
-          title={`${badge} item(s) need restocking`}
+          title={item.badge ? BADGE_TITLE[item.badge](badge) : undefined}
           className="ml-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
         >
           {badge > 99 ? '99+' : badge}
@@ -216,7 +234,7 @@ export function Layout() {
   const isSuperAdmin = user?.role === Role.SUPER_ADMIN;
   const { scope, isGlobal } = usePageScope();
   const { branch } = useBranchContext();
-  const { main, settings } = useVisibleNav();
+  const { groups } = useVisibleNav();
   const live = useLiveUpdates();
 
   // Keeps permissions in Zustand fresh: re-fetches GET /auth/me on window focus
@@ -255,18 +273,16 @@ export function Layout() {
 
           <div className="flex min-h-0 flex-1 flex-col justify-between py-4">
             <nav className="space-y-1 overflow-y-auto px-3">
-              {main.map((item) => (
-                <NavLink key={item.to} item={item} />
-              ))}
-
-              {settings.length > 0 && (
-                <>
-                  <div className="mt-4 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-500">Settings</div>
-                  {settings.map((item) => (
+              {groups.map((group, i) => (
+                <Fragment key={group.label ?? i}>
+                  {group.label && (
+                    <div className={`${i > 0 ? 'mt-4 ' : ''}px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-500`}>{group.label}</div>
+                  )}
+                  {group.items.map((item) => (
                     <NavLink key={item.to} item={item} />
                   ))}
-                </>
-              )}
+                </Fragment>
+              ))}
 
               {isSuperAdmin && (
                 <>

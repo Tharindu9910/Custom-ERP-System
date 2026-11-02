@@ -16,7 +16,11 @@ import {
   type StockLevel,
 } from '@erp/shared';
 import { ERR } from '../../common/errors';
+import type { Actor } from '../../common/actor';
+import { AuditService } from '../../core/audit.service';
 import { BranchContextService } from '../../core/branch-context.service';
+import { EventsService } from '../../core/events.service';
+import { StockService } from '../../core/stock.service';
 
 export interface StockRow {
   item_id: string;
@@ -25,7 +29,7 @@ export interface StockRow {
   category: string;
   unit: string;
   item_type: ItemType;
-  /** On hand (physical). Health and alerts are based on this. */
+  /** On hand (physical). Health and alerts use `free`, not this. */
   stock: number;
   /** Held for open orders until their work starts (Docs/decisions/0003) */
   reserved: number;
@@ -54,10 +58,13 @@ export interface AlertRow extends StockRow {
 }
 
 export interface AlertCounts {
+  /** Below minimum and not asked for yet: what Restock and its badge count */
   needs_restock: number;
   critical: number;
   low: number;
   healthy: number;
+  /** Below minimum but already on an open request (shown apart, Docs/decisions/0012) */
+  requested: number;
 }
 
 /** An open order holding this item at our branch. */
@@ -129,6 +136,9 @@ export class InventoryService {
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
     private readonly branches: BranchContextService,
+    private readonly stock: StockService,
+    private readonly audit: AuditService,
+    private readonly events: EventsService,
   ) {}
 
   async list(q: InventoryQuery, branchId: string): Promise<{ rows: StockRow[]; counts: InventoryCounts; categories: string[] }> {
@@ -137,8 +147,8 @@ export class InventoryService {
     const want = LEVEL_FILTER[q.status];
     const rows = searched.filter((r) => !want || r.level === want);
     rows.sort((a, b) =>
-      q.sort === 'STOCK_ASC' ? a.stock - b.stock || a.name.localeCompare(b.name)
-      : q.sort === 'STOCK_DESC' ? b.stock - a.stock || a.name.localeCompare(b.name)
+      q.sort === 'STOCK_ASC' ? a.free - b.free || a.name.localeCompare(b.name)
+      : q.sort === 'STOCK_DESC' ? b.free - a.free || a.name.localeCompare(b.name)
       : a.name.localeCompare(b.name),
     );
     // Counts follow search and category (not the status tab), so each tab count matches its list
@@ -151,14 +161,28 @@ export class InventoryService {
     return { rows, counts, categories: categoriesOf(all) };
   }
 
-  async alerts(q: StockAlertQuery, branchId: string): Promise<{ rows: AlertRow[]; counts: AlertCounts; categories: string[] }> {
+  async alerts(q: StockAlertQuery, branchId: string): Promise<{ rows: AlertRow[]; requested: AlertRow[]; counts: AlertCounts; categories: string[] }> {
     const all = (await this.stockRows(branchId)).map((r) => ({ ...r, ...stockAlertInfo(r.free, r.reorder_level) }));
     return filterAlerts(all, q);
   }
 
-  /** Items needing restock at one branch: the sidebar badge (same rule as the Stock Alerts tab). */
+  /** Items still to restock at one branch: the sidebar badge (same rule as the Restock list). */
   async alertCount(branchId: string): Promise<{ count: number }> {
-    return { count: (await this.stockRows(branchId)).filter((r) => r.level !== 'HEALTHY').length };
+    return { count: (await this.stockRows(branchId)).filter(needsRestock).length };
+  }
+
+  /**
+   * A branch manager sets an item's minimum (Docs/decisions/0012). Restock, the badge and
+   * the stock_alert history follow straight away.
+   */
+  async setMinimum(itemId: string, reorderLevel: number, actor: Actor): Promise<StockRow & { movements: MovementRow[]; reservations: ReservationRow[] }> {
+    const before = await this.ds.transaction((em) => this.stock.setMinimum(em, actor.branch_id, itemId, reorderLevel));
+    if (before === null) throw new NotFoundException(ERR.STOCK_ITEM_NOT_FOUND);
+    if (before !== reorderLevel) {
+      this.audit.record(actor, { type: 'branch_stock', id: itemId }, 'SET_MINIMUM', { before: { reorder_level: before }, after: { reorder_level: reorderLevel } });
+      this.events.changed(actor.branch_id, 'stock');
+    }
+    return this.item(itemId, actor.branch_id);
   }
 
   /** Head office on "All branches": alerts across every branch with Stock Alerts on. */
@@ -208,7 +232,9 @@ export class InventoryService {
   }
 
   /** Head office: stock alerts at every branch, with what the main branch could cover. */
-  async networkAlerts(q: StockAlertQuery): Promise<{ branches: NetworkBranch[]; rows: NetworkAlertRow[]; counts: AlertCounts; categories: string[] }> {
+  async networkAlerts(
+    q: StockAlertQuery,
+  ): Promise<{ branches: NetworkBranch[]; rows: NetworkAlertRow[]; requested: NetworkAlertRow[]; counts: AlertCounts; categories: string[] }> {
     const branches = await this.networkBranches('stockAlerts');
     const main = (await this.networkBranches('inventory')).find((b) => b.is_main) ?? null;
     const [perBranch, mainRows] = await Promise.all([
@@ -370,23 +396,32 @@ export class InventoryService {
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
-/** Stock Alerts tab filter, sort and counts — shared by one branch and the network view. */
-function filterAlerts<T extends Pick<AlertRow, 'name' | 'sku' | 'category' | 'severity' | 'deficit'>>(
+/** Below its minimum and not on an open request yet: Restock's to-do (Docs/decisions/0012). */
+const needsRestock = (r: Pick<StockRow, 'level' | 'open_request'>) => r.level !== 'HEALTHY' && !r.open_request;
+
+/**
+ * Restock list filter, sort and counts — shared by one branch and the network view.
+ * Items already asked for leave the to-do list and are returned apart as `requested`,
+ * so the list empties as the branch acts.
+ */
+function filterAlerts<T extends Pick<AlertRow, 'name' | 'sku' | 'category' | 'severity' | 'deficit' | 'level' | 'open_request'>>(
   all: T[],
   q: StockAlertQuery,
-): { rows: T[]; counts: AlertCounts; categories: string[] } {
+): { rows: T[]; requested: T[]; counts: AlertCounts; categories: string[] } {
   const searched = all.filter((r) => matches(r, q.q, q.category));
-  const rows = searched
-    .filter((r) => (q.filter === 'NEEDS_RESTOCK' ? r.severity !== 'NORMAL' : r.severity === q.filter))
-    // Out of stock first, then the biggest shortfall
-    .sort((a, b) => Number(b.severity === 'CRITICAL') - Number(a.severity === 'CRITICAL') || b.deficit - a.deficit || a.name.localeCompare(b.name));
+  const todo = searched.filter(needsRestock);
+  // Out of stock first, then the biggest shortfall
+  const bySeverity = (a: T, b: T) => Number(b.severity === 'CRITICAL') - Number(a.severity === 'CRITICAL') || b.deficit - a.deficit || a.name.localeCompare(b.name);
+  const rows = todo.filter((r) => q.filter === 'NEEDS_RESTOCK' || r.severity === q.filter).sort(bySeverity);
+  const requested = searched.filter((r) => r.level !== 'HEALTHY' && r.open_request).sort(bySeverity);
   const counts: AlertCounts = {
-    needs_restock: searched.filter((r) => r.severity !== 'NORMAL').length,
-    critical: searched.filter((r) => r.severity === 'CRITICAL').length,
-    low: searched.filter((r) => r.severity === 'LOW').length,
+    needs_restock: todo.length,
+    critical: todo.filter((r) => r.severity === 'CRITICAL').length,
+    low: todo.filter((r) => r.severity === 'LOW').length,
     healthy: searched.filter((r) => r.severity === 'NORMAL').length,
+    requested: requested.length,
   };
-  return { rows, counts, categories: categoriesOf(all) };
+  return { rows, requested, counts, categories: categoriesOf(all) };
 }
 
 type Searchable = Pick<StockRow, 'name' | 'sku' | 'category'>;

@@ -1,153 +1,147 @@
 import { useState } from 'react';
-import type { StockAlertQuery } from '@erp/shared';
-import { Icon } from '@/shared/components/Icon';
+import { IdChip } from '@/shared/components/Marks';
 import { MainBadge } from '@/shared/components/MainBadge';
-import { SearchInput } from '@/shared/components/SearchInput';
-import { SegmentedTabs } from '@/shared/components/SegmentedTabs';
+import { BoardSection, StatusCards } from '@/shared/components/StatusBoard';
 import { useNetworkStockAlerts } from '@/modules/inventory/hooks/useInventory';
 import { formatQty } from '@/modules/stock-transfers/lib/transfer';
-
-type Filter = StockAlertQuery['filter'];
+import { RESTOCK_STEPS, outNote, restockLists, type RestockStep } from '../lib/restock';
+import { StockLevelBadge, selectCls } from './StockBadges';
+import { BoardMessageRow, StockPage, TABLE, TBODY, TH, THEAD } from './StockPage';
 
 /**
- * Head office: what every branch needs to restock, and whether the main branch
- * holds enough to cover it (Docs/decisions/0002). Read-only — branches raise the
- * requests themselves.
+ * Head office: what every branch still has to restock, what is asked for and what is on
+ * the way, and whether the main branch holds enough to cover it (Docs/decisions/0002,
+ * 0012). Same cards as a branch's Restock; read-only, the branches raise the requests.
  */
 export function NetworkStockAlerts() {
-  const [filter, setFilter] = useState<Filter>('NEEDS_RESTOCK');
+  const [step, setStep] = useState<RestockStep>('TODO');
   const [category, setCategory] = useState('');
   const [branchId, setBranchId] = useState('');
   const [search, setSearch] = useState('');
 
-  const { data, isLoading, isFetching, refetch } = useNetworkStockAlerts({ filter, category: category || undefined, q: search.trim() || undefined });
-  const rows = (data?.rows ?? []).filter((r) => !branchId || r.branch.branch_id === branchId);
-  const c = data?.counts;
+  const { data, isLoading, isFetching, refetch } = useNetworkStockAlerts({ filter: 'NEEDS_RESTOCK', category: category || undefined, q: search.trim() || undefined });
+  const inBranch = <T extends { branch: { branch_id: string } }>(rows: T[]) => rows.filter((r) => !branchId || r.branch.branch_id === branchId);
+  const lists = restockLists(inBranch(data?.rows ?? []), inBranch(data?.requested ?? []));
+  const rows = lists[step];
+  const current = RESTOCK_STEPS.find((s) => s.key === step)!;
   const mainName = data?.branches.find((b) => b.is_main)?.name ?? 'Main';
+  const todo = step === 'TODO';
 
   return (
-    <div className="-m-8 flex min-h-[calc(100vh-4rem)] flex-col bg-slate-50 text-slate-900 antialiased">
-      <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-5 sm:px-8">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Stock Alerts</h1>
-          <span className="text-sm text-slate-500">All branches</span>
-          <button type="button" onClick={() => void refetch()} title="Refresh" className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
-            <Icon name="refresh" className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </header>
+    <StockPage
+      title="Restock"
+      scope="All branches"
+      refreshing={isFetching}
+      onRefresh={() => void refetch()}
+      search={search}
+      onSearch={setSearch}
+      placeholder="Search items by name, SKU, or category..."
+    >
+      <StatusCards
+        steps={RESTOCK_STEPS}
+        value={step}
+        onChange={setStep}
+        loading={isLoading}
+        counts={{ TODO: lists.TODO.length, REQUESTED: lists.REQUESTED.length, ON_THE_WAY: lists.ON_THE_WAY.length }}
+        sub={{ TODO: outNote(lists.TODO) }}
+      />
 
-      <main className="flex flex-1 flex-col gap-6 p-4 sm:p-8">
-        <div className="flex flex-1 flex-col overflow-clip rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-4 border-b border-slate-200 p-5">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search items by name, SKU, or category..." />
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="max-w-full overflow-x-auto">
-                <SegmentedTabs
-                  value={filter}
-                  onChange={setFilter}
-                  tabs={[
-                    { key: 'NEEDS_RESTOCK', label: 'Needs restock', count: c?.needs_restock },
-                    { key: 'CRITICAL', label: 'Out of stock', count: c?.critical },
-                    { key: 'LOW', label: 'Low', count: c?.low },
-                  ]}
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-500">Branch:</span>
-                  <select
-                    value={branchId}
-                    onChange={(e) => setBranchId(e.target.value)}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">All</option>
-                    {(data?.branches ?? []).map((b) => (
-                      <option key={b.branch_id} value={b.branch_id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-500">Category:</span>
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">All Categories</option>
-                    {(data?.categories ?? []).map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-x-auto">
-            <table className="w-full border-collapse text-left">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="px-6 py-3.5">Branch</th>
-                  <th className="px-4 py-3.5">Item</th>
-                  <th className="px-4 py-3.5 text-right">In stock</th>
-                  <th className="px-4 py-3.5 text-right">Minimum</th>
-                  <th className="px-4 py-3.5 text-right">Short by</th>
-                  <th className="px-6 py-3.5 text-right">{mainName} has</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={6} className="py-16 text-center text-slate-400">
-                      Loading…
+      <BoardSection
+        title={current.title}
+        count={rows.length}
+        actions={
+          <>
+            <label className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500">Branch:</span>
+              <select value={branchId} onChange={(e) => setBranchId(e.target.value)} className={selectCls}>
+                <option value="">All</option>
+                {(data?.branches ?? []).map((b) => (
+                  <option key={b.branch_id} value={b.branch_id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500">Category:</span>
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className={selectCls}>
+                <option value="">All Categories</option>
+                {(data?.categories ?? []).map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        }
+      >
+        <div className="flex-1 overflow-x-auto">
+          <table className={TABLE}>
+            <thead className={THEAD}>
+              <tr>
+                <th className={TH}>Branch</th>
+                <th className={TH}>Item</th>
+                <th className={`${TH} text-right`}>Free</th>
+                <th className={`${TH} text-right`}>Minimum</th>
+                <th className={`${TH} text-right`}>{todo ? 'Short by' : 'Requested'}</th>
+                {todo ? <th className={`${TH} text-right`}>{mainName} has</th> : <th className={TH}>Request</th>}
+                {todo && <th className={TH}>Status</th>}
+              </tr>
+            </thead>
+            <tbody className={TBODY}>
+              {isLoading && <BoardMessageRow colSpan={7}>Loading…</BoardMessageRow>}
+              {!isLoading && rows.length === 0 && <BoardMessageRow colSpan={7}>{search.trim() || category || branchId ? 'No items match.' : current.empty}</BoardMessageRow>}
+              {!isLoading &&
+                rows.map((r) => (
+                  <tr key={`${r.branch.branch_id}:${r.item_id}`} className="transition-colors hover:bg-slate-50/70">
+                    <td className="whitespace-nowrap px-6 py-4">
+                      <span className="inline-flex items-center gap-1.5 font-bold text-slate-900">
+                        {r.branch.name}
+                        {r.branch.is_main && <MainBadge />}
+                      </span>
                     </td>
-                  </tr>
-                ) : rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-16 text-center text-slate-400">
-                      <p className="font-semibold text-slate-600">Nothing needs restocking</p>
+                    <td className="whitespace-nowrap px-6 py-4">
+                      <div className="font-bold text-slate-900">{r.name}</div>
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        <span className="font-mono">{r.sku}</span> · {r.category}
+                      </div>
                     </td>
-                  </tr>
-                ) : (
-                  rows.map((r) => (
-                    <tr key={`${r.branch.branch_id}:${r.item_id}`} className={r.severity === 'CRITICAL' ? 'bg-red-50/20' : ''}>
-                      <td className="whitespace-nowrap px-6 py-3">
-                        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
-                          {r.branch.name}
-                          {r.branch.is_main && <MainBadge />}
-                        </span>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <p className="font-semibold text-slate-900">{r.name}</p>
-                        <p className="mt-0.5 text-xs text-slate-400">
-                          <span className="font-mono">{r.sku}</span> · {r.category}
-                        </p>
-                      </td>
-                      <td className={`whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums ${r.severity === 'CRITICAL' ? 'text-red-600' : 'text-amber-600'}`}>
-                        {formatQty(r.stock)} <span className="text-xs font-normal text-slate-400">{r.unit}</span>
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right text-xs text-slate-500">{formatQty(r.reorder_level)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-800">{formatQty(r.deficit)}</td>
-                      <td className="whitespace-nowrap px-6 py-3 text-right tabular-nums">
+                    <td className={`whitespace-nowrap px-6 py-4 text-right font-bold tabular-nums ${r.severity === 'CRITICAL' ? 'text-red-600' : 'text-amber-600'}`}>
+                      {formatQty(r.free)} <span className="text-xs font-normal text-slate-400">{r.unit}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-right text-slate-500">{formatQty(r.reorder_level)}</td>
+                    <td className="whitespace-nowrap px-6 py-4 text-right font-bold tabular-nums text-slate-900">
+                      {formatQty(todo ? r.deficit : (r.open_request?.qty ?? 0))}
+                    </td>
+                    {todo ? (
+                      <td className="whitespace-nowrap px-6 py-4 text-right tabular-nums">
                         {r.main_stock === null ? (
                           <span className="text-slate-300">—</span>
                         ) : (
                           <span className={r.main_stock >= r.deficit ? 'font-semibold text-emerald-700' : 'text-slate-500'}>{formatQty(r.main_stock)}</span>
                         )}
                       </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                    ) : (
+                      <td className="whitespace-nowrap px-6 py-4">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {r.open_request?.transfer_numbers.map((n) => (
+                            <IdChip key={n}>{n}</IdChip>
+                          ))}
+                        </div>
+                      </td>
+                    )}
+                    {todo && (
+                      <td className="whitespace-nowrap px-6 py-4">
+                        <StockLevelBadge level={r.level} />
+                      </td>
+                    )}
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         </div>
-      </main>
-    </div>
+      </BoardSection>
+    </StockPage>
   );
 }

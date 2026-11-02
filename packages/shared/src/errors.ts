@@ -98,6 +98,13 @@ export const ERR = {
   TRANSFER_BRANCH_UNAVAILABLE: { code: 'TRF_009', message: 'That branch is not taking stock requests' },
   TRANSFER_WRONG_BRANCH: { code: 'TRF_010', message: 'Only the other branch on this request can do that' },
 
+  // ── New catalogue items (Docs/decisions/0013) ───────────────────────────
+  ITEM_SKU_TAKEN: { code: 'ITM_001', message: 'Another item already uses this SKU' },
+  ITEM_DUPLICATE: { code: 'ITM_002', message: 'This item is already in the catalogue' },
+  ITEM_REQUEST_NOT_FOUND: { code: 'ITM_003', message: 'Item request not found' },
+  ITEM_REQUEST_NOT_PENDING: { code: 'ITM_004', message: 'This item request has already been decided' },
+  ITEM_REQUEST_NOT_YOURS: { code: 'ITM_005', message: 'Only the person who asked can cancel this request' },
+
   // ── Customers ───────────────────────────────────────────────────────────
   CUSTOMER_PHONE_EXISTS: { code: 'CUS_001', message: 'A customer with this phone number already exists' },
   CUSTOMER_NOT_FOUND: { code: 'CUS_002', message: 'Customer not found' },

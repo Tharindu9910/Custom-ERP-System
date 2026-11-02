@@ -7,6 +7,14 @@ export enum ItemType {
   MATERIAL = 'MATERIAL',
 }
 
+/** A new catalogue product asked for by a branch (Docs/decisions/0013). */
+export enum ItemRequestStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED',
+}
+
 export enum MovementType {
   SALE = 'SALE',
   JOB_USAGE = 'JOB_USAGE',
