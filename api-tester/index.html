@@ -24,6 +24,7 @@
   --accent2: #00d4ff;
   --warn:    #ffb347;
   --danger:  #ff5f6d;
+  --violet:  #b794f6;
   --mono:    'Space Mono', monospace;
   --sans:    'DM Sans', sans-serif;
   --r:       6px;
@@ -38,7 +39,7 @@ body {
   height: 100vh;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 240px 1fr 320px;
+  grid-template-columns: 290px 1fr 320px;
   grid-template-rows: 50px 1fr;
   grid-template-areas: "header header header" "nav main log";
 }
@@ -82,6 +83,8 @@ header {
 }
 .env-toggle button.active        { background: var(--bg2); color: var(--accent);  box-shadow: inset 0 0 0 1px var(--border); }
 .env-toggle button.active.cloud  { color: var(--accent2); }
+.env-dot { display:inline-block; width:5px; height:5px; border-radius:50%; background:var(--text3); margin-right:5px; vertical-align:1px; }
+.env-toggle button.active .env-dot { background: currentColor; box-shadow: 0 0 6px currentColor; }
 
 .url-group {
   display: flex;
@@ -137,22 +140,57 @@ nav {
   grid-area: nav;
   background: var(--bg2);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
-  padding: 10px 0 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+.nav-tools {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.nav-search {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 9px;
+  border-radius: var(--r);
+  outline: none;
+  width: 100%;
+}
+.nav-search:focus { border-color: var(--accent2); }
+.nav-opts { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--text2); font-family: var(--mono); }
+.nav-opts label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.nav-opts .sep { flex: 1; }
+.nav-list { overflow-y: auto; flex: 1; padding: 4px 0 20px; }
 .nav-section {
-  padding: 12px 14px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 14px 5px;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: .12em;
   color: var(--text3);
   font-family: var(--mono);
+  cursor: pointer;
+  user-select: none;
 }
+.nav-section:hover { color: var(--text2); }
+.nav-section .caret { width: 8px; transition: transform .15s; }
+.nav-section.collapsed .caret { transform: rotate(-90deg); }
+.nav-section .count { margin-left: auto; color: var(--text3); letter-spacing: 0; }
+.nav-group.collapsed { display: none; }
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 8px 14px;
+  gap: 8px;
+  padding: 6px 14px;
   cursor: pointer;
   border-left: 2px solid transparent;
   transition: background .12s;
@@ -160,20 +198,25 @@ nav {
 }
 .nav-item:hover  { background: var(--bg3); }
 .nav-item.active { background: var(--bg3); border-left-color: var(--accent); }
+.nav-item.denied .nav-path { color: var(--text3); text-decoration: line-through; text-decoration-color: var(--border2); }
 .nav-badge {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
-  padding: 2px 5px;
+  padding: 2px 4px;
   border-radius: 3px;
-  min-width: 32px;
+  min-width: 38px;
   text-align: center;
+  flex-shrink: 0;
 }
-.GET  { background: rgba(0,212,255,.12);  color: var(--accent2); }
-.POST { background: rgba(79,255,176,.12); color: var(--accent); }
-.JWT  { background: rgba(255,179,71,.12); color: var(--warn); }
-.nav-path  { font-family: var(--mono); font-size: 11px; color: var(--text); }
-.nav-sub   { font-size: 10px; color: var(--text3); margin-left: auto; }
+.GET   { background: rgba(0,212,255,.12);  color: var(--accent2); }
+.POST  { background: rgba(79,255,176,.12); color: var(--accent); }
+.PUT   { background: rgba(183,148,246,.14); color: var(--violet); }
+.PATCH { background: rgba(255,179,71,.12); color: var(--warn); }
+.DELETE{ background: rgba(255,95,109,.12); color: var(--danger); }
+.SSE   { background: rgba(183,148,246,.14); color: var(--violet); }
+.JWT   { background: rgba(255,179,71,.12); color: var(--warn); }
+.nav-path { font-family: var(--mono); font-size: 10.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Main ─────────────────────────────────────────────── */
 main {
@@ -200,8 +243,13 @@ main {
   letter-spacing: .1em;
   color: var(--text3);
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.ts-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.ts-title .sep { flex: 1; }
+.ts-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; }
+.ts-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; min-width: 0; }
 .ts-key {
   font-family: var(--mono);
   font-size: 10px;
@@ -217,9 +265,22 @@ main {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 .ts-val.empty { color: var(--text3); font-style: italic; }
 .ts-actions { display: flex; gap: 5px; flex-shrink: 0; }
+.ts-select {
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  color: var(--accent2);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+}
 
 /* Panel */
 .panel {
@@ -238,6 +299,7 @@ main {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--bg3);
+  flex-wrap: wrap;
 }
 .panel-method {
   font-family: var(--mono);
@@ -247,13 +309,27 @@ main {
   border-radius: 3px;
 }
 .panel-path { font-family: var(--mono); font-size: 12px; color: var(--text); }
-.panel-desc { font-size: 11px; color: var(--text2); margin-left: auto; }
+.panel-tags { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+}
+.tag.perm    { color: var(--warn);    border-color: rgba(255,179,71,.35); }
+.tag.public  { color: var(--accent);  border-color: rgba(79,255,176,.35); }
+.tag.branch  { color: var(--accent2); border-color: rgba(0,212,255,.35); }
+.tag.global  { color: var(--violet);  border-color: rgba(183,148,246,.35); }
+.tag.feature { color: var(--text2); }
+.panel-desc { font-size: 12px; color: var(--text2); line-height: 1.5; }
 .panel-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 
 /* Fields */
 .field { display: flex; flex-direction: column; gap: 5px; }
-.field label { font-size: 10px; color: var(--text2); font-family: var(--mono); letter-spacing: .04em; }
-.field input, .field textarea {
+.field label, .sub-title { font-size: 10px; color: var(--text2); font-family: var(--mono); letter-spacing: .04em; }
+.field input, .field textarea, .field select {
   background: var(--bg3);
   border: 1px solid var(--border2);
   color: var(--text);
@@ -265,11 +341,14 @@ main {
   width: 100%;
   transition: border-color .15s;
 }
-.field input[type="password"] { letter-spacing: .1em; }
 .field input:focus, .field textarea:focus { border-color: var(--accent2); }
-.field textarea { resize: vertical; min-height: 72px; }
-.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field textarea { resize: vertical; min-height: 72px; tab-size: 2; }
+.field textarea.body { min-height: 180px; font-size: 11.5px; line-height: 1.45; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.hint { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+.hint code { color: var(--accent); }
 
 /* Quick-fill chips */
 .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
@@ -313,9 +392,10 @@ main {
   min-height: 56px;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 300px;
+  max-height: 460px;
   overflow-y: auto;
 }
+.resp-box img { max-width: 100%; max-height: 420px; display: block; }
 .badge {
   font-family: var(--mono);
   font-size: 10px;
@@ -326,6 +406,7 @@ main {
 .s2xx { background: rgba(79,255,176,.15);  color: var(--accent); }
 .s4xx { background: rgba(255,179,71,.15);  color: var(--warn); }
 .s5xx { background: rgba(255,95,109,.15);  color: var(--danger); }
+.ms   { font-family: var(--mono); font-size: 9px; color: var(--text3); }
 
 /* JWT sections */
 .jwt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -383,6 +464,7 @@ main {
 .log-prev { color: var(--text3); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-info { padding: 3px 8px; font-family: var(--mono); font-size: 9px; color: var(--text3); }
 .log-err  { padding: 3px 8px; font-family: var(--mono); font-size: 9px; color: var(--danger); }
+.log-sse  { padding: 3px 8px; font-family: var(--mono); font-size: 9px; color: var(--violet); word-break: break-all; }
 
 /* ── Scrollbars ──────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -404,12 +486,8 @@ main {
   <div class="sep"></div>
 
   <div class="env-toggle">
-    <button id="btn-local" class="active" onclick="switchEnv('local')">
-      <span id="dot-local" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;margin-right:5px;vertical-align:1px"></span>LOCAL
-    </button>
-    <button id="btn-cloud" class="cloud" onclick="switchEnv('cloud')">
-      <span id="dot-cloud" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--text3);margin-right:5px;vertical-align:1px"></span>CLOUD
-    </button>
+    <button id="btn-local" onclick="switchEnv('local')"><span class="env-dot"></span>LOCAL</button>
+    <button id="btn-cloud" class="cloud" onclick="switchEnv('cloud')"><span class="env-dot"></span>CLOUD</button>
   </div>
 
   <div class="url-group">
@@ -420,47 +498,17 @@ main {
   </div>
 </header>
 
-<!-- ── Sidebar Nav ─────────────────────────────────────────────────────── -->
+<!-- ── Sidebar Nav (built from ENDPOINTS) ───────────────────────────────── -->
 <nav>
-  <div class="nav-section">Health</div>
-  <div class="nav-item" id="nav-health" onclick="show('health')">
-    <span class="nav-badge GET">GET</span>
-    <span class="nav-path">/health</span>
+  <div class="nav-tools">
+    <input class="nav-search" id="navSearch" type="search" placeholder="Filter by path, permission or text…" oninput="renderNav()">
+    <div class="nav-opts">
+      <label title="Hide endpoints the logged-in role has no permission for"><input type="checkbox" id="navMine" onchange="renderNav()"> my permissions only</label>
+      <span class="sep"></span>
+      <button class="btn sm" onclick="toggleAllGroups()">fold</button>
+    </div>
   </div>
-  <div class="nav-item" id="nav-health-db" onclick="show('health-db')">
-    <span class="nav-badge GET">GET</span>
-    <span class="nav-path">/health/run</span>
-    <span class="nav-sub">db check</span>
-  </div>
-
-  <div class="nav-section">Auth</div>
-  <div class="nav-item" id="nav-login" onclick="show('login')">
-    <span class="nav-badge POST">POST</span>
-    <span class="nav-path">/auth/login</span>
-  </div>
-  <div class="nav-item" id="nav-refresh" onclick="show('refresh')">
-    <span class="nav-badge POST">POST</span>
-    <span class="nav-path">/auth/refresh</span>
-  </div>
-  <div class="nav-item" id="nav-logout" onclick="show('logout')">
-    <span class="nav-badge POST">POST</span>
-    <span class="nav-path">/auth/logout</span>
-  </div>
-  <div class="nav-item" id="nav-logout-all" onclick="show('logout-all')">
-    <span class="nav-badge POST">POST</span>
-    <span class="nav-path">/auth/logout/all</span>
-    <span class="nav-sub">all sessions</span>
-  </div>
-  <div class="nav-item" id="nav-me" onclick="show('me')">
-    <span class="nav-badge GET">GET</span>
-    <span class="nav-path">/auth/me</span>
-  </div>
-
-  <div class="nav-section">Utils</div>
-  <div class="nav-item" id="nav-jwt" onclick="show('jwt')">
-    <span class="nav-badge JWT">JWT</span>
-    <span class="nav-path">Inspector</span>
-  </div>
+  <div class="nav-list" id="navList"></div>
 </nav>
 
 <!-- ── Main ───────────────────────────────────────────────────────────── -->
@@ -468,36 +516,44 @@ main {
 
   <!-- Token Store (always visible) -->
   <div class="token-store">
-    <div class="ts-title">Token Store</div>
-    <div class="ts-row">
-      <span class="ts-key">accessToken</span>
-      <span class="ts-val empty" id="ts-access">— empty —</span>
-      <div class="ts-actions">
-        <button class="btn sm" onclick="copyToken('access')">copy</button>
-        <button class="btn sm danger" onclick="clearAllTokens()">clear all</button>
+    <div class="ts-title">
+      Token Store
+      <span class="sep"></span>
+      <button class="btn sm danger" onclick="clearAllTokens()">clear all</button>
+    </div>
+    <div class="ts-grid">
+      <div>
+        <div class="ts-row">
+          <span class="ts-key">accessToken</span>
+          <span class="ts-val empty" id="ts-access">— empty —</span>
+          <div class="ts-actions"><button class="btn sm" onclick="copyToken('accessToken')">copy</button></div>
+        </div>
+        <div class="ts-row">
+          <span class="ts-key">refreshToken</span>
+          <span class="ts-val empty" id="ts-refresh">— empty —</span>
+          <div class="ts-actions"><button class="btn sm" onclick="copyToken('refreshToken')">copy</button></div>
+        </div>
+        <div class="ts-row">
+          <span class="ts-key">userId</span>
+          <span class="ts-val empty" id="ts-userid">— empty —</span>
+          <div class="ts-actions"><button class="btn sm" onclick="copyToken('userId')">copy</button></div>
+        </div>
       </div>
-    </div>
-    <div class="ts-row">
-      <span class="ts-key">refreshToken</span>
-      <span class="ts-val empty" id="ts-refresh">— empty —</span>
-      <div class="ts-actions">
-        <button class="btn sm" onclick="copyToken('refresh')">copy</button>
+      <div>
+        <div class="ts-row">
+          <span class="ts-key">role</span>
+          <span class="ts-val empty" id="ts-role">— empty —</span>
+        </div>
+        <div class="ts-row">
+          <span class="ts-key">JWT branch</span>
+          <span class="ts-val empty" id="ts-branch">— empty —</span>
+        </div>
+        <div class="ts-row">
+          <span class="ts-key" title="Sent on every authenticated request. Global roles (SUPER_ADMIN, ADMIN, AUDITOR) need it for branch screens; branch roles always use their JWT branch.">X-Branch-Id</span>
+          <select class="ts-select" id="branchPicker" onchange="setBranchHeader(this.value)"></select>
+          <div class="ts-actions"><button class="btn sm" onclick="loadBranches()" title="GET /branches">load</button></div>
+        </div>
       </div>
-    </div>
-    <div class="ts-row">
-      <span class="ts-key">userId</span>
-      <span class="ts-val empty" id="ts-userid">— empty —</span>
-      <div class="ts-actions">
-        <button class="btn sm" onclick="copyToken('userid')">copy</button>
-      </div>
-    </div>
-    <div class="ts-row">
-      <span class="ts-key">role</span>
-      <span class="ts-val empty" id="ts-role">— empty —</span>
-    </div>
-    <div class="ts-row">
-      <span class="ts-key">branchId</span>
-      <span class="ts-val empty" id="ts-branch">— empty —</span>
     </div>
   </div>
 
@@ -508,197 +564,21 @@ main {
     <div style="font-size:10px;margin-top:4px">
       API → <span id="welcome-url" style="color:var(--accent2)">http://localhost:3000</span>
     </div>
-  </div>
-
-  <!-- ── GET /health ─────────────────────────────────── -->
-  <div class="panel" id="p-health">
-    <div class="panel-head">
-      <span class="panel-method GET">GET</span>
-      <span class="panel-path">/health</span>
-      <span class="panel-desc">Basic health check · public</span>
-    </div>
-    <div class="panel-body">
-      <div class="btn-row">
-        <button class="btn primary" onclick="doHealth()">Send</button>
-      </div>
-      <div>
-        <div class="resp-head">
-          <span class="resp-label">Response</span>
-          <span id="s-health"></span>
-        </div>
-        <div class="resp-box" id="r-health">—</div>
-      </div>
+    <div style="font-size:10px;margin-top:10px;max-width:420px;line-height:1.6">
+      Start with <span style="color:var(--accent)">Auth &amp; Session → POST /auth/login</span>.<br>
+      Head-office logins: pick a branch in <span style="color:var(--accent2)">X-Branch-Id</span> for branch screens.
     </div>
   </div>
 
-  <!-- ── GET /health/run ─────────────────────────────── -->
-  <div class="panel" id="p-health-db">
-    <div class="panel-head">
-      <span class="panel-method GET">GET</span>
-      <span class="panel-path">/health/run</span>
-      <span class="panel-desc">Database connectivity · public</span>
-    </div>
-    <div class="panel-body">
-      <div class="btn-row">
-        <button class="btn primary" onclick="doHealthDb()">Send</button>
-      </div>
-      <div>
-        <div class="resp-head">
-          <span class="resp-label">Response</span>
-          <span id="s-health-db"></span>
-        </div>
-        <div class="resp-box" id="r-health-db">—</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── POST /auth/login ────────────────────────────── -->
-  <div class="panel" id="p-login">
-    <div class="panel-head">
-      <span class="panel-method POST">POST</span>
-      <span class="panel-path">/auth/login</span>
-      <span class="panel-desc">Username + password → JWT pair</span>
-    </div>
-    <div class="panel-body">
-      <div class="chips">
-        <span class="chips-label">Quick fill:</span>
-        <span class="chip" onclick="fillLogin('superadmin','Super@123')">superadmin</span>
-        <span class="chip" onclick="fillLogin('admin','Admin@123')">admin</span>
-        <span class="chip" onclick="fillLogin('manager_thangalla','Dev@1234')">manager_thangalla</span>
-        <span class="chip" onclick="fillLogin('supervisor_thangalla','Dev@1234')">supervisor_thangalla</span>
-        <span class="chip" onclick="fillLogin('cashier_thangalla','Dev@1234')">cashier_thangalla</span>
-      </div>
-      <div class="row2">
-        <div class="field">
-          <label>username</label>
-          <input id="login-user" type="text" placeholder="superadmin" autocomplete="off">
-        </div>
-        <div class="field">
-          <label>password</label>
-          <input id="login-pass" type="password" placeholder="••••••••" autocomplete="off">
-        </div>
-      </div>
-      <div class="btn-row">
-        <button class="btn primary" onclick="doLogin()">Login</button>
-        <span style="font-size:10px;color:var(--text3);font-family:var(--mono)">Tokens auto-stored on success</span>
-      </div>
-      <div>
-        <div class="resp-head">
-          <span class="resp-label">Response</span>
-          <span id="s-login"></span>
-        </div>
-        <div class="resp-box" id="r-login">—</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── POST /auth/refresh ──────────────────────────── -->
-  <div class="panel" id="p-refresh">
-    <div class="panel-head">
-      <span class="panel-method POST">POST</span>
-      <span class="panel-path">/auth/refresh</span>
-      <span class="panel-desc">Refresh token → new JWT pair</span>
-    </div>
-    <div class="panel-body">
-      <div class="field">
-        <label>Refresh Token  <span style="color:var(--text3)">(sent as Authorization: Bearer)</span></label>
-        <input id="refresh-tok" type="text" placeholder="Auto-filled from store — or paste manually">
-      </div>
-      <div class="btn-row">
-        <button class="btn" onclick="fillRefresh()">Fill from Store</button>
-        <button class="btn primary" onclick="doRefresh()">Refresh</button>
-      </div>
-      <div>
-        <div class="resp-head">
-          <span class="resp-label">Response</span>
-          <span id="s-refresh"></span>
-        </div>
-        <div class="resp-box" id="r-refresh">—</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── POST /auth/logout ───────────────────────────── -->
-  <div class="panel" id="p-logout">
-    <div class="panel-head">
-      <span class="panel-method POST">POST</span>
-      <span class="panel-path">/auth/logout</span>
-      <span class="panel-desc">Stateless logout · clears local tokens</span>
-    </div>
-    <div class="panel-body">
-      <div class="info-banner">
-        Sends <code>Authorization: Bearer &lt;accessToken&gt;</code> from the store.
-        Tokens are cleared locally on success. Login first if the store is empty.
-      </div>
-      <div class="btn-row">
-        <button class="btn danger" onclick="doLogout()">Logout</button>
-      </div>
-      <div>
-        <div class="resp-head">
-          <span class="resp-label">Response</span>
-          <span id="s-logout"></span>
-        </div>
-        <div class="resp-box" id="r-logout">—</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── POST /auth/logout/all ──────────────────────── -->
-  <div class="panel" id="p-logout-all">
-    <div class="panel-head">
-      <span class="panel-method POST">POST</span>
-      <span class="panel-path">/auth/logout/all</span>
-      <span class="panel-desc">Revoke every active session · requires auth</span>
-    </div>
-    <div class="panel-body">
-      <div class="info-banner">
-        Sends <code>Authorization: Bearer &lt;accessToken&gt;</code> from the store.
-        All sessions for the current user are revoked server-side. Local tokens are cleared on success.
-      </div>
-      <div class="btn-row">
-        <button class="btn danger" onclick="doLogoutAll()">Logout All Sessions</button>
-      </div>
-      <div>
-        <div class="resp-head">
-          <span class="resp-label">Response</span>
-          <span id="s-logout-all"></span>
-        </div>
-        <div class="resp-box" id="r-logout-all">—</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── GET /auth/me ────────────────────────────────── -->
-  <div class="panel" id="p-me">
-    <div class="panel-head">
-      <span class="panel-method GET">GET</span>
-      <span class="panel-path">/auth/me</span>
-      <span class="panel-desc">Current user profile · requires auth</span>
-    </div>
-    <div class="panel-body">
-      <div class="info-banner">
-        Sends <code>Authorization: Bearer &lt;accessToken&gt;</code> from the store.
-        Login first if the store is empty.
-      </div>
-      <div class="btn-row">
-        <button class="btn primary" onclick="doMe()">Get Profile</button>
-      </div>
-      <div>
-        <div class="resp-head">
-          <span class="resp-label">Response</span>
-          <span id="s-me"></span>
-        </div>
-        <div class="resp-box" id="r-me">—</div>
-      </div>
-    </div>
-  </div>
+  <!-- Generic endpoint panel (filled by openEndpoint) -->
+  <div class="panel" id="p-endpoint"></div>
 
   <!-- ── JWT Inspector ───────────────────────────────── -->
   <div class="panel" id="p-jwt">
     <div class="panel-head">
       <span class="panel-method JWT">JWT</span>
       <span class="panel-path">Inspector</span>
-      <span class="panel-desc">Decode & inspect tokens</span>
+      <div class="panel-tags"><span class="tag">local only — nothing is sent</span></div>
     </div>
     <div class="panel-body">
       <div class="field">
@@ -737,27 +617,356 @@ main {
   </div>
 </aside>
 
-<script>
-// ── State ──────────────────────────────────────────────────────────────────
-const store = { accessToken:'', refreshToken:'', userId:'', role:'', branchId:'' };
-let env = 'local';
-const DEFAULTS = { local:'http://localhost:3000', cloud:'' };
+<datalist id="recentIds"></datalist>
 
-// ── Init ───────────────────────────────────────────────────────────────────
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// Endpoint catalogue — one entry per controller route in apps/api/src.
+//
+//   cat      sidebar category (grouped by what the endpoint does)
+//   auth     'access' (default) | 'refresh' | 'none'
+//   perm     @RequirePermissions(...) on the route
+//   feature  @RequireFeature(...) — the branch switch that must be on
+//   scope    'branch' = uses the branch context (X-Branch-Id for global roles)
+//            'global' = head office only (requireGlobal)
+//   query    example query string ({ key: value }); empty values are not sent
+//   body     example JSON body. Placeholders replaced when sending:
+//            "$uuid"  → new random UUID       "$today" → YYYY-MM-DD
+//            "$today-30" / "$today+7"        → date offset in days
+//            "<..._id>" strings must be replaced by hand (use Recent IDs)
+//   after    'tokens' (store JWT pair) | 'clear' (forget tokens) | 'ticket' | 'branches'
+// ═══════════════════════════════════════════════════════════════════════════
+
+const BR = {
+  NAIWALA:   '00000000-0000-0000-0000-000000000001',
+  VEYANGODA: '00000000-0000-0000-0000-000000000002',
+  THANGALLA: '00000000-0000-0000-0000-000000000003',
+};
+const CUSTOMER = { phone: '0771234567', name: 'Test Customer' };
+
+const CUT_BEND_LINE = {
+  job_type: 'CUT_BEND',
+  material_source: 'BRANCH',
+  material_type: 'MS Plain Sheet',
+  thickness: '2mm',
+  material_quantity: 1,
+  cut_count: 4,
+  bend_count: 2,
+  notes: 'Tester line',
+};
+const ROOFING_LINE = {
+  category: 'Roofing',
+  job_type: 'STANDARD',
+  material_source: 'BRANCH',
+  pattern: 'Tile Roofing',
+  length_ft: 10,
+  pieces: 5,
+  total_cuts: 0,
+  total_bends: 0,
+};
+const ITEM_FIELDS = {
+  name: 'Tester Bolt 1 inch',
+  item_type: 'HARDWARE',
+  category: 'Fasteners',
+  unit: 'box',
+  attributes: { size: '1 inch' },
+};
+
+const CATEGORIES = [
+  'System',
+  'Auth & Session',
+  'Users & Access',
+  'Branches & Settings',
+  'Customers',
+  'Workers',
+  'Catalogue & Pricing',
+  'Inventory & Stock Alerts',
+  'Stock Transfers',
+  'Gate Passes',
+  'Job Cards (Workshop)',
+  'Roofing Orders',
+  'Orders & Payments (Cashier)',
+  'Hardware Sales',
+  'Attachments',
+  'Utils',
+];
+
+const ENDPOINTS = [
+  // ── System ──────────────────────────────────────────────────────────────
+  { cat:'System', method:'GET', path:'/health', auth:'none', desc:'Basic health check.' },
+  { cat:'System', method:'GET', path:'/health/run', auth:'none', desc:'Database connectivity check.' },
+  { cat:'System', method:'POST', path:'/events/ticket', scope:'branch', after:'ticket',
+    desc:'Exchange the access token for a short-lived live-update stream ticket. Head office may subscribe; with no X-Branch-Id it streams every branch.' },
+  { cat:'System', method:'GET', path:'/events/stream', auth:'none', sse:true, query:{ ticket:'$ticket' },
+    desc:'Server-sent events: "changed" nudges per branch and a "ping" every 25 s. Get a ticket first; events appear in the Request Log.' },
+
+  // ── Auth & Session ──────────────────────────────────────────────────────
+  { cat:'Auth & Session', method:'POST', path:'/auth/login', auth:'none', after:'tokens', login:true,
+    body:{ username:'superadmin', password:'Super@123' },
+    desc:'Username + password → access/refresh tokens and the user (role, branch_id, permissions). Rate limited (10/min per IP).' },
+  { cat:'Auth & Session', method:'POST', path:'/auth/refresh', auth:'refresh', after:'tokens',
+    desc:'Sends the refresh token as Bearer. Rotates the session: old refresh token is revoked; replaying it revokes every session.' },
+  { cat:'Auth & Session', method:'POST', path:'/auth/change-password', after:'tokens',
+    body:{ current_password:'Dev@1234', new_password:'NewPass@123' },
+    desc:'Replace the (temporary) password. Allowed while a password change is pending; starts a fresh session.' },
+  { cat:'Auth & Session', method:'GET', path:'/auth/me', desc:'Current user: role, branch_id (null for global roles) and granted permissions.' },
+  { cat:'Auth & Session', method:'POST', path:'/auth/logout', after:'clear', desc:'Revoke the current session.' },
+  { cat:'Auth & Session', method:'POST', path:'/auth/logout/all', after:'clear', desc:'Revoke every active session of the current user.' },
+
+  // ── Users & Access ──────────────────────────────────────────────────────
+  { cat:'Users & Access', method:'GET', path:'/users', perm:'manage:users', desc:'List users (branch roles see their own branch).' },
+  { cat:'Users & Access', method:'POST', path:'/users', perm:'manage:users',
+    body:{ username:'tester_cashier', password:'Dev@1234', full_name:'Tester Cashier', email:'tester.cashier@example.com', phone:'0771234567', branch_id:BR.THANGALLA, role:'CASHIER' },
+    desc:'Create a user with a role. Global roles (SUPER_ADMIN, ADMIN, AUDITOR) take no branch_id.' },
+  { cat:'Users & Access', method:'PATCH', path:'/users/:id', perm:'manage:users',
+    body:{ full_name:'Tester Cashier (edited)', phone:'0777654321', is_active:true },
+    desc:'Update profile fields or deactivate a user.' },
+  { cat:'Users & Access', method:'PATCH', path:'/users/:id/role', perm:'manage:users',
+    body:{ role:'SUPERVISOR', branch_id:BR.THANGALLA },
+    desc:'Assign a different role (and branch) to a user.' },
+  { cat:'Users & Access', method:'GET', path:'/users/chief-candidates', perm:'create:chief_profile', feature:'chiefProfiles', scope:'branch',
+    query:{ search:'' }, desc:'Branch workers who can be given a chief login.' },
+  { cat:'Users & Access', method:'POST', path:'/users/chief', perm:'create:chief_profile', feature:'chiefProfiles', scope:'branch',
+    body:{ employee_id:'<worker_id>', email:'chief.tester@example.com' },
+    desc:'Create a CHIEF login for a worker (from chief-candidates).' },
+  { cat:'Users & Access', method:'GET', path:'/permissions', perm:'configure:permissions', desc:'Permission catalogue.' },
+  { cat:'Users & Access', method:'GET', path:'/permissions/roles', perm:'configure:permissions', desc:'Role × permission matrix.' },
+  { cat:'Users & Access', method:'PATCH', path:'/permissions/roles', perm:'configure:permissions',
+    body:{ role:'CASHIER', updates:[{ permission_id:'<permission_id>', granted:true }] },
+    desc:'Grant or revoke permissions for a role (SUPER_ADMIN cannot be changed).' },
+
+  // ── Branches & Settings ─────────────────────────────────────────────────
+  { cat:'Branches & Settings', method:'GET', path:'/branches', after:'branches', desc:'Branch summaries visible to the caller (details, features, version — full settings via /:id/config). Also fills the X-Branch-Id picker.' },
+  { cat:'Branches & Settings', method:'GET', path:'/branches/current', scope:'branch', desc:'The branch in context, with its settings.' },
+  { cat:'Branches & Settings', method:'GET', path:'/branches/transfer-targets', perm:'request:stock', scope:'branch', desc:'Other branches this branch can ask for stock.' },
+  { cat:'Branches & Settings', method:'POST', path:'/branches', perm:'manage:branches',
+    body:{ code:'BR-TST-001', name:'Tester Branch', branch_type:'ROOFING_WORKSHOP', location:'Colombo', phone:'0112345678' },
+    desc:'Create a branch. branch_type: ROOFING | WORKSHOP | ROOFING_WORKSHOP.' },
+  { cat:'Branches & Settings', method:'PATCH', path:'/branches/:id', perm:'manage:branches',
+    body:{ name:'Tester Branch (edited)', is_active:true, version:1 },
+    desc:'Update a branch. is_main: true moves the main-branch flag here. version = the one you loaded; a stale one is refused (409 BR_006).' },
+  { cat:'Branches & Settings', method:'GET', path:'/branches/:id/config', desc:'Branch settings (features, workshop, roofing, orders, gate pass…).' },
+  { cat:'Branches & Settings', method:'PATCH', path:'/branches/:id/config', perm:'configure:branch',
+    body:{ features:{ gatePass:true, inventory:true }, orders:{ max_discount_pct:5 }, min_advance_pct_customized:30, version:1 },
+    desc:'Patch settings sections; each section is shallow-merged into the stored one. stock_override_password sets a new override password. version = the one from GET /:id/config; a stale one is refused (409 BR_006).' },
+
+  // ── Customers ───────────────────────────────────────────────────────────
+  { cat:'Customers', method:'GET', path:'/customers', query:{ q:'', limit:'50' }, desc:'Newest customers in scope; q filters by name or phone.' },
+  { cat:'Customers', method:'GET', path:'/customers/lookup', query:{ phone:'0771234567' }, desc:'Prefill intake forms by phone (id, name, phone only).' },
+  { cat:'Customers', method:'POST', path:'/customers', perm:'complete:customer_profile', scope:'branch',
+    body:{ name:'Test Customer', phone:'0771234567', customer_type:'INDIVIDUAL', address:'12 Main St, Thangalla' },
+    desc:'Create a customer. BUSINESS customers need company_name. Global roles are refused (view-only).' },
+  { cat:'Customers', method:'PATCH', path:'/customers/:id', perm:'complete:customer_profile', scope:'branch',
+    body:{ email:'customer@example.com', address:'14 Main St, Thangalla' }, desc:'Partial update.' },
+
+  // ── Workers ─────────────────────────────────────────────────────────────
+  { cat:'Workers', method:'GET', path:'/workers', scope:'branch', query:{ active:'true' },
+    desc:'Branch workers. active=true hides deactivated workers (assignment pickers).' },
+  { cat:'Workers', method:'POST', path:'/workers', perm:'manage:workers', scope:'branch',
+    body:{ full_name:'Tester Worker', employee_code:'TW-001', designation:'MACHINE OPERATOR', phone:'+94771234567', branch_id:BR.THANGALLA },
+    desc:'Add a worker to the branch.' },
+  { cat:'Workers', method:'PATCH', path:'/workers/:id', perm:'manage:workers', scope:'branch',
+    body:{ designation:'HELPER', is_active:true }, desc:'Update or deactivate a worker.' },
+
+  // ── Catalogue & Pricing ─────────────────────────────────────────────────
+  { cat:'Catalogue & Pricing', method:'GET', path:'/items/options', perm:'view:inventory', desc:'Category and unit choices for the New item form.' },
+  { cat:'Catalogue & Pricing', method:'POST', path:'/items', perm:'create:item',
+    body:{ ...ITEM_FIELDS, sku:'TST-BOLT-1IN', price:150000, unit_cost:120000 },
+    desc:'Head office adds a catalogue item directly. Money in cents. MATERIAL needs material_type+thickness; COIL needs origin+thickness+color.' },
+  { cat:'Catalogue & Pricing', method:'GET', path:'/items/coils', perm:'create:roofing_order', feature:'section: roofing', scope:'branch', desc:'Coils in stock for roofing orders.' },
+  { cat:'Catalogue & Pricing', method:'GET', path:'/items/workshop-catalog', perm:'create:job_card', scope:'branch', desc:'Job card form data: sheet stock, coils and the stock override switch.' },
+  { cat:'Catalogue & Pricing', method:'GET', path:'/item-requests', perm:'view:inventory', feature:'inventory', scope:'branch', query:{ status:'OPEN' }, desc:'New-item requests. status: OPEN | ALL.' },
+  { cat:'Catalogue & Pricing', method:'GET', path:'/item-requests/count', perm:'approve:item_request', feature:'inventory', scope:'branch', desc:'Open request count (manager badge).' },
+  { cat:'Catalogue & Pricing', method:'POST', path:'/item-requests', perm:'request:new_item', feature:'inventory', scope:'branch',
+    body:{ client_request_id:'$uuid', ...ITEM_FIELDS, suggested_price:150000, suggested_cost:120000, note:'Requested from the API tester' },
+    desc:'A branch asks for a new product. A manager may add "approve": { sku, price, unit_cost, reorder_level } to approve in the same step.' },
+  { cat:'Catalogue & Pricing', method:'POST', path:'/item-requests/:id/approve', perm:'approve:item_request', feature:'inventory', scope:'branch',
+    body:{ ...ITEM_FIELDS, sku:'TST-BOLT-1IN', price:150000, unit_cost:120000, reorder_level:10 },
+    desc:'Same-branch manager approves with final fields, SKU, price and branch minimum.' },
+  { cat:'Catalogue & Pricing', method:'POST', path:'/item-requests/:id/reject', perm:'approve:item_request', feature:'inventory', scope:'branch',
+    body:{ reason:'Already in the catalogue' }, desc:'Reject a request.' },
+  { cat:'Catalogue & Pricing', method:'POST', path:'/item-requests/:id/cancel', perm:'request:new_item', feature:'inventory', scope:'branch', desc:'Requester cancels their open request.' },
+  { cat:'Catalogue & Pricing', method:'GET', path:'/price-list/rates', perm:'view:price_list', query:{ line_type:'', include_inactive:'false' },
+    desc:'Work rates (one list for every branch). line_type: CUT_BEND | ROLLING | COIL_CUTTING | ROOFING_SHEET | ROOFING_ACCESSORY | HARDWARE | MATERIAL.' },
+  { cat:'Catalogue & Pricing', method:'POST', path:'/price-list/rates', perm:'configure:price_list',
+    body:{ line_type:'CUT_BEND', sub_type:'CUT', variant:null, work_type:null, thickness_or_size:'2mm', material_source:'BRANCH', price_basis:'PER_CUT', rate:5000 },
+    desc:'Add a work rate. Key fields are fixed once created.' },
+  { cat:'Catalogue & Pricing', method:'PATCH', path:'/price-list/rates/:id', perm:'configure:price_list',
+    body:{ rate:5500, is_active:true }, desc:'Change price_basis, rate or is_active.' },
+  { cat:'Catalogue & Pricing', method:'GET', path:'/price-list/items', perm:'view:price_list', query:{ item_type:'', q:'' }, desc:'Catalogue item prices. item_type: HARDWARE | COIL | MATERIAL.' },
+  { cat:'Catalogue & Pricing', method:'PATCH', path:'/price-list/items/:id', perm:'configure:item_prices',
+    body:{ price:160000, unit_cost:125000 }, desc:'Set an item\'s selling price and/or unit cost (cents).' },
+
+  // ── Inventory & Stock Alerts ────────────────────────────────────────────
+  { cat:'Inventory & Stock Alerts', method:'GET', path:'/inventory', perm:'view:inventory', feature:'inventory', scope:'branch',
+    query:{ q:'', category:'', status:'ALL', sort:'NAME' }, desc:'Branch stock levels. status: ALL | HEALTHY | LOW | OUT; sort: NAME | STOCK_DESC | STOCK_ASC.' },
+  { cat:'Inventory & Stock Alerts', method:'GET', path:'/inventory/:itemId', perm:'view:inventory', feature:'inventory', scope:'branch', desc:'One item\'s stock and movements at the branch.' },
+  { cat:'Inventory & Stock Alerts', method:'PATCH', path:'/inventory/:itemId/minimum', perm:'configure:stock_minimum', feature:'inventory', scope:'branch',
+    body:{ reorder_level:20 }, desc:'Branch manager sets the restock minimum (head office gets CTX_003).' },
+  { cat:'Inventory & Stock Alerts', method:'GET', path:'/stock-alerts', perm:'view:stock_alerts', feature:'stockAlerts', scope:'branch',
+    query:{ filter:'NEEDS_RESTOCK', category:'', q:'' }, desc:'Restock queue (counts bookings). filter: NEEDS_RESTOCK | CRITICAL | LOW.' },
+  { cat:'Inventory & Stock Alerts', method:'GET', path:'/stock-alerts/count', perm:'view:stock_alerts', feature:'stockAlerts', scope:'branch', desc:'Alert count (sidebar badge).' },
+  { cat:'Inventory & Stock Alerts', method:'GET', path:'/network/inventory', perm:'view:inventory', scope:'global',
+    query:{ q:'', category:'', status:'ALL', sort:'NAME' }, desc:'Head office: stock across every branch (no X-Branch-Id needed).' },
+  { cat:'Inventory & Stock Alerts', method:'GET', path:'/network/stock-alerts', perm:'view:stock_alerts', scope:'global',
+    query:{ filter:'NEEDS_RESTOCK', category:'', q:'' }, desc:'Head office: alerts across every branch.' },
+  { cat:'Inventory & Stock Alerts', method:'GET', path:'/network/stock-alerts/count', perm:'view:stock_alerts', scope:'global', desc:'Head office: alert count across every branch.' },
+
+  // ── Stock Transfers ─────────────────────────────────────────────────────
+  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/targets', perm:'request:stock', feature:'stockRequest', scope:'branch', desc:'Branches that can be asked for stock.' },
+  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/items', perm:'request:stock', feature:'stockRequest', scope:'branch',
+    query:{ q:'', ids:'' }, desc:'Item picker for a new request. ids = comma-separated item ids.' },
+  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers', perm:'request:stock', feature:'stockRequest', scope:'branch',
+    query:{ direction:'OUTGOING', open:'true', q:'' }, desc:'Requests this branch made (OUTGOING) or received (INCOMING).' },
+  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/count', perm:'request:stock', feature:'stockRequest', scope:'branch', desc:'To-do count (sidebar badge).' },
+  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/:id', perm:'request:stock', feature:'stockRequest', scope:'branch', desc:'One transfer with its lines (transfer_line_id for send/receive).' },
+  { cat:'Stock Transfers', method:'POST', path:'/stock-transfers', perm:'request:stock', feature:'stockRequest', scope:'branch',
+    body:{ client_request_id:'$uuid', supplying_branch_id:BR.NAIWALA, needed_before:'$today+7', is_urgent:false, notes:'Tester request', lines:[{ item_id:'<item_id>', quantity:10 }] },
+    desc:'Ask another branch for stock.' },
+  { cat:'Stock Transfers', method:'POST', path:'/stock-transfers/:id/send', perm:'send:stock', feature:'stockRequest', scope:'branch',
+    body:{ lines:[{ transfer_line_id:'<transfer_line_id>', qty_sent:10 }] }, desc:'Supplying branch sends (may send less).' },
+  { cat:'Stock Transfers', method:'POST', path:'/stock-transfers/:id/reject', perm:'send:stock', feature:'stockRequest', scope:'branch',
+    body:{ reason:'Not enough stock to spare' }, desc:'Supplying branch rejects the request.' },
+  { cat:'Stock Transfers', method:'POST', path:'/stock-transfers/:id/cancel', perm:'request:stock', feature:'stockRequest', scope:'branch', desc:'Requesting branch cancels before it is sent.' },
+  { cat:'Stock Transfers', method:'POST', path:'/stock-transfers/:id/receive', perm:'request:stock', feature:'stockRequest', scope:'branch',
+    body:{ lines:[{ transfer_line_id:'<transfer_line_id>', qty_received:8, shortage_reason:'DAMAGED', shortage_note:'2 bent on the lorry' }], notes:'Checked on arrival' },
+    desc:'Requesting branch counts what arrived. Every sent line must be listed (TRF_011). A line below what was sent needs shortage_reason DAMAGED | MISSING | SENDER_MISCOUNT | OTHER (OTHER needs shortage_note); the request then waits as SHORTAGE_PENDING for the manager.' },
+  { cat:'Stock Transfers', method:'POST', path:'/stock-transfers/:id/shortage/approve', perm:'approve:transfer_shortage', feature:'stockRequest', scope:'branch',
+    desc:'Receiving branch manager accepts the missing units as lost (TRANSIT_SHORTAGE movement); the request closes as Received.' },
+  { cat:'Stock Transfers', method:'POST', path:'/stock-transfers/:id/shortage/correct', perm:'approve:transfer_shortage', feature:'stockRequest', scope:'branch',
+    body:{ lines:[{ transfer_line_id:'<transfer_line_id>', qty_received:9 }] },
+    desc:'Manager raises a short count when more turned up (only up, never above sent — TRF_013). The extra goes into stock; closes when nothing is short.' },
+  { cat:'Stock Transfers', method:'GET', path:'/network/stock-transfers', perm:'view:inventory', scope:'global',
+    query:{ open:'true', q:'' }, desc:'Head office: every stock request between branches (read-only).' },
+
+  // ── Gate Passes ─────────────────────────────────────────────────────────
+  { cat:'Gate Passes', method:'GET', path:'/gate-passes', perm:'view:gate_pass', feature:'gatePass', scope:'branch',
+    query:{ search:'', status:'ALL', from:'', to:'' }, desc:'Gate passes. status: ALL | AVAILABLE | OPEN | RESERVED | PARTIALLY_ASSIGNED | FULLY_ASSIGNED | CLOSED.' },
+  { cat:'Gate Passes', method:'GET', path:'/gate-passes/available', feature:'gatePass', scope:'branch',
+    query:{ phone:'0771234567', order_id:'' }, desc:'The customer\'s open passes for order forms (gp_item_id for customer_material).' },
+  { cat:'Gate Passes', method:'GET', path:'/gate-passes/materials', perm:'view:gate_pass', feature:'gatePass', scope:'branch', desc:'Material names used on earlier passes.' },
+  { cat:'Gate Passes', method:'GET', path:'/gate-passes/catalog-materials', perm:'view:gate_pass', feature:'gatePass', desc:'Inventory material types and their thicknesses.' },
+  { cat:'Gate Passes', method:'GET', path:'/gate-passes/:id', perm:'view:gate_pass', feature:'gatePass', scope:'branch', desc:'One gate pass with its items.' },
+  { cat:'Gate Passes', method:'POST', path:'/gate-passes', perm:'create:gate_pass', feature:'gatePass', scope:'branch',
+    body:{ client_request_id:'$uuid', customer:CUSTOMER, notes:'Brought in by customer', items:[{ material_type:'MS Plain Sheet', thickness:'2mm', length:8, length_unit:'FT', color:'Silver', quantity:2, condition_note:'Good' }] },
+    desc:'Record customer-supplied material.' },
+
+  // ── Job Cards (Workshop) ────────────────────────────────────────────────
+  { cat:'Job Cards (Workshop)', method:'GET', path:'/items/workshop-catalog', perm:'create:job_card', scope:'branch', alias:true, desc:'Job card form data (also under Catalogue & Pricing).' },
+  { cat:'Job Cards (Workshop)', method:'POST', path:'/job-cards/quote', perm:'create:job_card', feature:'section: workshop', scope:'branch',
+    body:{ lines:[CUT_BEND_LINE] }, desc:'Price sub-jobs without saving. Other job_types: COIL_CUTTING (coil_material, amount_range), ROLLING (rolling_type, work_type, size, quantity).' },
+  { cat:'Job Cards (Workshop)', method:'POST', path:'/job-cards', perm:'create:job_card', feature:'section: workshop', scope:'branch',
+    body:{ client_request_id:'$uuid', customer:CUSTOMER, worker_ids:['<worker_id>'], notes:'Tester job card', lines:[CUT_BEND_LINE] },
+    desc:'Create a job card (goes to the Cashier Queue). On 409 STOCK_INSUFFICIENT resend with "override": { password, reason }.' },
+  { cat:'Job Cards (Workshop)', method:'PUT', path:'/job-cards/:id', perm:'create:job_card', feature:'section: workshop', scope:'branch',
+    body:{ version:1, customer:CUSTOMER, worker_ids:['<worker_id>'], notes:'Edited', lines:[{ line_id:'<line_id>', ...CUT_BEND_LINE, cut_count:6 }] },
+    desc:'Replace a job card. version = current version from GET /orders/:id.' },
+  { cat:'Job Cards (Workshop)', method:'POST', path:'/job-cards/:id/void', perm:'cancel:job_card_draft', scope:'branch',
+    body:{ reason:'Customer changed their mind' }, desc:'Void an unpaid job card.' },
+  { cat:'Job Cards (Workshop)', method:'GET', path:'/job-cards/history', perm:'create:job_card', feature:'section: workshop', scope:'branch',
+    query:{ from:'$today-30', to:'$today', search:'', page:'1' }, desc:'This branch\'s job cards in a date range (max 366 days, 25 per page).' },
+  { cat:'Job Cards (Workshop)', method:'GET', path:'/workshop-queue', perm:'view:job_cards', feature:'section: workshop', scope:'branch',
+    query:{ search:'' }, desc:'Workshop Queue board: every column at once.' },
+  { cat:'Job Cards (Workshop)', method:'POST', path:'/job-cards/:id/start', perm:'update:job_card_status', scope:'branch',
+    body:{ version:1, line_ids:['<line_id>'] }, desc:'Card moves to In Progress and the chosen sub-jobs start (stock is deducted).' },
+  { cat:'Job Cards (Workshop)', method:'POST', path:'/job-cards/:id/complete', perm:'complete:work_order', scope:'branch',
+    body:{ version:1, note:'Done' }, desc:'Complete every started sub-job; card moves to Completed.' },
+  { cat:'Job Cards (Workshop)', method:'POST', path:'/order-lines/:id/start', perm:'update:job_card_status', scope:'branch',
+    body:{ version:1 }, desc:'Start one sub-job (:id = order line id).' },
+  { cat:'Job Cards (Workshop)', method:'POST', path:'/order-lines/:id/complete', perm:'complete:work_order', scope:'branch',
+    body:{ version:1, note:'Done' }, desc:'Complete one sub-job.' },
+  { cat:'Job Cards (Workshop)', method:'POST', path:'/job-cards/:id/close', perm:'close:job_card', scope:'branch',
+    body:{ version:1, released_to:'Test Customer', notes:'Checked and handed over' }, desc:'Supervisor hands over a completed, fully paid job card.' },
+
+  // ── Roofing Orders ──────────────────────────────────────────────────────
+  { cat:'Roofing Orders', method:'GET', path:'/items/coils', perm:'create:roofing_order', scope:'branch', alias:true, desc:'Coils for global_coil_item_id (also under Catalogue & Pricing).' },
+  { cat:'Roofing Orders', method:'POST', path:'/roofing-orders/quote', perm:'create:roofing_order', feature:'section: roofing', scope:'branch',
+    body:{ lines:[ROOFING_LINE], global_coil_item_id:'<coil_item_id>', discount:0 },
+    desc:'Price roofing items without saving. Accessories use category "Gutter Accessories" + accessory_type/variant + quantity.' },
+  { cat:'Roofing Orders', method:'POST', path:'/roofing-orders', perm:'create:roofing_order', feature:'section: roofing', scope:'branch',
+    body:{ client_request_id:'$uuid', customer:CUSTOMER, technician:'Tester Tech', global_coil_item_id:'<coil_item_id>', lines:[ROOFING_LINE], discount:0 },
+    desc:'Place a roofing order. Cashier may add "payment": { amount, mode, reference }; without it the order waits at the Cashier Queue.' },
+  { cat:'Roofing Orders', method:'PUT', path:'/roofing-orders/:id', perm:'create:roofing_order', feature:'section: roofing', scope:'branch',
+    body:{ version:1, customer:CUSTOMER, technician:'Tester Tech', global_coil_item_id:'<coil_item_id>', lines:[{ line_id:'<line_id>', ...ROOFING_LINE, pieces:6 }], discount:0 },
+    desc:'Replace an order. Needs edit:order once paid or in the Order Queue.' },
+  { cat:'Roofing Orders', method:'GET', path:'/roofing-orders/history', perm:'view:orders', feature:'section: roofing', scope:'branch',
+    query:{ from:'$today-30', to:'$today', search:'', page:'1' }, desc:'This branch\'s roofing orders in a date range.' },
+  { cat:'Roofing Orders', method:'GET', path:'/roofing-queue', perm:'view:orders', feature:'section: roofing', scope:'branch',
+    query:{ tab:'ACTIVE', search:'', placed_on:'' }, desc:'Order Queue. tab: ACTIVE | PLACED | IN_PROGRESS | READY | RELEASED | CANCELLED | ALL.' },
+  { cat:'Roofing Orders', method:'POST', path:'/roofing-orders/:id/send-to-queue', perm:'process:payment', feature:'section: roofing', scope:'branch',
+    body:{ version:1 }, desc:'Cashier sends an order with nothing due to the Order Queue without a payment.' },
+  { cat:'Roofing Orders', method:'POST', path:'/roofing-orders/:id/start', perm:'update:order_status', scope:'branch',
+    body:{ version:1 }, desc:'Start production (coil is deducted). Add "override" when stock is short.' },
+  { cat:'Roofing Orders', method:'POST', path:'/roofing-orders/:id/complete', perm:'update:order_status', scope:'branch',
+    body:{ version:1, note:'Ready' }, desc:'Mark ready for collection.' },
+  { cat:'Roofing Orders', method:'POST', path:'/roofing-orders/:id/release', perm:'release:order', scope:'branch',
+    body:{ version:1, released_to:'Test Customer', note:'Collected' }, desc:'Hand over a ready, paid order.' },
+  { cat:'Roofing Orders', method:'POST', path:'/roofing-orders/:id/cancel', perm:'cancel:order', scope:'branch',
+    body:{ reason:'Customer cancelled' }, desc:'Cancel an order.' },
+
+  // ── Orders & Payments (Cashier) ─────────────────────────────────────────
+  { cat:'Orders & Payments (Cashier)', method:'GET', path:'/orders/:id', scope:'branch', desc:'Any order (job card, roofing, hardware) with lines, payments and its version.' },
+  { cat:'Orders & Payments (Cashier)', method:'GET', path:'/cashier-queue', perm:'process:payment', scope:'branch', desc:'Orders waiting for payment.' },
+  { cat:'Orders & Payments (Cashier)', method:'POST', path:'/orders/:id/payments', perm:'process:payment', scope:'branch',
+    body:{ client_request_id:'$uuid', amount:100000, mode:'CASH', reference:'' },
+    desc:'Record a payment (cents). mode: CASH | CARD | TRANSFER. Never closes a card.' },
+  { cat:'Orders & Payments (Cashier)', method:'POST', path:'/job-cards/:id/send-to-workshop', perm:'process:payment', scope:'branch',
+    body:{ version:1 }, desc:'Send a job card with Rs 0 due to the Workshop Queue without a payment.' },
+
+  // ── Hardware Sales ──────────────────────────────────────────────────────
+  { cat:'Hardware Sales', method:'GET', path:'/hardware-store/items', perm:'create:hardware_sale', feature:'hardwareStore', scope:'branch',
+    query:{ branch_id:'' }, desc:'Sellable items. branch_id = sell from another branch (needs create:cross_branch_hardware_sale).' },
+  { cat:'Hardware Sales', method:'POST', path:'/hardware-sales', perm:'create:hardware_sale', feature:'hardwareStore', scope:'branch',
+    body:{ client_request_id:'$uuid', customer:CUSTOMER, notes:'Tester sale', lines:[{ item_id:'<item_id>', quantity:2 }] },
+    desc:'Place a hardware order. Server prices lines. Optional "payment" (own branch: full total; other branch: advance) and "branch_id".' },
+  { cat:'Hardware Sales', method:'GET', path:'/hardware-queue', perm:'view:hardware_queue', feature:'hardwareQueue', scope:'branch', desc:'Hardware Queue: Awaiting Payment → Paid.' },
+  { cat:'Hardware Sales', method:'POST', path:'/hardware-sales/:id/pay', perm:'process:payment', feature:'hardwareQueue', scope:'branch',
+    body:{ client_request_id:'$uuid', version:1, amount:100000, mode:'CASH', reference:'' }, desc:'Collect the balance; amount must equal it exactly.' },
+  { cat:'Hardware Sales', method:'POST', path:'/hardware-sales/:id/cancel', perm:'cancel:hardware_sale', scope:'branch',
+    body:{ version:1, reason:'Customer cancelled' }, desc:'Cancel a hardware order.' },
+
+  // ── Attachments ─────────────────────────────────────────────────────────
+  { cat:'Attachments', method:'POST', path:'/attachments', perm:'create:roofing_order', scope:'branch', multipart:true,
+    form:{ purpose:'DESIGN_PHOTO' }, desc:'Multipart upload: "file" (JPEG/PNG/WebP, ≤ 5 MB) + "purpose". Use the id as design_attachment_id.' },
+  { cat:'Attachments', method:'GET', path:'/attachments/:id/file', scope:'branch', binary:true, desc:'Download an uploaded file (shown inline).' },
+];
+
+ENDPOINTS.forEach((e, i) => {
+  e.auth = e.auth || 'access';
+  e.id = `${e.method}-${e.path}`.replace(/[^a-zA-Z0-9]+/g, '-') + (e.alias ? `-${i}` : '');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════════════════
+const store = { accessToken:'', refreshToken:'', userId:'', role:'', branchId:'', branchHeader:'', ticket:'', permissions:null };
+const drafts = {};          // endpoint id → { params, query, body }
+const recentIds = [];       // [{ key, value, from }]
+let env = 'local';
+let current = null;         // open endpoint
+let collapsed = JSON.parse(localStorage.getItem('erp_nav_collapsed') || '{}');
+let eventSource = null;
+const DEFAULTS = { local:'http://localhost:3000', cloud:'' };
+const STORE_KEY = 'erp_tester_store';
+
 (function init() {
   env = localStorage.getItem('erp_env') || 'local';
-  const saved = localStorage.getItem(`erp_url_${env}`);
-  const urlEl = document.getElementById('apiBaseUrl');
-  urlEl.value = saved || DEFAULTS[env];
+  document.getElementById('apiBaseUrl').value = localStorage.getItem(`erp_url_${env}`) || DEFAULTS[env];
   refreshEnvUI();
   document.getElementById('welcome-url').textContent = getUrl();
+  // Tokens survive a page reload in this tab (sessionStorage), not a new tab
+  try { Object.assign(store, JSON.parse(sessionStorage.getItem(STORE_KEY) || '{}')); } catch {}
+  ['accessToken','refreshToken','userId','role','branchId'].forEach((k) => setTok(k, store[k]));
+  renderBranchPicker(JSON.parse(sessionStorage.getItem('erp_tester_branches') || 'null'));
+  renderNav();
+  const hash = location.hash.slice(1);
+  if (hash === 'jwt') showJwt();
+  else if (hash && ENDPOINTS.some((e) => e.id === hash)) openEndpoint(hash);
   pingHealth();
 })();
 
 // ── URL / Env ──────────────────────────────────────────────────────────────
-function getUrl() {
-  return document.getElementById('apiBaseUrl').value.replace(/\/$/, '');
-}
+function getUrl() { return document.getElementById('apiBaseUrl').value.trim().replace(/\/$/, ''); }
 function saveUrl() {
   localStorage.setItem(`erp_url_${env}`, getUrl());
   document.getElementById('welcome-url').textContent = getUrl();
@@ -766,51 +975,45 @@ function switchEnv(e) {
   saveUrl();
   env = e;
   localStorage.setItem('erp_env', e);
-  const saved = localStorage.getItem(`erp_url_${e}`);
-  document.getElementById('apiBaseUrl').value = saved || DEFAULTS[e];
+  document.getElementById('apiBaseUrl').value = localStorage.getItem(`erp_url_${e}`) || DEFAULTS[e];
   refreshEnvUI();
   pingHealth();
 }
 function refreshEnvUI() {
-  const lBtn = document.getElementById('btn-local');
-  const cBtn = document.getElementById('btn-cloud');
-  const lDot = document.getElementById('dot-local');
-  const cDot = document.getElementById('dot-cloud');
-  if (env === 'local') {
-    lBtn.className = 'active';
-    cBtn.className = 'cloud';
-    lDot.style.cssText = 'display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;margin-right:5px;vertical-align:1px';
-    cDot.style.cssText = 'display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--text3);margin-right:5px;vertical-align:1px';
-  } else {
-    lBtn.className = '';
-    cBtn.className = 'active cloud';
-    lDot.style.cssText = 'display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--text3);margin-right:5px;vertical-align:1px';
-    cDot.style.cssText = 'display:inline-block;width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;margin-right:5px;vertical-align:1px';
-  }
+  document.getElementById('btn-local').className = env === 'local' ? 'active' : '';
+  document.getElementById('btn-cloud').className = env === 'cloud' ? 'active cloud' : 'cloud';
 }
 
 // ── Token Store ────────────────────────────────────────────────────────────
+function persist() { sessionStorage.setItem(STORE_KEY, JSON.stringify(store)); }
 function setTok(key, val) {
-  store[key] = val;
+  store[key] = val || '';
+  persist();
   const map = { accessToken:'ts-access', refreshToken:'ts-refresh', userId:'ts-userid', role:'ts-role', branchId:'ts-branch' };
   const el = document.getElementById(map[key]);
   if (!el) return;
   if (val) {
-    el.textContent = val.length > 52 ? val.slice(0,52)+'…' : val;
+    el.textContent = val.length > 52 ? val.slice(0, 52) + '…' : val;
+    el.title = val;
     el.classList.remove('empty');
   } else {
-    el.textContent = '— empty —';
+    el.textContent = key === 'branchId' && store.role ? '— none (global role) —' : '— empty —';
+    el.title = '';
     el.classList.add('empty');
   }
 }
 function clearAllTokens() {
-  ['accessToken','refreshToken','userId','role','branchId'].forEach(k => setTok(k,''));
+  ['accessToken','refreshToken','userId','role','branchId'].forEach((k) => setTok(k, ''));
+  store.permissions = null;
+  store.ticket = '';
+  persist();
+  renderNav();
   logInfo('STORE', 'All tokens cleared');
 }
-function copyToken(type) {
-  const val = { access:store.accessToken, refresh:store.refreshToken, userid:store.userId }[type];
-  if (!val) { logInfo('COPY', `${type} token is empty`); return; }
-  navigator.clipboard.writeText(val).then(() => logInfo('COPY', `${type} token copied to clipboard`));
+function copyToken(key) {
+  const val = store[key];
+  if (!val) { logInfo('COPY', `${key} is empty`); return; }
+  navigator.clipboard.writeText(val).then(() => logInfo('COPY', `${key} copied to clipboard`));
 }
 function absorbTokens(data) {
   const d = data?.data ?? data;
@@ -819,94 +1022,439 @@ function absorbTokens(data) {
   if (d?.accessToken) {
     try {
       const p = JSON.parse(atob(d.accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
-      setTok('userId',   p.sub        || '');
-      setTok('role',     p.role       || '');
-      setTok('branchId', p.branch_id  || '');
+      setTok('role', p.role || '');
+      setTok('userId', p.sub || '');
+      setTok('branchId', p.branch_id || '');
     } catch {}
   }
+  // Login and change-password also return the user with its permissions
+  if (d?.user?.permissions) absorbUser(d.user);
+}
+function absorbUser(u) {
+  store.permissions = u.permissions;
+  persist();
+  renderNav();
+  if (u.branch_id) selectBranch(u.branch_id);
+}
+function setBranchHeader(v) {
+  store.branchHeader = v;
+  persist();
+  logInfo('BRANCH', v ? `X-Branch-Id → ${v}` : 'X-Branch-Id cleared (All branches)');
+}
+function selectBranch(id) {
+  const sel = document.getElementById('branchPicker');
+  if (![...sel.options].some((o) => o.value === id)) sel.add(new Option(id, id));
+  sel.value = id;
+  setBranchHeader(id);
+}
+function renderBranchPicker(branches) {
+  const list = branches?.length
+    ? branches.map((b) => ({ id: b.branch_id, label: `${b.name}${b.code ? ` · ${b.code}` : ''}` }))
+    : [
+        { id: BR.NAIWALA,   label: 'Naiwala (seed)' },
+        { id: BR.VEYANGODA, label: 'Veyangoda (seed)' },
+        { id: BR.THANGALLA, label: 'Thangalla (seed)' },
+      ];
+  const sel = document.getElementById('branchPicker');
+  sel.innerHTML = '';
+  sel.add(new Option('— none (all branches) —', ''));
+  list.forEach((b) => sel.add(new Option(b.label, b.id)));
+  if (store.branchHeader && ![...sel.options].some((o) => o.value === store.branchHeader)) sel.add(new Option(store.branchHeader, store.branchHeader));
+  sel.value = store.branchHeader || '';
+}
+async function loadBranches() {
+  if (!store.accessToken) { logErr('BRANCHES', 'Login first'); return; }
+  const r = await call('GET', '/branches', { auth: 'access' });
+  if (r.ok) absorbBranches(r.data);
+}
+function absorbBranches(data) {
+  const list = unwrap(data);
+  const branches = Array.isArray(list) ? list : list?.items;
+  if (!Array.isArray(branches)) return;
+  sessionStorage.setItem('erp_tester_branches', JSON.stringify(branches));
+  renderBranchPicker(branches);
+  logInfo('BRANCHES', `${branches.length} branches loaded into the picker`);
 }
 
-// ── Panel routing ──────────────────────────────────────────────────────────
-const PANELS = ['health','health-db','login','refresh','logout','logout-all','me','jwt'];
-let active = null;
-function show(id) {
-  if (active) {
-    document.getElementById(`p-${active}`).classList.remove('active');
-    document.getElementById(`nav-${active}`)?.classList.remove('active');
+// ── Permissions ────────────────────────────────────────────────────────────
+function allowed(e) {
+  if (!e.perm || store.permissions === null) return true;
+  if (store.role === 'SUPER_ADMIN') return true;
+  return store.permissions.includes(e.perm);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sidebar
+// ═══════════════════════════════════════════════════════════════════════════
+function renderNav() {
+  const q = document.getElementById('navSearch').value.trim().toLowerCase();
+  const mine = document.getElementById('navMine').checked;
+  const html = [];
+  for (const cat of CATEGORIES) {
+    let items;
+    if (cat === 'Utils') {
+      items = 'jwt inspector decode'.includes(q) || !q ? [{ id: 'jwt', method: 'JWT', path: 'Inspector', util: true }] : [];
+    } else {
+      items = ENDPOINTS.filter((e) => e.cat === cat)
+        .filter((e) => !q || `${e.method} ${e.path} ${e.desc} ${e.perm || ''}`.toLowerCase().includes(q))
+        .filter((e) => !mine || allowed(e));
+    }
+    if (!items.length) continue;
+    const isCollapsed = !q && collapsed[cat];
+    html.push(`<div class="nav-section${isCollapsed ? ' collapsed' : ''}" onclick="toggleGroup('${cat}')">
+      <span class="caret">▾</span>${cat}<span class="count">${items.length}</span></div>`);
+    html.push(`<div class="nav-group${isCollapsed ? ' collapsed' : ''}">`);
+    for (const e of items) {
+      const denied = !e.util && !allowed(e);
+      const badge = e.sse ? 'SSE' : e.method;
+      html.push(`<div class="nav-item${denied ? ' denied' : ''}${activeId() === e.id ? ' active' : ''}" id="nav-${e.id}"
+        onclick="${e.util ? 'showJwt()' : `openEndpoint('${e.id}')`}" title="${esc(e.desc || '')}${denied ? '\n\nYour role lacks ' + e.perm : ''}">
+        <span class="nav-badge ${badge}">${badge}</span><span class="nav-path">${esc(e.path)}</span></div>`);
+    }
+    html.push('</div>');
   }
-  document.getElementById('p-welcome').style.display = 'none';
-  document.getElementById(`p-${id}`).classList.add('active');
-  document.getElementById(`nav-${id}`)?.classList.add('active');
-  active = id;
-  if (id === 'refresh') fillRefresh();
-  if (id === 'jwt' && store.accessToken) fillJwt();
+  document.getElementById('navList').innerHTML = html.join('') || '<div class="log-empty">No endpoints match</div>';
+}
+function activeId() { return current ? current.id : (document.getElementById('p-jwt').classList.contains('active') ? 'jwt' : null); }
+function toggleGroup(cat) {
+  collapsed[cat] = !collapsed[cat];
+  localStorage.setItem('erp_nav_collapsed', JSON.stringify(collapsed));
+  renderNav();
+}
+function toggleAllGroups() {
+  const anyOpen = CATEGORIES.some((c) => !collapsed[c]);
+  CATEGORIES.forEach((c) => (collapsed[c] = anyOpen));
+  localStorage.setItem('erp_nav_collapsed', JSON.stringify(collapsed));
+  renderNav();
 }
 
-// ── API helpers ────────────────────────────────────────────────────────────
-async function call(method, path, body, bearerToken) {
+// ═══════════════════════════════════════════════════════════════════════════
+// Endpoint panel
+// ═══════════════════════════════════════════════════════════════════════════
+function pathParams(path) { return [...path.matchAll(/:([a-zA-Z]+)/g)].map((m) => m[1]); }
+
+function draftFor(e) {
+  if (!drafts[e.id]) {
+    drafts[e.id] = {
+      params: Object.fromEntries(pathParams(e.path).map((p) => [p, ''])),
+      query: { ...(e.query || {}) },
+      body: e.body ? JSON.stringify(e.body, null, 2) : '',
+      form: { ...(e.form || {}) },
+    };
+  }
+  return drafts[e.id];
+}
+
+function openEndpoint(id) {
+  const e = ENDPOINTS.find((x) => x.id === id);
+  if (!e) return;
+  saveDraft();
+  current = e;
+  location.hash = id;
+  document.getElementById('p-welcome').style.display = 'none';
+  document.getElementById('p-jwt').classList.remove('active');
+  const panel = document.getElementById('p-endpoint');
+  panel.innerHTML = panelHtml(e, draftFor(e));
+  panel.classList.add('active');
+  renderNav();
+  document.getElementById(`nav-${id}`)?.scrollIntoView({ block: 'nearest' });
+}
+
+function panelHtml(e, d) {
+  const tags = [];
+  if (e.auth === 'none') tags.push('<span class="tag public">public</span>');
+  if (e.auth === 'refresh') tags.push('<span class="tag public">refresh token</span>');
+  if (e.perm) tags.push(`<span class="tag perm" title="@RequirePermissions">${e.perm}</span>`);
+  if (e.feature) tags.push(`<span class="tag feature" title="@RequireFeature — the branch switch must be on">feature: ${e.feature.replace('section: ', '')}</span>`);
+  if (e.scope === 'branch') tags.push('<span class="tag branch" title="Uses the branch context: JWT branch, or X-Branch-Id for global roles">branch</span>');
+  if (e.scope === 'global') tags.push('<span class="tag global" title="Head-office roles only">head office</span>');
+  if (!allowed(e)) tags.push('<span class="tag" style="color:var(--danger);border-color:rgba(255,95,109,.35)">your role lacks this</span>');
+
+  const parts = [];
+  parts.push(`<div class="panel-desc">${esc(e.desc || '')}</div>`);
+
+  if (e.login) {
+    parts.push(`<div class="chips"><span class="chips-label">Quick fill:</span>
+      ${[['superadmin','Super@123'],['admin','Admin@123'],['auditor1','Auditor@123'],
+         ['manager_thangalla','Dev@1234'],['supervisor_thangalla','Dev@1234'],['chief_thangalla','Dev@1234'],['cashier_thangalla','Dev@1234'],
+         ['supervisor_naiwala','Dev@1234'],['cashier_naiwala','Dev@1234']]
+        .map(([u, p]) => `<span class="chip" onclick="fillLogin('${u}','${p}')">${u}</span>`).join('')}</div>`);
+  }
+
+  const params = Object.keys(d.params);
+  if (params.length) {
+    parts.push(`<div class="grid2">${params.map((p) => `
+      <div class="field"><label>:${p}  <span style="color:var(--text3)">path</span></label>
+        <input data-param="${p}" list="recentIds" value="${esc(d.params[p])}" placeholder="uuid — pick from recent ids" autocomplete="off"></div>`).join('')}</div>`);
+  }
+
+  const qk = Object.keys(d.query);
+  if (qk.length) {
+    parts.push(`<div class="sub-title">Query  <span style="color:var(--text3)">(empty values are not sent)</span></div>
+      <div class="grid3">${qk.map((k) => `
+        <div class="field"><label>${k}</label><input data-query="${k}" value="${esc(d.query[k])}" autocomplete="off"></div>`).join('')}</div>`);
+  }
+
+  if (e.multipart) {
+    parts.push(`<div class="grid2">
+      <div class="field"><label>file</label><input type="file" id="mp-file" accept="image/jpeg,image/png,image/webp"></div>
+      ${Object.keys(d.form).map((k) => `<div class="field"><label>${k}</label><input data-form="${k}" value="${esc(d.form[k])}"></div>`).join('')}
+    </div>`);
+  }
+
+  if (e.method !== 'GET' && !e.multipart) {
+    parts.push(`<div class="field">
+      <label>JSON body ${e.body ? '' : '<span style="color:var(--text3)">(none needed)</span>'}</label>
+      <textarea class="body" id="ep-body" spellcheck="false" onkeydown="bodyKey(event)">${esc(d.body)}</textarea>
+      <div class="hint">Placeholders: <code>$uuid</code> <code>$today</code> <code>$today-30</code> <code>$today+7</code> · replace <code>&lt;..._id&gt;</code> by hand · money in cents</div>
+    </div>`);
+  }
+
+  const auth = e.auth === 'access' ? `Bearer accessToken${e.scope !== 'global' ? ' + X-Branch-Id' : ''}` : e.auth === 'refresh' ? 'Bearer refreshToken' : 'no auth';
+  parts.push(`<div class="btn-row">
+    ${e.sse
+      ? `<button class="btn primary" onclick="openStream()">Connect</button><button class="btn danger" onclick="closeStream()">Disconnect</button>`
+      : `<button class="btn primary" onclick="send()">Send</button>`}
+    ${e.method !== 'GET' && e.body ? '<button class="btn" onclick="formatBody()">Format</button>' : ''}
+    <button class="btn" onclick="resetDraft()">Reset to example</button>
+    <button class="btn" onclick="copyCurl()">copy curl</button>
+    <span class="hint" style="margin-left:auto">${auth}</span>
+  </div>`);
+
+  parts.push(`<div>
+    <div class="resp-head"><span class="resp-label">Response</span><span id="ep-status"></span><span class="ms" id="ep-ms"></span>
+      <span class="sep" style="flex:1"></span><span id="ep-ids" class="chips"></span></div>
+    <div class="resp-box" id="ep-resp">—</div>
+  </div>`);
+
+  return `<div class="panel-head">
+      <span class="panel-method ${e.sse ? 'SSE' : e.method}">${e.sse ? 'SSE' : e.method}</span>
+      <span class="panel-path">${esc(e.path)}</span>
+      <div class="panel-tags">${tags.join('')}</div>
+    </div>
+    <div class="panel-body">${parts.join('')}</div>`;
+}
+
+function saveDraft() {
+  if (!current) return;
+  const d = draftFor(current);
+  const panel = document.getElementById('p-endpoint');
+  panel.querySelectorAll('[data-param]').forEach((i) => (d.params[i.dataset.param] = i.value.trim()));
+  panel.querySelectorAll('[data-query]').forEach((i) => (d.query[i.dataset.query] = i.value));
+  panel.querySelectorAll('[data-form]').forEach((i) => (d.form[i.dataset.form] = i.value));
+  const b = document.getElementById('ep-body');
+  if (b) d.body = b.value;
+}
+function resetDraft() {
+  if (!current) return;
+  delete drafts[current.id];
+  openEndpoint(current.id);
+}
+function formatBody() {
+  const b = document.getElementById('ep-body');
+  try { b.value = JSON.stringify(JSON.parse(b.value), null, 2); } catch (err) { logErr('FORMAT', err.message); }
+}
+function bodyKey(ev) {
+  if (ev.key === 'Tab') {
+    ev.preventDefault();
+    const t = ev.target, s = t.selectionStart;
+    t.value = t.value.slice(0, s) + '  ' + t.value.slice(t.selectionEnd);
+    t.selectionStart = t.selectionEnd = s + 2;
+  }
+  if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); send(); }
+}
+function fillLogin(u, p) {
+  const b = document.getElementById('ep-body');
+  if (b) b.value = JSON.stringify({ username: u, password: p }, null, 2);
+}
+
+// ── Placeholders ───────────────────────────────────────────────────────────
+function localDate(offsetDays = 0) {
+  const d = new Date(Date.now() + offsetDays * 86_400_000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function fillPlaceholders(s) {
+  return s
+    .replace(/\$uuid/g, () => crypto.randomUUID())
+    .replace(/\$today([+-]\d+)?/g, (_, off) => localDate(off ? Number(off) : 0))
+    .replace(/\$ticket/g, () => store.ticket || '');
+}
+
+// ── Build & send ───────────────────────────────────────────────────────────
+function buildRequest(e) {
+  saveDraft();
+  const d = draftFor(e);
+  let path = e.path;
+  for (const [p, v] of Object.entries(d.params)) {
+    if (!v) throw new Error(`Fill the :${p} path parameter`);
+    path = path.replace(`:${p}`, encodeURIComponent(v));
+  }
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(d.query)) {
+    const val = fillPlaceholders(String(v)).trim();
+    if (val !== '') qs.set(k, val);
+  }
+  if ([...qs.keys()].length) path += `?${qs}`;
+
+  let body;
+  if (e.multipart) {
+    const file = document.getElementById('mp-file')?.files?.[0];
+    if (!file) throw new Error('Choose a file to upload');
+    body = new FormData();
+    body.append('file', file);
+    for (const [k, v] of Object.entries(d.form)) body.append(k, v);
+  } else if (e.method !== 'GET' && d.body.trim()) {
+    const text = fillPlaceholders(d.body);
+    try { body = JSON.parse(text); } catch (err) { throw new Error(`Body is not valid JSON: ${err.message}`); }
+    const left = text.match(/"<[a-z_]+>"/g);
+    if (left) logInfo('BODY', `Still has placeholders: ${[...new Set(left)].join(', ')} — the API will reject them`);
+  }
+  return { path, body };
+}
+
+async function send() {
+  const e = current;
+  if (!e) return;
+  let req;
+  try { req = buildRequest(e); } catch (err) { logErr('REQUEST', err.message); return; }
+  if (e.auth === 'access' && !store.accessToken) logInfo('AUTH', 'No access token in the store — login first (sending anyway)');
+
+  const box = document.getElementById('ep-resp');
+  box.textContent = 'Sending…';
+  box.classList.add('loading');
+  document.getElementById('ep-status').innerHTML = '';
+  document.getElementById('ep-ids').innerHTML = '';
+
+  const r = await call(e.method, req.path, { auth: e.auth, body: req.body, binary: e.binary, global: e.scope === 'global' });
+  if (current !== e) return;   // user moved on
+  box.classList.remove('loading');
+  document.getElementById('ep-ms').textContent = r.ms != null ? `${r.ms} ms` : '';
+  document.getElementById('ep-status').innerHTML = statusBadge(r.status);
+
+  if (r.blob) {
+    const url = URL.createObjectURL(r.blob);
+    box.innerHTML = r.blob.type.startsWith('image/')
+      ? `<img src="${url}" alt="attachment"><div class="hint" style="margin-top:6px">${r.blob.type} · ${(r.blob.size / 1024).toFixed(1)} KB</div>`
+      : `<a href="${url}" download style="color:var(--accent2)">Download (${r.blob.type}, ${r.blob.size} bytes)</a>`;
+  } else {
+    box.textContent = typeof r.data === 'string' ? r.data : JSON.stringify(r.data, null, 2);
+  }
+
+  if (!r.ok) return;
+  if (e.after === 'tokens') absorbTokens(r.data);
+  if (e.after === 'clear') clearAllTokens();
+  if (e.after === 'branches') absorbBranches(r.data);
+  if (e.after === 'ticket') {
+    const t = unwrap(r.data)?.ticket;
+    if (t) { store.ticket = t; persist(); logInfo('TICKET', 'Stream ticket stored — open GET /events/stream'); }
+  }
+  if (e.path === '/auth/me') absorbUser(unwrap(r.data));
+  collectIds(r.data, e);
+}
+
+function unwrap(data) { return data && typeof data === 'object' && 'data' in data ? data.data : data; }
+function statusBadge(status) {
+  const cls = status >= 500 ? 's5xx' : status >= 400 ? 's4xx' : status >= 200 ? 's2xx' : 's5xx';
+  return `<span class="badge ${cls}">${status || 'ERR'}</span>`;
+}
+
+async function call(method, path, opts = {}) {
   const url = getUrl() + path;
-  const headers = { 'Content-Type': 'application/json' };
-  if (bearerToken) headers['Authorization'] = `Bearer ${bearerToken}`;
-  logReq(method, url, body);
+  const headers = {};
+  const isForm = opts.body instanceof FormData;
+  if (opts.body && !isForm) headers['Content-Type'] = 'application/json';
+  const token = opts.auth === 'refresh' ? store.refreshToken : opts.auth === 'access' ? store.accessToken : '';
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  // Network routes read across branches: no branch header there
+  if (opts.auth === 'access' && store.branchHeader && !opts.global) headers['X-Branch-Id'] = store.branchHeader;
+
+  logReq(method, url, isForm ? '(multipart form)' : opts.body);
   const t0 = Date.now();
   try {
-    const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    const ms  = Date.now() - t0;
-    let data;
-    try { data = await res.json(); } catch { data = {}; }
-    logRes(method, url, res.status, data, ms);
-    return { ok: res.ok, status: res.status, data };
+    const res = await fetch(url, { method, headers, body: opts.body ? (isForm ? opts.body : JSON.stringify(opts.body)) : undefined });
+    const ms = Date.now() - t0;
+    const type = res.headers.get('content-type') || '';
+    let data, blob;
+    if (opts.binary && res.ok && !type.includes('json')) {
+      blob = await res.blob();
+      data = `(binary ${type}, ${blob.size} bytes)`;
+    } else {
+      const text = await res.text();
+      try { data = text ? JSON.parse(text) : {}; } catch { data = text; }
+    }
+    logRes(res.status, data, ms);
+    return { ok: res.ok, status: res.status, data, blob, ms };
   } catch (err) {
     logErr('FETCH', err.message);
     return { ok: false, status: 0, data: { error: err.message } };
   }
 }
 
-// ── Endpoint handlers ──────────────────────────────────────────────────────
-async function doHealth() {
-  loading('r-health','s-health');
-  render('r-health','s-health', await call('GET','/health',null,null));
+// ── Recent ids (chain create → act) ────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function collectIds(data, e) {
+  const found = [];
+  (function walk(v, key, depth) {
+    if (depth > 4 || found.length > 40 || v == null) return;
+    if (typeof v === 'string') { if (UUID_RE.test(v) && key && /id$/i.test(key)) found.push({ key, value: v }); return; }
+    if (Array.isArray(v)) { v.slice(0, 15).forEach((x) => walk(x, key, depth + 1)); return; }
+    if (typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, k, depth + 1);
+  })(unwrap(data), null, 0);
+  const seen = new Set();
+  const fresh = found.filter((f) => !seen.has(f.value) && seen.add(f.value));
+  if (!fresh.length) return;
+  for (const f of fresh.reverse()) {
+    const i = recentIds.findIndex((r) => r.value === f.value);
+    if (i >= 0) recentIds.splice(i, 1);
+    recentIds.unshift({ ...f, from: `${e.method} ${e.path}` });
+  }
+  recentIds.length = Math.min(recentIds.length, 60);
+  document.getElementById('recentIds').innerHTML = recentIds
+    .map((r) => `<option value="${r.value}">${esc(r.key)} · ${esc(r.from)}</option>`).join('');
+  // Top-level ids of this response, one click to copy
+  document.getElementById('ep-ids').innerHTML = fresh.reverse().slice(0, 6)
+    .map((f) => `<span class="chip" title="${f.value} — click to copy" onclick="copyText('${f.value}')">${esc(f.key)}</span>`).join('');
 }
-async function doHealthDb() {
-  loading('r-health-db','s-health-db');
-  render('r-health-db','s-health-db', await call('GET','/health/run',null,null));
+function copyText(v) { navigator.clipboard.writeText(v).then(() => logInfo('COPY', v)); }
+
+function copyCurl() {
+  const e = current;
+  let req;
+  try { req = buildRequest(e); } catch (err) { logErr('CURL', err.message); return; }
+  const lines = [`curl -X ${e.method} '${getUrl()}${req.path}'`];
+  const token = e.auth === 'refresh' ? store.refreshToken : e.auth === 'access' ? store.accessToken : '';
+  if (token) lines.push(`-H 'Authorization: Bearer ${token}'`);
+  if (e.auth === 'access' && store.branchHeader && e.scope !== 'global') lines.push(`-H 'X-Branch-Id: ${store.branchHeader}'`);
+  if (req.body instanceof FormData) {
+    for (const [k, v] of req.body.entries()) lines.push(v instanceof File ? `-F '${k}=@${v.name}'` : `-F '${k}=${v}'`);
+  } else if (req.body) {
+    lines.push(`-H 'Content-Type: application/json'`, `-d '${JSON.stringify(req.body).replace(/'/g, "'\\''")}'`);
+  }
+  copyText(lines.join(' \\\n  '));
 }
-async function doLogin() {
-  const u = document.getElementById('login-user').value.trim();
-  const p = document.getElementById('login-pass').value;
-  if (!u || !p) { logErr('LOGIN','Username and password are required'); return; }
-  loading('r-login','s-login');
-  const r = await call('POST','/auth/login',{ username:u, password:p },null);
-  render('r-login','s-login', r);
-  if (r.ok) absorbTokens(r.data);
+
+// ── Live updates (SSE) ─────────────────────────────────────────────────────
+function openStream() {
+  closeStream(true);
+  let req;
+  try { req = buildRequest(current); } catch (err) { logErr('SSE', err.message); return; }
+  if (!req.path.includes('ticket=')) { logErr('SSE', 'No ticket — run POST /events/ticket first'); return; }
+  const url = getUrl() + req.path;
+  eventSource = new EventSource(url);
+  document.getElementById('ep-resp').textContent = `Connecting to ${url}…\nEvents are written to the Request Log.`;
+  eventSource.onopen = () => { logSse('open', 'connected'); document.getElementById('ep-status').innerHTML = statusBadge(200); };
+  eventSource.addEventListener('changed', (m) => logSse('changed', m.data));
+  eventSource.addEventListener('ping', () => logSse('ping', ''));
+  eventSource.onerror = () => { logErr('SSE', 'stream error — the ticket may be used or expired (get a new one)'); closeStream(true); };
 }
-async function doRefresh() {
-  const tok = document.getElementById('refresh-tok').value.trim() || store.refreshToken;
-  if (!tok) { logErr('REFRESH','No refresh token — login first'); return; }
-  loading('r-refresh','s-refresh');
-  const r = await call('POST','/auth/refresh',null, tok);
-  render('r-refresh','s-refresh', r);
-  if (r.ok) absorbTokens(r.data);
+function closeStream(silent) {
+  if (!eventSource) return;
+  eventSource.close();
+  eventSource = null;
+  if (!silent) logSse('closed', '');
 }
-async function doLogout() {
-  if (!store.accessToken) { logErr('LOGOUT','No access token — login first'); return; }
-  loading('r-logout','s-logout');
-  const r = await call('POST','/auth/logout',null, store.accessToken);
-  render('r-logout','s-logout', r);
-  if (r.ok) clearAllTokens();
-}
-async function doLogoutAll() {
-  if (!store.accessToken) { logErr('LOGOUT-ALL','No access token — login first'); return; }
-  loading('r-logout-all','s-logout-all');
-  const r = await call('POST','/auth/logout/all',null, store.accessToken);
-  render('r-logout-all','s-logout-all', r);
-  if (r.ok) clearAllTokens();
-}
-async function doMe() {
-  if (!store.accessToken) { logErr('ME','No access token — login first'); return; }
-  loading('r-me','s-me');
-  render('r-me','s-me', await call('GET','/auth/me',null, store.accessToken));
-}
+
+// ── Health ping ────────────────────────────────────────────────────────────
 async function pingHealth() {
   const dot = document.getElementById('statusDot');
   dot.className = 'dot';
@@ -918,13 +1466,18 @@ async function pingHealth() {
   }
 }
 
-// ── Fill helpers ───────────────────────────────────────────────────────────
-function fillLogin(u, p) {
-  document.getElementById('login-user').value = u;
-  document.getElementById('login-pass').value = p;
-}
-function fillRefresh() {
-  if (store.refreshToken) document.getElementById('refresh-tok').value = store.refreshToken;
+// ═══════════════════════════════════════════════════════════════════════════
+// JWT Inspector
+// ═══════════════════════════════════════════════════════════════════════════
+function showJwt() {
+  saveDraft();
+  current = null;
+  location.hash = 'jwt';
+  document.getElementById('p-welcome').style.display = 'none';
+  document.getElementById('p-endpoint').classList.remove('active');
+  document.getElementById('p-jwt').classList.add('active');
+  renderNav();
+  if (store.accessToken && !document.getElementById('jwt-input').value) fillJwt();
 }
 function fillJwt() {
   if (store.accessToken) {
@@ -932,28 +1485,25 @@ function fillJwt() {
     decodeJwt();
   }
 }
-
-// ── JWT decode ─────────────────────────────────────────────────────────────
 function decodeJwt() {
   const raw = document.getElementById('jwt-input').value.trim();
   if (!raw) return;
   try {
     const parts = raw.split('.');
     if (parts.length !== 3) throw new Error('Not a valid JWT — expected 3 dot-separated parts');
-    const b64 = s => JSON.parse(atob(s.replace(/-/g,'+').replace(/_/g,'/')));
-    const hdr     = b64(parts[0]);
+    const b64 = (s) => JSON.parse(atob(s.replace(/-/g,'+').replace(/_/g,'/')));
+    const hdr = b64(parts[0]);
     const payload = b64(parts[1]);
-    document.getElementById('jwt-header').textContent  = JSON.stringify(hdr,     null, 2);
+    document.getElementById('jwt-header').textContent  = JSON.stringify(hdr, null, 2);
     document.getElementById('jwt-payload').textContent = JSON.stringify(payload, null, 2);
     document.getElementById('jwt-grid').style.display  = 'grid';
     const expEl = document.getElementById('jwt-expiry');
     if (payload.exp) {
-      const expAt  = new Date(payload.exp * 1000);
-      const diff   = expAt - Date.now();
-      const mins   = Math.abs(Math.round(diff / 60000));
-      const expired = diff < 0;
+      const expAt = new Date(payload.exp * 1000);
+      const diff = expAt - Date.now();
+      const mins = Math.abs(Math.round(diff / 60000));
       expEl.style.display = 'block';
-      expEl.innerHTML = expired
+      expEl.innerHTML = diff < 0
         ? `<span style="color:var(--danger)">⚠ Expired</span> &nbsp;·&nbsp; ${expAt.toLocaleString()} &nbsp;(${mins}m ago)`
         : `<span style="color:var(--accent)">✓ Valid</span> &nbsp;·&nbsp; Expires ${expAt.toLocaleString()} &nbsp;(in ${mins}m)`;
     } else {
@@ -972,73 +1522,50 @@ function clearJwt() {
   document.getElementById('jwt-expiry').style.display = 'none';
 }
 
-// ── Response helpers ───────────────────────────────────────────────────────
-function loading(boxId, statId) {
-  const box = document.getElementById(boxId);
-  box.textContent = 'Sending…';
-  box.classList.add('loading');
-  document.getElementById(statId).innerHTML = '';
-}
-function render(boxId, statId, r) {
-  const box = document.getElementById(boxId);
-  box.classList.remove('loading');
-  box.textContent = JSON.stringify(r.data, null, 2);
-  const cls = r.status >= 500 ? 's5xx' : r.status >= 400 ? 's4xx' : r.status >= 200 ? 's2xx' : '';
-  document.getElementById(statId).innerHTML = r.status
-    ? `<span class="badge ${cls}">${r.status}</span>`
-    : `<span class="badge s5xx">ERR</span>`;
-}
-
-// ── Log panel ──────────────────────────────────────────────────────────────
-function logReq(method, url, body) {
+// ═══════════════════════════════════════════════════════════════════════════
+// Log panel
+// ═══════════════════════════════════════════════════════════════════════════
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]); }
+function now() { return new Date().toLocaleTimeString('en-US', { hour12:false }); }
+function logBody() {
   const lb = document.getElementById('log-body');
   lb.querySelector('.log-empty')?.remove();
-  const t   = new Date().toLocaleTimeString('en-US', { hour12:false });
-  const cls = method === 'GET' ? 'GET' : method === 'DELETE' ? 'DEL' : 'POST';
-  const preview = body ? JSON.stringify(body).slice(0, 100) : '(no body)';
+  return lb;
+}
+function logReq(method, url, body) {
+  const preview = body ? (typeof body === 'string' ? body : JSON.stringify(body)).slice(0, 100) : '(no body)';
   const entry = document.createElement('div');
-  entry.className = 'log-entry';
+  entry.className = 'log-entry pending';
   entry.innerHTML = `
     <div class="log-top">
-      <span class="log-time">${t}</span>
-      <span class="log-m nav-badge ${cls}">${method}</span>
-      <span class="log-url">${url.replace(getUrl(),'')}</span>
+      <span class="log-time">${now()}</span>
+      <span class="log-m nav-badge ${method}">${method}</span>
+      <span class="log-url" title="${esc(url)}">${esc(url.replace(getUrl(), ''))}</span>
     </div>
-    <div class="log-prev">${preview}</div>`;
-  lb.prepend(entry);
-  return entry;
+    <div class="log-prev">${esc(preview)}</div>`;
+  logBody().prepend(entry);
 }
-function logRes(method, url, status, data, ms) {
-  const lb    = document.getElementById('log-body');
-  const entry = lb.firstElementChild;
-  if (!entry?.classList.contains('log-entry')) return;
-  const cls     = status >= 500 ? 's5xx' : status >= 400 ? 's4xx' : 's2xx';
-  const preview = JSON.stringify(data).slice(0, 80);
+function logRes(status, data, ms) {
+  const entry = document.querySelector('#log-body .log-entry.pending');
+  if (!entry) return;
+  entry.classList.remove('pending');
+  const preview = (typeof data === 'string' ? data : JSON.stringify(data)).slice(0, 80);
   entry.querySelector('.log-prev').textContent = `${status} · ${ms}ms · ${preview}`;
   const badge = document.createElement('span');
-  badge.className = `badge ${cls}`;
+  badge.className = `badge ${status >= 500 ? 's5xx' : status >= 400 ? 's4xx' : 's2xx'}`;
   badge.style.cssText = 'margin-left:auto;padding:1px 5px;font-size:9px;font-weight:700';
   badge.textContent = status || 'ERR';
   entry.querySelector('.log-top').appendChild(badge);
 }
-function logInfo(src, msg) {
-  const lb = document.getElementById('log-body');
-  lb.querySelector('.log-empty')?.remove();
-  const t  = new Date().toLocaleTimeString('en-US', { hour12:false });
+function logLine(cls, text) {
   const el = document.createElement('div');
-  el.className   = 'log-info';
-  el.textContent = `${t} [${src}] ${msg}`;
-  lb.prepend(el);
+  el.className = cls;
+  el.textContent = text;
+  logBody().prepend(el);
 }
-function logErr(src, msg) {
-  const lb = document.getElementById('log-body');
-  lb.querySelector('.log-empty')?.remove();
-  const t  = new Date().toLocaleTimeString('en-US', { hour12:false });
-  const el = document.createElement('div');
-  el.className   = 'log-err';
-  el.textContent = `${t} [${src}] ✗ ${msg}`;
-  lb.prepend(el);
-}
+function logInfo(src, msg) { logLine('log-info', `${now()} [${src}] ${msg}`); }
+function logErr(src, msg)  { logLine('log-err',  `${now()} [${src}] ✗ ${msg}`); }
+function logSse(type, data) { logLine('log-sse', `${now()} [SSE ${type}] ${data}`); }
 function clearLog() {
   document.getElementById('log-body').innerHTML = '<div class="log-empty">No requests yet</div>';
 }
