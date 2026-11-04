@@ -1,4 +1,4 @@
-import { Role, isGlobalRole, typeHasRoofing, typeHasWorkshop, type BranchSettings, type BranchType, type FeatureKey } from '@erp/shared';
+import { Role, isGlobalRole, typeHasRoofing, typeHasWorkshop, type BranchFeatures, type BranchSettings, type BranchType, type FeatureKey } from '@erp/shared';
 import type { IconName } from '@/shared/components/Icon';
 import { useBranchContext } from '@/shared/hooks/useBranchContext';
 import { usePermission } from '@/shared/hooks/usePermission';
@@ -9,6 +9,8 @@ export interface NavItem {
   to: string;
   icon: IconName;
   permission?: { action: string; subject: string };
+  /** Also opens the page for branch staff without `permission` (e.g. the manager settling shortages) */
+  alsoPermission?: { action: string; subject: string };
   /** Optional branch module that must be switched on */
   feature?: FeatureKey;
   /** Branch type must include this section */
@@ -36,7 +38,7 @@ export interface NavItem {
  */
 export type PageScope = 'global' | 'network' | 'branch';
 
-/** stockAlerts = items still to restock; stockRequests = requests to send or receive; itemRequests = new products waiting for the manager */
+/** stockAlerts = items still to restock; stockRequests = requests to send or receive, and shortages for the manager; itemRequests = new products waiting for the manager */
 export type NavBadge = 'stockAlerts' | 'stockRequests' | 'itemRequests';
 
 export const OPERATIONAL_ROLES = [Role.SUPERVISOR, Role.CHIEF, Role.CASHIER];
@@ -76,7 +78,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Stock Levels', to: '/inventory', icon: 'package', scope: 'network', permission: { action: 'view', subject: 'inventory' }, feature: 'inventory', badge: 'itemRequests' },
       { label: 'Restock', to: '/stock-alerts', icon: 'packageOpen', scope: 'network', permission: { action: 'view', subject: 'stock_alerts' }, feature: 'stockAlerts', badge: 'stockAlerts' },
-      { label: 'Stock Requests', to: '/stock-requests', icon: 'arrowRightLeft', scope: 'network', permission: { action: 'request', subject: 'stock' }, globalPermission: { action: 'view', subject: 'inventory' }, feature: 'stockRequest', badge: 'stockRequests' },
+      { label: 'Stock Requests', to: '/stock-requests', icon: 'arrowRightLeft', scope: 'network', permission: { action: 'request', subject: 'stock' }, alsoPermission: { action: 'approve', subject: 'transfer_shortage' }, globalPermission: { action: 'view', subject: 'inventory' }, feature: 'stockRequest', badge: 'stockRequests' },
     ],
   },
   {
@@ -132,15 +134,14 @@ export function isNavItemActive(item: NavItem, pathname: string): boolean {
   return path === item.to || !!item.activeFor?.some((re) => re.test(path));
 }
 
-export interface BranchLike {
-  branch_type: BranchType;
-  settings: BranchSettings;
-}
+/** A branch summary (features at the top) or the full branch context (features in settings). */
+export type BranchLike = { branch_type: BranchType } & ({ features: BranchFeatures } | { settings: Pick<BranchSettings, 'features'> });
 
 /** Does this page apply at this branch (module switched on, right branch type)? */
 export function pageRunsAt(item: NavItem | undefined, branch: BranchLike): boolean {
   if (!item) return true;
-  if (item.feature && !branch.settings.features?.[item.feature]) return false;
+  const features = 'features' in branch ? branch.features : branch.settings.features;
+  if (item.feature && !features?.[item.feature]) return false;
   if (item.section === 'roofing' && !typeHasRoofing(branch.branch_type)) return false;
   if (item.section === 'workshop' && !typeHasWorkshop(branch.branch_type)) return false;
   return true;
@@ -159,7 +160,8 @@ export function useVisibleNav() {
       const perm = item.globalPermission ?? item.permission;
       return !item.transact && (!perm || can(perm.action, perm.subject));
     }
-    if (item.permission && !can(item.permission.action, item.permission.subject)) return false;
+    const allowed = (p?: { action: string; subject: string }) => !!p && can(p.action, p.subject);
+    if (item.permission && !allowed(item.permission) && !allowed(item.alsoPermission)) return false;
     // Branch-dependent items wait for the branch context before showing
     if ((item.feature || item.section) && !branch) return false;
     if (item.feature && !featureOn(item.feature)) return false;

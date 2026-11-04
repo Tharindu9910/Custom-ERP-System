@@ -8,7 +8,7 @@ import { dialog, pickBranch, row } from '../support/ui';
 /** The table row of a request number. */
 const card = (page: Page, number: string) => row(page, number);
 
-type Tab = 'toSend' | 'toReceive' | 'waiting' | 'history';
+type Tab = 'toSend' | 'toReceive' | 'shortages' | 'waiting' | 'history';
 /** Opens a status card's list straight from the URL (the cards set ?tab=). */
 async function openTab(page: Page, tab: Tab) {
   await page.goto(`/stock-requests?tab=${tab}`);
@@ -134,7 +134,7 @@ test.describe('the supplier side (Veyangoda supervisor)', () => {
 });
 
 test.describe('the requester receives (Thangalla supervisor)', () => {
-  test('TRF-40 Receive: "We have" and "New total" follow the count; over the sent amount is blocked; short count records a note', async ({ page }) => {
+  test('TRF-40 Receive: "We have" and "New total" follow the count; over the sent amount is blocked; a short count needs a reason and waits for the manager', async ({ page }) => {
     const tr = await transfer('thangalla', 'veyangoda', [['FST-NM-012', 10]]);
     await call(SUP.veyangoda, 'POST', `/stock-transfers/${tr.transfer_id}/send`, sendAll(tr, () => 10));
     const have = await stock('thangalla', 'FST-NM-012');
@@ -150,9 +150,14 @@ test.describe('the requester receives (Thangalla supervisor)', () => {
     await expect(d.locator('tbody tr').first()).toContainText(String(have + 8));
     await expect(d.getByText(/1 item is short\./)).toBeVisible();
     await d.getByPlaceholder('e.g. 2 plates bent on arrival.').fill('2 nuts missing');
+    // A short line needs a reason before it can be added (Docs/decisions/0014)
+    await expect(d.getByRole('button', { name: 'Add to our stock' })).toBeDisabled();
+    await d.getByLabel(/^Why .* is short$/).selectOption('MISSING');
     await d.getByRole('button', { name: 'Add to our stock' }).click();
     await expect(d).toHaveCount(0);
     expect(await stock('thangalla', 'FST-NM-012')).toBe(have + 8);
+    await openTab(page, 'shortages');
+    await expect(card(page, tr.transfer_number)).toContainText(/Short/);
   });
 
   test('TRF-41 Cancel asks first; "No" keeps it, "Yes, cancel" closes it', async ({ page }) => {

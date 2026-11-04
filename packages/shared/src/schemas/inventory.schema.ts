@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ShortageReason } from '../enums/inventory.enums';
 import { ClientRequestId, LocalDate, ReasonSchema } from './common.schema';
 
 /** Stock quantities are NUMERIC(14,3): whole units, or kg / ft with up to 3 decimals. */
@@ -45,15 +46,36 @@ export const CreateStockTransferSchema = z.object({
 export type CreateStockTransferDto = z.infer<typeof CreateStockTransferSchema>;
 
 export const SendStockTransferSchema = z.object({
-  lines: z.array(z.object({ transfer_line_id: z.string().uuid(), qty_sent: Quantity.min(0) })).min(1),
+  lines: z.array(z.object({ transfer_line_id: z.string().uuid(), qty_sent: Quantity.min(0) })).min(1).max(100),
 });
 export type SendStockTransferDto = z.infer<typeof SendStockTransferSchema>;
 
+/** Every sent line is counted. A line counted below what was sent needs a reason (OTHER also a note). */
 export const ReceiveStockTransferSchema = z.object({
-  lines: z.array(z.object({ transfer_line_id: z.string().uuid(), qty_received: Quantity.min(0) })).min(1),
+  lines: z
+    .array(
+      z
+        .object({
+          transfer_line_id: z.string().uuid(),
+          qty_received: Quantity.min(0),
+          shortage_reason: z.nativeEnum(ShortageReason).optional(),
+          shortage_note: z.string().trim().max(500).optional(),
+        })
+        .refine((l) => l.shortage_reason !== ShortageReason.OTHER || !!l.shortage_note, {
+          message: 'Say what happened when the reason is Other',
+          path: ['shortage_note'],
+        }),
+    )
+    .min(1),
   notes: z.string().trim().max(500).optional(),
 });
 export type ReceiveStockTransferDto = z.infer<typeof ReceiveStockTransferSchema>;
+
+/** Manager corrects a short count upward (more turned up); the difference goes into stock. */
+export const CorrectTransferShortageSchema = z.object({
+  lines: z.array(z.object({ transfer_line_id: z.string().uuid(), qty_received: Quantity.min(0) })).min(1).max(100),
+});
+export type CorrectTransferShortageDto = z.infer<typeof CorrectTransferShortageSchema>;
 
 export const TRANSFER_DIRECTIONS = ['INCOMING', 'OUTGOING'] as const;
 export const StockTransferQuerySchema = z.object({

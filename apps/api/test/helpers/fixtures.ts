@@ -436,14 +436,17 @@ export const sendAll = (tr: any, qty: (line: any) => number) => ({
     qty_sent: qty(l),
   })),
 });
+/** `shortage` is sent on every line; the API keeps it only on lines counted short (Docs/decisions/0014). */
 export const receiveAll = (
   tr: any,
   qty: (line: any) => number,
   notes?: string,
+  shortage?: { reason: string; note?: string },
 ) => ({
   lines: tr.lines.map((l: any) => ({
     transfer_line_id: l.transfer_line_id,
     qty_received: qty(l),
+    ...(shortage ? { shortage_reason: shortage.reason, shortage_note: shortage.note } : {}),
   })),
   ...(notes ? { notes } : {}),
 });

@@ -65,6 +65,7 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   p('create:item', 'items', 'Add new products to the catalogue directly'),
   p('request:stock', 'stock-transfers', 'Request stock from another branch and receive it', { branchWrite: true }),
   p('send:stock', 'stock-transfers', 'Send or reject stock requested by another branch', { branchWrite: true }),
+  p('approve:transfer_shortage', 'stock-transfers', 'Approve or correct a stock request that arrived short (books the loss)', { branchWrite: true }),
   // Branches
   p('configure:branch', 'branches', 'Change branch feature switches, policy and override password'),
   p('manage:branches', 'branches', 'Add branches and change name, code, type or active state'),

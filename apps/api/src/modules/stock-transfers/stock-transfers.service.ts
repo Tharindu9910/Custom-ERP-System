@@ -2,11 +2,14 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, type EntityManager } from 'typeorm';
 import {
+  ACTIVE_TRANSFER_STATUSES,
   BranchSettingsSchema,
   ItemType,
   MovementType,
-  OPEN_TRANSFER_STATUSES,
+  SHORTAGE_REASON_LABEL,
   TransferStatus,
+  type CorrectTransferShortageDto,
+  type ShortageReason,
   isOpenTransfer,
   toBranchDate,
   transferDisplayStatus,
@@ -23,6 +26,8 @@ import {
   type TransferItemSearch,
 } from '@erp/shared';
 import type { Actor } from '../../common/actor';
+import { replayOnDuplicate } from '../../common/idempotency';
+import { likeContains } from '../../common/like';
 import { ERR, errWith } from '../../common/errors';
 import { AuditService } from '../../core/audit.service';
 import { BranchContextService } from '../../core/branch-context.service';
@@ -47,6 +52,9 @@ export interface TransferLineView {
   own_stock: number;
   /** Own stock minus what open orders hold: the most the viewer can send (Docs/decisions/0003) */
   own_available: number;
+  /** Why it arrived short (Docs/decisions/0014); null when it arrived in full */
+  shortage_reason: ShortageReason | null;
+  shortage_note: string | null;
 }
 
 export interface TransferView {
@@ -67,10 +75,13 @@ export interface TransferView {
   sent_by_name: string | null;
   received_by_name: string | null;
   closed_by_name: string | null;
+  /** Manager who approved the shortage as a loss (Docs/decisions/0014) */
+  shortage_approved_by_name: string | null;
   created_at: Date;
   sent_at: Date | null;
   received_at: Date | null;
   closed_at: Date | null;
+  shortage_approved_at: Date | null;
   /** Still open after the needed-by date */
   late: boolean;
   /** This branch has to act next (send/reject, or receive) */
@@ -83,6 +94,8 @@ export interface TransferCounts {
   ours: number;
   to_send: number;
   to_receive: number;
+  /** Received short, waiting for this branch's manager */
+  to_approve: number;
 }
 
 export interface NetworkTransferCounts {
@@ -119,10 +132,12 @@ interface TransferRow {
   sent_by_name: string | null;
   received_by_name: string | null;
   closed_by_name: string | null;
+  shortage_approved_by_name: string | null;
   created_at: Date;
   sent_at: Date | null;
   received_at: Date | null;
   closed_at: Date | null;
+  shortage_approved_at: Date | null;
 }
 
 interface LockedTransfer {
@@ -139,6 +154,7 @@ interface LockedLine {
   name: string;
   qty_requested: number;
   qty_sent: number | null;
+  qty_received: number | null;
 }
 
 const HISTORY_LIMIT = 200;
@@ -150,21 +166,25 @@ const ROW_SELECT = `
          rb.name AS requesting_branch_name, sb.name AS supplying_branch_name, t.status,
          to_char(t.needed_before, 'YYYY-MM-DD') AS needed_before, t.is_urgent, t.notes, t.reject_reason, t.receive_notes,
          ru.full_name AS requested_by_name, su.full_name AS sent_by_name, rcu.full_name AS received_by_name, cu.full_name AS closed_by_name,
-         t.created_at, t.sent_at, t.received_at, t.closed_at
+         au.full_name AS shortage_approved_by_name,
+         t.created_at, t.sent_at, t.received_at, t.closed_at, t.shortage_approved_at
   FROM stock_transfer t
   JOIN branch rb ON rb.branch_id = t.requesting_branch_id
   JOIN branch sb ON sb.branch_id = t.supplying_branch_id
   LEFT JOIN "user" ru ON ru.user_id = t.requested_by
   LEFT JOIN "user" su ON su.user_id = t.sent_by
   LEFT JOIN "user" rcu ON rcu.user_id = t.received_by
-  LEFT JOIN "user" cu ON cu.user_id = t.closed_by`;
+  LEFT JOIN "user" cu ON cu.user_id = t.closed_by
+  LEFT JOIN "user" au ON au.user_id = t.shortage_approved_by`;
 
 /**
  * Stock requests between branches (prototype Stock Request): Waiting → Sent →
  * Received, or Rejected / Cancelled. The asking branch's supervisor creates,
  * cancels and receives; the asked branch's supervisor sends or rejects. Stock
  * leaves the supplier when sent and arrives when received, so nothing is counted
- * twice. Each side only ever sees its own stock (BR06).
+ * twice. Each side only ever sees its own stock (BR06). A short receive waits as
+ * Short until the asking branch's manager approves the loss or corrects the count
+ * (Docs/decisions/0014).
  */
 @Injectable()
 export class StockTransfersService {
@@ -199,7 +219,7 @@ export class StockTransfersService {
       params.push(q.ids);
       where.push(`i.item_id = ANY($${params.length}::uuid[])`);
     } else if (q.q) {
-      params.push(`%${q.q}%`);
+      params.push(likeContains(q.q));
       where.push(`(i.name ILIKE $${params.length} OR i.sku ILIKE $${params.length} OR i.category ILIKE $${params.length})`);
     }
     const rows: { item_id: string; name: string; sku: string; category: string; unit: string; stock: string | null; reorder_level: string | null }[] =
@@ -236,7 +256,7 @@ export class StockTransfersService {
     const branch = await this.branches.get(actor.branch_id);
     const itemIds = dto.lines.map((l) => l.item_id);
 
-    const id = await this.ds.transaction(async (em) => {
+    const id = await replayOnDuplicate(() => this.ds.transaction(async (em) => {
       // One create at a time per branch, so two requests can't both pass the open-request check
       await em.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`stock_request:${actor.branch_id}`]);
       const again = await this.findByRequestId(em, dto.client_request_id, actor.branch_id);
@@ -266,7 +286,7 @@ export class StockTransfersService {
         await em.query(`INSERT INTO stock_transfer_line (transfer_id, item_id, qty_requested) VALUES ($1, $2, $3)`, [transfer_id, l.item_id, l.quantity]);
       }
       return transfer_id;
-    });
+    }), () => this.findByRequestId(this.ds.manager, dto.client_request_id, actor.branch_id));
 
     this.audit.record(actor, { type: 'stock_transfer', id }, 'CREATE', {
       after: { supplying_branch_id: dto.supplying_branch_id, lines: dto.lines.length, is_urgent: dto.is_urgent },
@@ -281,18 +301,18 @@ export class StockTransfersService {
     const params: unknown[] = [branchId];
     const where = [side === 'INCOMING' ? 't.supplying_branch_id = $1' : 't.requesting_branch_id = $1'];
     if (q.open) {
-      params.push(OPEN_TRANSFER_STATUSES);
+      params.push(ACTIVE_TRANSFER_STATUSES);
       where.push(`t.status = ANY($${params.length}::transfer_status_enum[])`);
     }
     if (q.q) {
-      params.push(`%${q.q}%`);
+      params.push(likeContains(q.q));
       const p = `$${params.length}`;
       const other = side === 'INCOMING' ? 'rb' : 'sb';
       where.push(`(t.transfer_number ILIKE ${p} OR ${other}.name ILIKE ${p} OR EXISTS (
         SELECT 1 FROM stock_transfer_line l JOIN item i ON i.item_id = l.item_id
         WHERE l.transfer_id = t.transfer_id AND (i.name ILIKE ${p} OR i.sku ILIKE ${p})))`);
     }
-    const actionable = side === 'INCOMING' ? `t.status IN ('PENDING', 'APPROVED')` : `t.status = 'ISSUED'`;
+    const actionable = side === 'INCOMING' ? `t.status IN ('PENDING', 'APPROVED')` : `t.status IN ('ISSUED', 'SHORTAGE_PENDING')`;
     const rows: TransferRow[] = await this.ds.query(
       `${ROW_SELECT} WHERE ${where.join(' AND ')}
        ORDER BY (${actionable}) DESC, t.created_at DESC
@@ -306,10 +326,13 @@ export class StockTransfersService {
     return { rows: views, counts: await this.counts(branchId), has_more };
   }
 
-  /** Sidebar badge: requests waiting on this branch, to send or to receive (Docs/decisions/0012). */
-  async todoCount(branchId: string): Promise<{ count: number }> {
+  /**
+   * Sidebar badge: requests waiting on this branch (Docs/decisions/0012): to send or to
+   * receive for staff who handle requests, plus shortages for the manager (0014).
+   */
+  async todoCount(branchId: string, may: { handle: boolean; approve: boolean }): Promise<{ count: number }> {
     const c = await this.counts(branchId);
-    return { count: c.to_send + c.to_receive };
+    return { count: (may.handle ? c.to_send + c.to_receive : 0) + (may.approve ? c.to_approve : 0) };
   }
 
   private async counts(branchId: string): Promise<TransferCounts> {
@@ -317,7 +340,8 @@ export class StockTransfersService {
       `SELECT count(*) FILTER (WHERE supplying_branch_id = $1)::int AS to_us,
               count(*) FILTER (WHERE requesting_branch_id = $1)::int AS ours,
               count(*) FILTER (WHERE supplying_branch_id = $1 AND status IN ('PENDING', 'APPROVED'))::int AS to_send,
-              count(*) FILTER (WHERE requesting_branch_id = $1 AND status = 'ISSUED')::int AS to_receive
+              count(*) FILTER (WHERE requesting_branch_id = $1 AND status = 'ISSUED')::int AS to_receive,
+              count(*) FILTER (WHERE requesting_branch_id = $1 AND status = 'SHORTAGE_PENDING')::int AS to_approve
        FROM stock_transfer WHERE $1 IN (requesting_branch_id, supplying_branch_id)`,
       [branchId],
     );
@@ -332,11 +356,11 @@ export class StockTransfersService {
     const params: unknown[] = [];
     const where = ['true'];
     if (q.open) {
-      params.push(OPEN_TRANSFER_STATUSES);
+      params.push(ACTIVE_TRANSFER_STATUSES);
       where.push(`t.status = ANY($${params.length}::transfer_status_enum[])`);
     }
     if (q.q) {
-      params.push(`%${q.q}%`);
+      params.push(likeContains(q.q));
       const p = `$${params.length}`;
       where.push(`(t.transfer_number ILIKE ${p} OR rb.name ILIKE ${p} OR sb.name ILIKE ${p} OR EXISTS (
         SELECT 1 FROM stock_transfer_line l JOIN item i ON i.item_id = l.item_id
@@ -344,7 +368,7 @@ export class StockTransfersService {
     }
     const rows: TransferRow[] = await this.ds.query(
       `${ROW_SELECT} WHERE ${where.join(' AND ')}
-       ORDER BY (t.status IN ('PENDING', 'APPROVED', 'ISSUED')) DESC, t.created_at DESC
+       ORDER BY (t.status IN ('PENDING', 'APPROVED', 'ISSUED', 'SHORTAGE_PENDING')) DESC, t.created_at DESC
        LIMIT ${HISTORY_LIMIT + 1}`,
       params,
     );
@@ -421,15 +445,20 @@ export class StockTransfersService {
     return this.get(transferId, actor.branch_id);
   }
 
-  /** Requester counts what arrived; that much is added (TRANSFER_IN). A shortfall stays on record. */
+  /**
+   * Requester counts what arrived; that much is added at once (TRANSFER_IN). Every sent
+   * line must be counted. A line below what was sent needs a reason, and the request then
+   * waits as Short for the manager (Docs/decisions/0014); otherwise it is Received.
+   */
   async receive(transferId: string, dto: ReceiveStockTransferDto, actor: Actor): Promise<TransferView> {
+    let short = false;
     const t = await this.ds.transaction(async (em) => {
       const t = await this.lock(em, transferId, actor.branch_id);
       if (t.requesting_branch_id !== actor.branch_id) throw new ForbiddenException(ERR.TRANSFER_WRONG_BRANCH);
       if (t.status !== TransferStatus.ISSUED) throw new ConflictException(ERR.TRANSFER_INVALID_STATE);
 
       const lines = await this.lockedLines(em, transferId);
-      const got = this.quantities(lines, dto.lines.map((l) => [l.transfer_line_id, l.qty_received]));
+      const got = this.quantities(lines, dto.lines.map((l) => [l.transfer_line_id, l.qty_received]), { requireAll: true });
       const over = lines.filter((l) => got.get(l.transfer_line_id)! > (l.qty_sent ?? 0));
       if (over.length > 0) {
         throw new BadRequestException(
@@ -437,21 +466,133 @@ export class StockTransfersService {
             `More than was sent: ${over.map((l) => l.name).join(', ')}. Check the count again.`),
         );
       }
+      const given = new Map(dto.lines.map((l) => [l.transfer_line_id, l]));
+      const shortLines = lines.filter((l) => got.get(l.transfer_line_id)! < (l.qty_sent ?? 0));
+      const noReason = shortLines.filter((l) => !given.get(l.transfer_line_id)?.shortage_reason);
+      if (noReason.length > 0) {
+        throw new BadRequestException(
+          errWith(ERR.TRANSFER_SHORTAGE_REASON_REQUIRED, { lines: noReason.map((l) => ({ transfer_line_id: l.transfer_line_id, item_name: l.name })) },
+            `Choose why these are short: ${noReason.map((l) => l.name).join(', ')}`),
+        );
+      }
+      short = shortLines.length > 0;
 
       for (const l of lines) {
         const qty = got.get(l.transfer_line_id)!;
+        const isShort = qty < (l.qty_sent ?? 0);
+        const g = given.get(l.transfer_line_id);
         await this.stock.add(em, actor.branch_id, { item_id: l.item_id, quantity: qty, transfer_line_id: l.transfer_line_id }, MovementType.TRANSFER_IN, actor, `Received from ${t.transfer_number}`);
-        await em.query(`UPDATE stock_transfer_line SET qty_received = $2 WHERE transfer_line_id = $1`, [l.transfer_line_id, qty]);
+        await em.query(`UPDATE stock_transfer_line SET qty_received = $2, shortage_reason = $3, shortage_note = $4 WHERE transfer_line_id = $1`, [
+          l.transfer_line_id,
+          qty,
+          isShort ? g!.shortage_reason : null,
+          isShort ? g!.shortage_note || null : null,
+        ]);
       }
       await em.query(
-        `UPDATE stock_transfer SET status = 'CONFIRMED', received_by = $2, received_at = now(), receive_notes = $3, closed_by = $2, closed_at = now()
-         WHERE transfer_id = $1`,
+        short
+          ? `UPDATE stock_transfer SET status = 'SHORTAGE_PENDING', received_by = $2, received_at = now(), receive_notes = $3 WHERE transfer_id = $1`
+          : `UPDATE stock_transfer SET status = 'CONFIRMED', received_by = $2, received_at = now(), receive_notes = $3, closed_by = $2, closed_at = now()
+             WHERE transfer_id = $1`,
         [transferId, actor.user_id, dto.notes || null],
       );
       return t;
     });
 
-    this.audit.record(actor, { type: 'stock_transfer', id: transferId }, 'RECEIVE', { before: { status: t.status }, after: { status: TransferStatus.CONFIRMED } });
+    const after = short ? TransferStatus.SHORTAGE_PENDING : TransferStatus.CONFIRMED;
+    this.audit.record(actor, { type: 'stock_transfer', id: transferId }, 'RECEIVE', { before: { status: t.status }, after: { status: after } });
+    this.events.changed(t.requesting_branch_id, 'transfers', 'stock');
+    this.events.changed(t.supplying_branch_id, 'transfers');
+    return this.get(transferId, actor.branch_id);
+  }
+
+  /**
+   * Manager accepts that the missing part is lost (Docs/decisions/0014): a TRANSIT_SHORTAGE
+   * movement per short line records it (stock is unchanged — it never arrived), and the
+   * request is closed as Received.
+   */
+  async approveShortage(transferId: string, actor: Actor): Promise<TransferView> {
+    const lost: { item: string; qty: number; reason: string }[] = [];
+    const t = await this.ds.transaction(async (em) => {
+      const t = await this.lockShortage(em, transferId, actor);
+      for (const l of await this.lockedLines(em, transferId)) {
+        const missing = round3((l.qty_sent ?? 0) - (l.qty_received ?? 0));
+        if (missing <= 0) continue;
+        const [line]: { shortage_reason: ShortageReason | null; shortage_note: string | null }[] = await em.query(
+          `SELECT shortage_reason, shortage_note FROM stock_transfer_line WHERE transfer_line_id = $1`,
+          [l.transfer_line_id],
+        );
+        const reason = line?.shortage_reason ? SHORTAGE_REASON_LABEL[line.shortage_reason] : 'Short';
+        await this.stock.recordLoss(em, actor.branch_id, { item_id: l.item_id, quantity: missing, transfer_line_id: l.transfer_line_id }, MovementType.TRANSIT_SHORTAGE, actor,
+          `${missing} not received on ${t.transfer_number}: ${reason}${line?.shortage_note ? ` — ${line.shortage_note}` : ''}`);
+        lost.push({ item: l.name, qty: missing, reason });
+      }
+      await em.query(
+        `UPDATE stock_transfer SET status = 'CONFIRMED', shortage_approved_by = $2, shortage_approved_at = now(), closed_by = $2, closed_at = now()
+         WHERE transfer_id = $1`,
+        [transferId, actor.user_id],
+      );
+      return t;
+    });
+
+    this.audit.record(actor, { type: 'stock_transfer', id: transferId }, 'APPROVE_SHORTAGE', {
+      before: { status: TransferStatus.SHORTAGE_PENDING },
+      after: { status: TransferStatus.CONFIRMED, lost },
+    });
+    this.events.changed(t.requesting_branch_id, 'transfers', 'stock');
+    this.events.changed(t.supplying_branch_id, 'transfers');
+    return this.get(transferId, actor.branch_id);
+  }
+
+  /**
+   * Manager raises a short count (more turned up). The extra goes into stock now; when
+   * nothing is short any more the request is closed as Received, otherwise it stays Short.
+   */
+  async correctShortage(transferId: string, dto: CorrectTransferShortageDto, actor: Actor): Promise<TransferView> {
+    let closed = false;
+    const t = await this.ds.transaction(async (em) => {
+      const t = await this.lockShortage(em, transferId, actor);
+      const lines = await this.lockedLines(em, transferId);
+      const byId = new Map(lines.map((l) => [l.transfer_line_id, l]));
+      for (const c of dto.lines) if (!byId.has(c.transfer_line_id)) throw new BadRequestException(ERR.TRANSFER_LINE_UNKNOWN);
+
+      const counts = new Map(dto.lines.map((c) => [c.transfer_line_id, round3(c.qty_received)]));
+      const bad = lines.filter((l) => {
+        const next = counts.get(l.transfer_line_id);
+        return next !== undefined && (next < (l.qty_received ?? 0) || next > (l.qty_sent ?? 0));
+      });
+      if (bad.length > 0) {
+        throw new BadRequestException(
+          errWith(ERR.TRANSFER_SHORTAGE_COUNT_DOWN, { lines: bad.map((l) => ({ item_name: l.name, received: l.qty_received ?? 0, sent: l.qty_sent ?? 0 })) }),
+        );
+      }
+
+      for (const l of lines) {
+        const next = counts.get(l.transfer_line_id);
+        if (next === undefined) continue;
+        const extra = round3(next - (l.qty_received ?? 0));
+        if (extra <= 0) continue;
+        await this.stock.add(em, actor.branch_id, { item_id: l.item_id, quantity: extra, transfer_line_id: l.transfer_line_id }, MovementType.TRANSFER_IN, actor,
+          `Found later on ${t.transfer_number} (count corrected)`);
+        const full = next >= (l.qty_sent ?? 0);
+        await em.query(
+          `UPDATE stock_transfer_line SET qty_received = $2${full ? ', shortage_reason = NULL, shortage_note = NULL' : ''} WHERE transfer_line_id = $1`,
+          [l.transfer_line_id, next],
+        );
+        l.qty_received = next;
+      }
+
+      closed = lines.every((l) => (l.qty_received ?? 0) >= (l.qty_sent ?? 0));
+      if (closed) {
+        await em.query(`UPDATE stock_transfer SET status = 'CONFIRMED', closed_by = $2, closed_at = now() WHERE transfer_id = $1`, [transferId, actor.user_id]);
+      }
+      return t;
+    });
+
+    this.audit.record(actor, { type: 'stock_transfer', id: transferId }, 'CORRECT_SHORTAGE', {
+      before: { status: TransferStatus.SHORTAGE_PENDING },
+      after: { status: closed ? TransferStatus.CONFIRMED : TransferStatus.SHORTAGE_PENDING, lines: dto.lines },
+    });
     this.events.changed(t.requesting_branch_id, 'transfers', 'stock');
     this.events.changed(t.supplying_branch_id, 'transfers');
     return this.get(transferId, actor.branch_id);
@@ -512,22 +653,42 @@ export class StockTransfersService {
     return rows[0];
   }
 
-  private async lockedLines(em: EntityManager, transferId: string): Promise<LockedLine[]> {
-    const rows: { transfer_line_id: string; item_id: string; name: string; qty_requested: string; qty_sent: string | null }[] = await em.query(
-      `SELECT l.transfer_line_id, l.item_id, i.name, l.qty_requested, l.qty_sent
-       FROM stock_transfer_line l JOIN item i ON i.item_id = l.item_id
-       WHERE l.transfer_id = $1 ORDER BY l.item_id FOR UPDATE OF l`,
-      [transferId],
-    );
-    return rows.map((r) => ({ ...r, qty_requested: Number(r.qty_requested), qty_sent: r.qty_sent === null ? null : Number(r.qty_sent) }));
+  /** A shortage the actor's branch asked for, locked; only the asking branch's manager acts on it. */
+  private async lockShortage(em: EntityManager, transferId: string, actor: Actor): Promise<LockedTransfer> {
+    const t = await this.lock(em, transferId, actor.branch_id);
+    if (t.requesting_branch_id !== actor.branch_id) throw new ForbiddenException(ERR.TRANSFER_WRONG_BRANCH);
+    if (t.status !== TransferStatus.SHORTAGE_PENDING) throw new ConflictException(ERR.TRANSFER_INVALID_STATE);
+    return t;
   }
 
-  /** Quantity per line from the body; lines left out count as 0, unknown lines are refused. */
-  private quantities(lines: LockedLine[], given: [string, number][]): Map<string, number> {
+  private async lockedLines(em: EntityManager, transferId: string): Promise<LockedLine[]> {
+    const rows: { transfer_line_id: string; item_id: string; name: string; qty_requested: string; qty_sent: string | null; qty_received: string | null }[] =
+      await em.query(
+        `SELECT l.transfer_line_id, l.item_id, i.name, l.qty_requested, l.qty_sent, l.qty_received
+         FROM stock_transfer_line l JOIN item i ON i.item_id = l.item_id
+         WHERE l.transfer_id = $1 ORDER BY l.item_id FOR UPDATE OF l`,
+        [transferId],
+      );
+    const num = (v: string | null) => (v === null ? null : Number(v));
+    return rows.map((r) => ({ ...r, qty_requested: Number(r.qty_requested), qty_sent: num(r.qty_sent), qty_received: num(r.qty_received) }));
+  }
+
+  /**
+   * Quantity per line from the body; unknown lines are refused. Lines left out count as 0,
+   * unless `requireAll` (receive: every line must be counted, even if nothing arrived).
+   */
+  private quantities(lines: LockedLine[], given: [string, number][], opts: { requireAll?: boolean } = {}): Map<string, number> {
     const map = new Map(lines.map((l) => [l.transfer_line_id, 0]));
     for (const [id, qty] of given) {
       if (!map.has(id)) throw new BadRequestException(ERR.TRANSFER_LINE_UNKNOWN);
       map.set(id, round3(qty));
+    }
+    if (opts.requireAll) {
+      const counted = new Set(given.map(([id]) => id));
+      const missing = lines.filter((l) => !counted.has(l.transfer_line_id));
+      if (missing.length > 0) {
+        throw new BadRequestException(errWith(ERR.TRANSFER_LINE_MISSING, { lines: missing.map((l) => ({ transfer_line_id: l.transfer_line_id, item_name: l.name })) }));
+      }
     }
     return map;
   }
@@ -535,16 +696,18 @@ export class StockTransfersService {
   /** branchId null = head-office view: no side, no own stock, never needs action. */
   private async views(em: EntityManager, rows: TransferRow[], branchId: string | null): Promise<TransferView[]> {
     if (rows.length === 0) return [];
-    const lines: (Omit<TransferLineView, 'qty_requested' | 'qty_sent' | 'qty_received' | 'own_stock' | 'own_available'> & {
+    const lines: (Omit<TransferLineView, 'qty_requested' | 'qty_sent' | 'qty_received' | 'own_stock' | 'own_available' | 'shortage_reason' | 'shortage_note'> & {
       transfer_id: string;
       qty_requested: string;
       qty_sent: string | null;
       qty_received: string | null;
       own_stock: string | null;
       own_available: string | null;
+      shortage_reason: ShortageReason | null;
+      shortage_note: string | null;
     })[] = await em.query(
       `SELECT l.transfer_id, l.transfer_line_id, l.item_id, i.name, i.sku, i.unit, COALESCE(i.category, 'Other') AS category,
-              l.qty_requested, l.qty_sent, l.qty_received, s.quantity AS own_stock,
+              l.qty_requested, l.qty_sent, l.qty_received, l.shortage_reason, l.shortage_note, s.quantity AS own_stock,
               s.quantity - s.reserved_quantity AS own_available
        FROM stock_transfer_line l
        JOIN item i ON i.item_id = l.item_id
@@ -574,10 +737,12 @@ export class StockTransfersService {
         sent_by_name: r.sent_by_name,
         received_by_name: r.received_by_name,
         closed_by_name: r.closed_by_name,
+        shortage_approved_by_name: r.shortage_approved_by_name,
         created_at: r.created_at,
         sent_at: r.sent_at,
         received_at: r.received_at,
         closed_at: r.closed_at,
+        shortage_approved_at: r.shortage_approved_at,
         late: isOpenTransfer(r.status) && !!r.needed_before && r.needed_before < today,
         needs_action: branchId !== null && transferNeedsAction(r.status, side),
         lines: lines
@@ -594,6 +759,8 @@ export class StockTransfersService {
             qty_received: num(l.qty_received),
             own_stock: Number(l.own_stock ?? 0),
             own_available: Number(l.own_available ?? 0),
+            shortage_reason: l.shortage_reason,
+            shortage_note: l.shortage_note,
           })),
       };
     });

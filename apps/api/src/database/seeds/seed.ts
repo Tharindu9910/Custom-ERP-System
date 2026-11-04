@@ -134,6 +134,8 @@ const ROLE_PERMISSION_MATRIX: Record<string, string[]> = {
     'configure:stock_minimum',
     'request:new_item',
     'approve:item_request',
+    // Stock that arrived short waits for the manager (Docs/decisions/0014)
+    'approve:transfer_shortage',
     'resolve:conflict_queue',
     'view:audit_log',
     'view:financial_report',

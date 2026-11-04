@@ -308,7 +308,7 @@ describe('TRF stock requests', () => {
     expect(await t.stock('veyangoda', 'FST-BM-1250')).toBe(have);
   });
 
-  it('TRF-07 send → stock leaves the supplier; receive short with a note → stock arrives, Received', async () => {
+  it('TRF-07 send → stock leaves the supplier; receive short needs a reason → stock arrives, Short until the manager (0014)', async () => {
     const tr = await transfer(t, 'thangalla', 'veyangoda', [
       ['FST-NM-012', 10],
     ]);
@@ -338,15 +338,21 @@ describe('TRF stock requests', () => {
       ).code,
     ).toBe('TRF_004');
     const tBefore = await t.stock('thangalla', 'FST-NM-012');
+    // A short count without a reason is refused and nothing moves
+    expect(
+      (await tha().post(`/stock-transfers/${tr.transfer_id}/receive`, receiveAll(tr, () => 8, '2 nuts missing'))).code,
+    ).toBe('TRF_012');
+    expect(await t.stock('thangalla', 'FST-NM-012')).toBe(tBefore);
     const got = await tha().post(
       `/stock-transfers/${tr.transfer_id}/receive`,
-      receiveAll(tr, () => 8, '2 nuts missing'),
+      receiveAll(tr, () => 8, '2 nuts missing', { reason: 'MISSING' }),
     );
     expect([
       got.status,
       got.data.display_status,
       got.data.receive_notes,
-    ]).toEqual([201, 'RECEIVED', '2 nuts missing']);
+      got.data.lines[0].shortage_reason,
+    ]).toEqual([201, 'SHORT', '2 nuts missing', 'MISSING']);
     expect(await t.stock('thangalla', 'FST-NM-012')).toBe(tBefore + 8);
     expect(
       (
@@ -406,7 +412,8 @@ describe('TRF stock requests', () => {
     const openIn = (
       await tha().get('/stock-transfers?direction=INCOMING&open=true')
     ).data.rows;
-    expect(out.counts.to_receive).toBe(
+    // Ours to act on: receive what was sent, or (the manager) settle what arrived short (0014)
+    expect(out.counts.to_receive + out.counts.to_approve).toBe(
       openOut.filter((r: any) => r.needs_action).length,
     );
     expect(out.counts.to_send).toBe(
@@ -416,6 +423,79 @@ describe('TRF stock requests', () => {
     const idx = openOut.findIndex((r: any) => !r.needs_action);
     if (idx >= 0)
       expect(openOut.slice(idx).every((r: any) => !r.needs_action)).toBe(true);
+  });
+
+  it('TRF-11 a short delivery: every line counted; only the manager settles it; correct up, then approve the rest as lost (0014)', async () => {
+    const MGR = 'manager_thangalla';
+    const tr = await transfer(t, 'thangalla', 'veyangoda', [
+      ['FST-NM-012', 6],
+      ['FST-BM-1250', 4],
+    ]);
+    await vey().post(`/stock-transfers/${tr.transfer_id}/send`, sendAll(tr, (l: any) => l.qty_requested));
+    const [nut, bolt] = ['FST-NM-012', 'FST-BM-1250'].map((sku) => tr.lines.find((l: any) => l.sku === sku));
+    const nutsBefore = await t.stock('thangalla', 'FST-NM-012');
+
+    // Leaving a line out is refused (it used to count as 0 and vanish)
+    const partial = await tha().post(`/stock-transfers/${tr.transfer_id}/receive`, {
+      lines: [{ transfer_line_id: nut.transfer_line_id, qty_received: 6 }],
+    });
+    expect(partial.code).toBe('TRF_011');
+    // OTHER needs a note
+    const noNote = await tha().post(`/stock-transfers/${tr.transfer_id}/receive`, {
+      lines: [
+        { transfer_line_id: nut.transfer_line_id, qty_received: 3, shortage_reason: 'OTHER' },
+        { transfer_line_id: bolt.transfer_line_id, qty_received: 4 },
+      ],
+    });
+    expect(noNote.status).toBe(400);
+    const got = await tha().post(`/stock-transfers/${tr.transfer_id}/receive`, {
+      lines: [
+        { transfer_line_id: nut.transfer_line_id, qty_received: 3, shortage_reason: 'DAMAGED', shortage_note: 'Box crushed' },
+        { transfer_line_id: bolt.transfer_line_id, qty_received: 4 },
+      ],
+    });
+    expect([got.status, got.data.display_status]).toEqual([201, 'SHORT']);
+    expect(await t.stock('thangalla', 'FST-NM-012')).toBe(nutsBefore + 3);
+    // The item can be asked for again while the manager reviews
+    const open = (await tha().get('/stock-transfers/items?q=FST-NM-012')).data.find((i: any) => i.sku === 'FST-NM-012');
+    expect(open.open_request).toBeNull();
+
+    // The supervisor can't settle it; the manager sees it and has it on the badge
+    expect((await tha().post(`/stock-transfers/${tr.transfer_id}/shortage/approve`)).code).toBe('AUTH_004');
+    const list = (await t.as(MGR).get('/stock-transfers?direction=OUTGOING&open=true')).data;
+    expect(list.rows.find((r: any) => r.transfer_id === tr.transfer_id)?.display_status).toBe('SHORT');
+    expect(list.counts.to_approve).toBeGreaterThanOrEqual(1);
+    expect((await t.as(MGR).get('/stock-transfers/count')).data.count).toBeGreaterThanOrEqual(1);
+    // ...but can't ask for or receive stock
+    expect((await t.as(MGR).get('/stock-transfers/targets')).status).toBe(403);
+
+    // Counts only go up, never above what was sent
+    for (const qty of [2, 7]) {
+      const bad = await t.as(MGR).post(`/stock-transfers/${tr.transfer_id}/shortage/correct`, {
+        lines: [{ transfer_line_id: nut.transfer_line_id, qty_received: qty }],
+      });
+      expect(bad.code).toBe('TRF_013');
+    }
+    // One more box turned up: it goes into stock, 2 stay short
+    const fixed = await t.as(MGR).post(`/stock-transfers/${tr.transfer_id}/shortage/correct`, {
+      lines: [{ transfer_line_id: nut.transfer_line_id, qty_received: 4 }],
+    });
+    expect([fixed.status, fixed.data.display_status]).toEqual([201, 'SHORT']);
+    expect(await t.stock('thangalla', 'FST-NM-012')).toBe(nutsBefore + 4);
+
+    const approved = await t.as(MGR).post(`/stock-transfers/${tr.transfer_id}/shortage/approve`);
+    expect([approved.status, approved.data.display_status, approved.data.shortage_approved_by_name]).toEqual([201, 'RECEIVED', expect.any(String)]);
+    // The loss is on record; stock is unchanged (it never arrived)
+    expect(await t.stock('thangalla', 'FST-NM-012')).toBe(nutsBefore + 4);
+    const [loss] = await t.sql<{ quantity: string; reason: string }>(
+      `SELECT quantity, reason FROM stock_movement WHERE transfer_line_id = $1 AND movement_type = 'TRANSIT_SHORTAGE'`,
+      [nut.transfer_line_id],
+    );
+    expect(Number(loss.quantity)).toBe(0);
+    expect(loss.reason).toContain('2 not received');
+    expect(loss.reason).toContain('Damaged in transit');
+    // Settled once only
+    expect((await t.as(MGR).post(`/stock-transfers/${tr.transfer_id}/shortage/approve`)).code).toBe('TRF_002');
   });
 
   it('TRF-10 a chief cannot use stock requests (403)', async () => {

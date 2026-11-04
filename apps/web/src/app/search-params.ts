@@ -76,7 +76,7 @@ export const validateOrderQueueSearch = (s: Record<string, unknown>): OrderQueue
 });
 
 /** Stock Requests status cards (Docs/decisions/0012). */
-export type StockRequestTab = 'toSend' | 'toReceive' | 'waiting' | 'history';
+export type StockRequestTab = 'toSend' | 'toReceive' | 'shortages' | 'waiting' | 'history';
 
 export interface StockRequestSearch {
   tab?: StockRequestTab;
@@ -88,7 +88,7 @@ export interface StockRequestSearch {
 
 // Links from before the status cards keep working
 const OLD_TABS: Record<string, StockRequestTab> = { todo: 'toSend', toUs: 'toSend', ours: 'waiting' };
-const TABS: StockRequestTab[] = ['toSend', 'toReceive', 'waiting', 'history'];
+const TABS: StockRequestTab[] = ['toSend', 'toReceive', 'shortages', 'waiting', 'history'];
 
 export const validateStockRequestSearch = (s: Record<string, unknown>): StockRequestSearch => ({
   tab: typeof s.tab === 'string' ? (TABS.includes(s.tab as StockRequestTab) ? (s.tab as StockRequestTab) : OLD_TABS[s.tab]) : undefined,

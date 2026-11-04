@@ -25,6 +25,8 @@ export enum MovementType {
   ADJUSTMENT = 'ADJUSTMENT',
   OVERRIDE = 'OVERRIDE',
   LEGACY_OPENING = 'LEGACY_OPENING',
+  /** Sent but never arrived; booked when the receiving branch's manager approves the loss */
+  TRANSIT_SHORTAGE = 'TRANSIT_SHORTAGE',
 }
 
 export enum AlertStatus {
@@ -40,7 +42,24 @@ export enum TransferStatus {
   CONFIRMED = 'CONFIRMED',
   REJECTED = 'REJECTED',
   CANCELLED = 'CANCELLED',
+  /** Received short: the counted stock is in, the missing part waits for the manager (Docs/decisions/0014) */
+  SHORTAGE_PENDING = 'SHORTAGE_PENDING',
 }
+
+/** Why a transfer arrived short (Docs/decisions/0014). */
+export enum ShortageReason {
+  DAMAGED = 'DAMAGED',
+  MISSING = 'MISSING',
+  SENDER_MISCOUNT = 'SENDER_MISCOUNT',
+  OTHER = 'OTHER',
+}
+
+export const SHORTAGE_REASON_LABEL: Record<ShortageReason, string> = {
+  [ShortageReason.DAMAGED]: 'Damaged in transit',
+  [ShortageReason.MISSING]: 'Missing on arrival',
+  [ShortageReason.SENDER_MISCOUNT]: 'Sender loaded fewer',
+  [ShortageReason.OTHER]: 'Other',
+};
 
 export enum GatePassStatus {
   OPEN = 'OPEN',

@@ -7,6 +7,7 @@ import {
   MaterialSource,
   PaymentMode,
   Role,
+  ShortageReason,
   toBranchDate,
   typeHasRoofing,
   typeHasWorkshop,
@@ -462,8 +463,12 @@ async function demo() {
     type Transfer = Awaited<ReturnType<typeof ask>>;
     type Line = Transfer['lines'][number];
     const sent = (t: Transfer, pick: (l: Line) => number) => ({ lines: t.lines.map((l) => ({ transfer_line_id: l.transfer_line_id, qty_sent: pick(l) })) });
-    const received = (t: Transfer, pick: (l: Line) => number, notes?: string) => ({
-      lines: t.lines.map((l) => ({ transfer_line_id: l.transfer_line_id, qty_received: pick(l) })),
+    const received = (t: Transfer, pick: (l: Line) => number, notes?: string, shortage?: { reason: ShortageReason; note?: string }) => ({
+      lines: t.lines.map((l) => ({
+        transfer_line_id: l.transfer_line_id,
+        qty_received: pick(l),
+        ...(shortage ? { shortage_reason: shortage.reason, shortage_note: shortage.note } : {}),
+      })),
       notes,
     });
 
@@ -477,10 +482,14 @@ async function demo() {
     // Veyangoda asks Thangalla: Thangalla has to check and send
     await ask(vey, tha, [['PIP-GI-200', 12], ['CON-PR-001', 2]], 4, { notes: 'For Rathna Builders gate frames' });
 
-    // Received one short, with a note
+    // Received one short: the 4 are in stock, the bent length waits for Thangalla's manager (Docs/decisions/0014)
     t = await ask(tha, vey, [['BAR-AN-200', 5]], 5);
     t = await transfers.send(t.transfer_id, sent(t, () => 5), vey);
-    await transfers.receive(t.transfer_id, received(t, () => 4, '1 length bent on arrival'), tha);
+    await transfers.receive(
+      t.transfer_id,
+      received(t, () => 4, '1 length bent on arrival', { reason: ShortageReason.DAMAGED, note: 'Bent at one end, not usable' }),
+      tha,
+    );
 
     // Rejected by Naiwala
     t = await ask(tha, nai, [['SHT-GI-G20', 4]], 6);
@@ -807,15 +816,16 @@ async function demo() {
     // Discount, paid by card
     d = await place(thaCashier, 'Discount Card Customer', phone('300 4003'), [sheetLine('Roofing', 'Tile Roofing', 14, 10, rich[1 % rich.length].item_id)], { discount: 50000, mode: PaymentMode.CARD });
 
-    // Edited by the cashier before work started (fewer pieces), so a refund is due
-    d = await place(thaCashier, 'Cashier Edited Customer', phone('300 4004'), [sheetLine('Roofing', 'Tile Roofing', 12, 10, rich[2 % rich.length].item_id)], { full: true });
+    // Edited by the cashier before work started (more pieces), so a balance is due again.
+    // An edit below what was paid is refused: there are no refunds (BR16)
+    d = await place(thaCashier, 'Cashier Edited Customer', phone('300 4004'), [sheetLine('Roofing', 'Tile Roofing', 12, 6, rich[2 % rich.length].item_id)], { full: true });
     await roofing.update(
       d.order_id,
       {
         version: d.version,
         customer: { phone: phone('300 4004'), name: 'Cashier Edited Customer' },
         technician: 'Sampath',
-        lines: [{ ...sheetLine('Roofing', 'Tile Roofing', 12, 6, rich[2 % rich.length].item_id), line_id: d.lines[0].line_id }],
+        lines: [{ ...sheetLine('Roofing', 'Tile Roofing', 12, 10, rich[2 % rich.length].item_id), line_id: d.lines[0].line_id }],
         discount: 0,
       },
       thaCashier,
@@ -829,6 +839,7 @@ async function demo() {
     // ── Accounts ──────────────────────────────────────────────────────────
     const users = app.get(UsersService);
     const sa = await actor('superadmin');
+    const saAdmin = { user_id: sa.user_id, role: Role.SUPER_ADMIN, branch_id: null };
     const candidate = async (branchId: string, name: string) =>
       (await ds.query(`SELECT employee_id FROM employee WHERE branch_id = $1 AND full_name = $2`, [branchId, name]))[0].employee_id as string;
 
@@ -844,10 +855,9 @@ async function demo() {
     // A deactivated user
     const old = await users.createUser(
       { username: 'cashier_old_thangalla', password: 'Dev@1234', full_name: 'Former Cashier (Thangalla)', role: Role.CASHIER, branch_id: tha.branch_id },
-      sa.user_id,
-      Role.SUPER_ADMIN,
+      saAdmin,
     );
-    await users.updateUser(old.user_id, { is_active: false });
+    await users.updateUser(old.user_id, { is_active: false }, saAdmin);
 
     // An inactive branch (closed), visible in Branch Config only
     await ds.query(

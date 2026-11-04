@@ -34,7 +34,7 @@ export type AlertSeverity = 'CRITICAL' | 'LOW' | 'NORMAL';
 export function stockAlertInfo(quantity: number, reorderLevel: number): { severity: AlertSeverity; deficit: number } {
   const level = stockLevel(quantity, reorderLevel);
   if (level === 'OUT') return { severity: 'CRITICAL', deficit: Math.round((reorderLevel - Math.min(0, quantity)) * 1000) / 1000 };
-  if (level === 'LOW') return { severity: 'LOW', deficit: Math.max(0, reorderLevel - quantity) };
+  if (level === 'LOW') return { severity: 'LOW', deficit: Math.round(Math.max(0, reorderLevel - quantity) * 1000) / 1000 };
   return { severity: 'NORMAL', deficit: 0 };
 }
 

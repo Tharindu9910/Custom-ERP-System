@@ -54,14 +54,20 @@ function isAuthenticated() {
  * `globalAlt` is what a head-office role needs instead (same as the menu's
  * globalPermission), when the branch permission is a write they can't use.
  */
-function requirePermission(action: string, subject: string, globalAlt?: { action: string; subject: string }) {
+function requirePermission(
+  action: string,
+  subject: string,
+  globalAlt?: { action: string; subject: string },
+  /** Another permission that also opens the page for branch staff (the menu's alsoPermission) */
+  also?: { action: string; subject: string },
+) {
   return () => {
     const user = useAuthStore.getState().user;
     if (!user) throw redirect({ to: '/login' });
     if (user.role === Role.SUPER_ADMIN) return;
     const ability = buildAbility(user.permissions ?? []);
-    const need = globalAlt && isGlobalRole(user.role) ? globalAlt : { action, subject };
-    if (ability.cannot(need.action, need.subject)) throw redirect({ to: '/' });
+    const needs = globalAlt && isGlobalRole(user.role) ? [globalAlt] : [{ action, subject }, ...(also ? [also] : [])];
+    if (needs.every((n) => ability.cannot(n.action, n.subject))) throw redirect({ to: '/' });
   };
 }
 
@@ -242,7 +248,7 @@ const stockRequestsRoute = createRoute({
   path: '/stock-requests',
   component: StockRequestsPage,
   validateSearch: validateStockRequestSearch,
-  beforeLoad: requirePermission('request', 'stock', { action: 'view', subject: 'inventory' }),
+  beforeLoad: requirePermission('request', 'stock', { action: 'view', subject: 'inventory' }, { action: 'approve', subject: 'transfer_shortage' }),
 });
 
 // ── Phase 3 settings routes ───────────────────────────────────────────────────

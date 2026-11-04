@@ -34,6 +34,7 @@ const MOVEMENT_LABEL: Record<MovementType, string> = {
   ADJUSTMENT: 'Adjustment',
   OVERRIDE: 'Used with override',
   LEGACY_OPENING: 'Opening stock',
+  TRANSIT_SHORTAGE: 'Lost in transit (approved)',
 };
 
 /** Head office with "All branches" gets the network table; everyone else one branch. */

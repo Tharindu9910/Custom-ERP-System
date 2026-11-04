@@ -21,6 +21,7 @@ export function StockLevelBadge({ level }: { level: StockLevel }) {
 const TRANSFER_TONE: Record<TransferDisplayStatus, string> = {
   WAITING: 'bg-amber-50 text-amber-800',
   SENT: 'bg-blue-50 text-blue-700',
+  SHORT: 'bg-orange-50 text-orange-800',
   RECEIVED: 'bg-green-50 text-green-700',
   REJECTED: 'bg-red-50 text-red-700',
   CANCELLED: 'bg-slate-100 text-slate-600',

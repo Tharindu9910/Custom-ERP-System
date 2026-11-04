@@ -1,9 +1,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  CorrectTransferShortageDto,
   CreateStockTransferDto,
   OpenRequestInfo,
   ReceiveStockTransferDto,
   SendStockTransferDto,
+  ShortageReason,
   TransferDisplayStatus,
   TransferStatus,
 } from '@erp/shared';
@@ -25,6 +27,9 @@ export interface TransferLineDto {
   own_stock: number;
   /** Own stock minus what open orders hold: the most we can send */
   own_available: number;
+  /** Why it arrived short (Docs/decisions/0014); null when it arrived in full */
+  shortage_reason: ShortageReason | null;
+  shortage_note: string | null;
 }
 
 export interface TransferDto {
@@ -44,10 +49,12 @@ export interface TransferDto {
   sent_by_name: string | null;
   received_by_name: string | null;
   closed_by_name: string | null;
+  shortage_approved_by_name: string | null;
   created_at: string;
   sent_at: string | null;
   received_at: string | null;
   closed_at: string | null;
+  shortage_approved_at: string | null;
   late: boolean;
   needs_action: boolean;
   lines: TransferLineDto[];
@@ -58,6 +65,8 @@ export interface TransferCounts {
   ours: number;
   to_send: number;
   to_receive: number;
+  /** Received short, waiting for our manager */
+  to_approve: number;
 }
 
 export interface TransferItemOption {
@@ -140,7 +149,9 @@ export type TransferAction =
   | { action: 'send'; id: string; body: SendStockTransferDto }
   | { action: 'receive'; id: string; body: ReceiveStockTransferDto }
   | { action: 'reject'; id: string; body: { reason: string } }
-  | { action: 'cancel'; id: string };
+  | { action: 'cancel'; id: string }
+  | { action: 'shortage/approve'; id: string }
+  | { action: 'shortage/correct'; id: string; body: CorrectTransferShortageDto };
 
 export function useTransferAction() {
   const invalidate = useInvalidateTransfers();

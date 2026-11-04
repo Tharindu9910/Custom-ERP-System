@@ -18,8 +18,14 @@ export const CurrentUser = createParamDecorator(
 );
 
 export const PERMISSIONS_KEY = 'permissions';
+/** The user needs every listed permission. */
 export const RequirePermissions = (...actions: string[]) =>
   SetMetadata(PERMISSIONS_KEY, actions);
+
+export const ANY_PERMISSION_KEY = 'anyPermission';
+/** The user needs at least one of the listed permissions (checked as well as any @RequirePermissions). */
+export const RequireAnyPermission = (...actions: string[]) =>
+  SetMetadata(ANY_PERMISSION_KEY, actions);
 
 /**
  * Resolves the effective branch ID for a request.

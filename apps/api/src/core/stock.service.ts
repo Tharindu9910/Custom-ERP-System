@@ -393,6 +393,31 @@ export class StockService {
     }
   }
 
+  /**
+   * Records stock that was expected but never arrived (e.g. a transfer received short,
+   * Docs/decisions/0014). On-hand stock doesn't change — the goods were never counted in —
+   * so the movement moves 0 and keeps the history's running total true; the missing amount
+   * is in the reason, and the transfer line keeps what was sent and received.
+   */
+  async recordLoss(em: EntityManager, branchId: string, item: StockDeduction, movementType: MovementType, actor: Actor, reason: string): Promise<void> {
+    if (item.quantity <= 0) return;
+    const rows: { quantity: string }[] = await em.query(
+      `SELECT quantity FROM branch_stock WHERE branch_id = $1 AND item_id = $2 FOR UPDATE`,
+      [branchId, item.item_id],
+    );
+    await this.movement(em, {
+      branchId,
+      itemId: item.item_id,
+      type: movementType,
+      quantity: 0,
+      after: Number(rows[0]?.quantity ?? 0),
+      lineId: item.line_id ?? null,
+      transferLineId: item.transfer_line_id ?? null,
+      reason,
+      actor,
+    });
+  }
+
   private async movement(
     em: EntityManager,
     m: {

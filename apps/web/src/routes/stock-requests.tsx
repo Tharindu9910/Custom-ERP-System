@@ -35,6 +35,8 @@ export function StockRequestsPage() {
 const STEPS: StatusStep<StockRequestTab>[] = [
   { key: 'toSend', title: 'To send', icon: 'truck', empty: 'No branch is waiting for stock from you.', tone: TONES.amber },
   { key: 'toReceive', title: 'To receive', icon: 'arrowDownToLine', empty: 'Nothing is on the way to you.', tone: TONES.emerald },
+  // Received short: the manager approves the loss or corrects the count (Docs/decisions/0014)
+  { key: 'shortages', title: 'Shortages', icon: 'alertTriangle', empty: 'No delivery is waiting for a shortage review.', tone: TONES.amber },
   { key: 'waiting', title: 'Waiting on others', icon: 'clock', empty: 'No request is waiting on another branch.', tone: TONES.slate },
   { key: 'history', title: 'History', icon: 'history', empty: 'No finished requests yet.', tone: TONES.slate },
 ];
@@ -53,7 +55,10 @@ function BranchStockRequests() {
   const { branch } = useBranchContext();
   const ourBranchName = branch?.name ?? 'our branch';
   const canSend = canTransact && can('send', 'stock');
-  const tab: StockRequestTab = search.tab ?? 'toSend';
+  // A manager may only settle shortages here; asking, cancelling and receiving stay with request:stock
+  const canRequest = canTransact && can('request', 'stock');
+  const canApprove = canTransact && can('approve', 'transfer_shortage');
+  const tab: StockRequestTab = search.tab ?? (canRequest || !canApprove ? 'toSend' : 'shortages');
 
   const [query, setQuery] = useState('');
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
@@ -75,7 +80,9 @@ function BranchStockRequests() {
   const lists: Record<StockRequestTab, TransferDto[]> = {
     toSend: inOpen.filter((t) => t.display_status === 'WAITING'),
     toReceive: outOpen.filter((t) => t.display_status === 'SENT'),
-    waiting: [...outOpen.filter((t) => t.display_status === 'WAITING'), ...inOpen.filter((t) => t.display_status === 'SENT')].sort(newestFirst),
+    shortages: outOpen.filter((t) => t.display_status === 'SHORT'),
+    // What we sent and the other branch still has to receive, or its manager to settle as short
+    waiting: [...outOpen.filter((t) => t.display_status === 'WAITING'), ...inOpen.filter((t) => t.display_status === 'SENT' || t.display_status === 'SHORT')].sort(newestFirst),
     history: [...(toUsAll.data?.rows ?? []), ...(oursAll.data?.rows ?? [])].filter((t) => CLOSED.has(t.display_status)).sort(newestFirst),
   };
   const c = toUs.data?.counts ?? ours.data?.counts;
@@ -112,7 +119,7 @@ function BranchStockRequests() {
       onSearch={setQuery}
       placeholder="Search request number, branch, or item..."
       actions={
-        canTransact && (
+        canRequest && (
           <button onClick={() => go({ new: true })} className="btn-primary whitespace-nowrap">
             <Icon name="plus" className="h-4 w-4" />
             New Request
@@ -128,7 +135,7 @@ function BranchStockRequests() {
         value={tab}
         onChange={setTab}
         loading={toUs.isLoading || ours.isLoading}
-        counts={{ toSend: lists.toSend.length, toReceive: lists.toReceive.length, waiting: lists.waiting.length, history: historyCount }}
+        counts={{ toSend: lists.toSend.length, toReceive: lists.toReceive.length, shortages: lists.shortages.length, waiting: lists.waiting.length, history: historyCount }}
         sub={{ toSend: lateNote(lists.toSend), toReceive: lateNote(lists.toReceive), waiting: lateNote(lists.waiting) }}
         arrowAfter={() => false}
       />
@@ -140,10 +147,13 @@ function BranchStockRequests() {
           empty={q ? `No ${current.title.toLowerCase()} requests match “${q}”.` : current.empty}
           readOnly={!canTransact}
           canSend={canSend}
+          canRequest={canRequest}
+          canApprove={canApprove}
           confirmingCancelId={confirmCancelId}
           busy={cancel.isPending}
           onSend={(t) => setModal({ transfer: t, mode: 'send' })}
           onReceive={(t) => setModal({ transfer: t, mode: 'receive' })}
+          onReviewShortage={(t) => setModal({ transfer: t, mode: 'shortage' })}
           onView={(t) => setModal({ transfer: t, mode: 'view' })}
           onAskCancel={(t) => setConfirmCancelId(t.transfer_id)}
           onConfirmCancel={(t) => void confirmCancel(t)}
@@ -154,7 +164,7 @@ function BranchStockRequests() {
         )}
       </BoardSection>
 
-      {search.new && canTransact && (
+      {search.new && canRequest && (
         <NewRequestModal
           prefill={search.items}
           onClose={() => go({ new: undefined, items: undefined })}
@@ -182,11 +192,12 @@ function BranchStockRequests() {
   );
 }
 
-type NetworkTab = 'waiting' | 'sent' | 'late' | 'history';
+type NetworkTab = 'waiting' | 'sent' | 'short' | 'late' | 'history';
 
 const NETWORK_STEPS: StatusStep<NetworkTab>[] = [
   { key: 'waiting', title: 'Waiting to send', icon: 'clock', empty: 'No request is waiting to be sent.', tone: TONES.amber },
   { key: 'sent', title: 'On the way', icon: 'truck', empty: 'Nothing is on the way.', tone: TONES.blue },
+  { key: 'short', title: 'Arrived short', icon: 'alertTriangle', empty: 'No delivery is waiting for a shortage review.', tone: TONES.amber },
   { key: 'late', title: 'Late', icon: 'alertTriangle', empty: 'No open request is past its needed-by date.', tone: TONES.amber },
   { key: 'history', title: 'History', icon: 'history', empty: 'No finished requests yet.', tone: TONES.slate },
 ];
@@ -204,6 +215,7 @@ function NetworkTransfers() {
   const lists: Record<NetworkTab, TransferDto[]> = {
     waiting: rows.filter((t) => t.display_status === 'WAITING'),
     sent: rows.filter((t) => t.display_status === 'SENT'),
+    short: rows.filter((t) => t.display_status === 'SHORT'),
     late: rows.filter((t) => t.late),
     history: (all.data?.rows ?? []).filter((t) => CLOSED.has(t.display_status)),
   };
@@ -225,7 +237,7 @@ function NetworkTransfers() {
         value={tab}
         onChange={setTab}
         loading={open.isLoading}
-        counts={{ waiting: lists.waiting.length, sent: lists.sent.length, late: lists.late.length, history: lists.history.length }}
+        counts={{ waiting: lists.waiting.length, sent: lists.sent.length, short: lists.short.length, late: lists.late.length, history: lists.history.length }}
         arrowAfter={(key) => key === 'waiting'}
       />
 

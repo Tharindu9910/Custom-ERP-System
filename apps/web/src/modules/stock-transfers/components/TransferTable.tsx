@@ -10,6 +10,8 @@ import { formatQty } from '../lib/transfer';
  * Stock requests as a board table (Docs/decisions/0012), like Odoo's Transfers list.
  * The whole row opens the request; the action column has at most one main button.
  * `readOnly` (head office) hides every action; `network` shows both branches.
+ * `canRequest` (ask, cancel, receive) and `canApprove` (the manager's shortage review,
+ * Docs/decisions/0014) decide which of our own actions show.
  */
 export function TransferTable({
   rows,
@@ -18,10 +20,13 @@ export function TransferTable({
   readOnly = false,
   network = false,
   canSend = false,
+  canRequest = true,
+  canApprove = false,
   confirmingCancelId = null,
   busy = false,
   onSend,
   onReceive,
+  onReviewShortage,
   onView,
   onAskCancel,
   onConfirmCancel,
@@ -33,10 +38,13 @@ export function TransferTable({
   readOnly?: boolean;
   network?: boolean;
   canSend?: boolean;
+  canRequest?: boolean;
+  canApprove?: boolean;
   confirmingCancelId?: string | null;
   busy?: boolean;
   onSend?: (t: TransferDto) => void;
   onReceive?: (t: TransferDto) => void;
+  onReviewShortage?: (t: TransferDto) => void;
   onView: (t: TransferDto) => void;
   onAskCancel?: (t: TransferDto) => void;
   onConfirmCancel?: (t: TransferDto) => void;
@@ -111,12 +119,18 @@ export function TransferTable({
                           Check & Send
                         </button>
                       )}
-                      {!readOnly && !toUs && t.display_status === 'SENT' && (
+                      {!readOnly && canApprove && !toUs && t.display_status === 'SHORT' && (
+                        <button onClick={() => onReviewShortage?.(t)} className="btn-primary whitespace-nowrap bg-orange-600 hover:bg-orange-700">
+                          Review shortage
+                        </button>
+                      )}
+                      {!readOnly && canRequest && !toUs && t.display_status === 'SENT' && (
                         <button onClick={() => onReceive?.(t)} className="btn-primary whitespace-nowrap bg-emerald-600 hover:bg-emerald-700">
                           Receive
                         </button>
                       )}
                       {!readOnly &&
+                        canRequest &&
                         !toUs &&
                         t.display_status === 'WAITING' &&
                         (confirming ? (
@@ -160,6 +174,10 @@ function progressHint(t: TransferDto, toUs: boolean, network: boolean, asked: nu
   if (t.display_status === 'SENT') {
     const sent = t.lines.reduce((s, l) => s + (l.qty_sent ?? 0), 0);
     return sent < asked ? { text: `${formatQty(sent)} of ${formatQty(asked)} sent`, tone: 'text-amber-600' } : { text: 'All sent', tone: 'text-blue-600' };
+  }
+  if (t.display_status === 'SHORT') {
+    const missing = t.lines.reduce((s, l) => s + Math.max(0, (l.qty_sent ?? 0) - (l.qty_received ?? 0)), 0);
+    return { text: `${formatQty(missing)} short — manager to review`, tone: 'text-orange-600' };
   }
   if (t.display_status === 'RECEIVED') {
     const got = t.lines.reduce((s, l) => s + (l.qty_received ?? 0), 0);
