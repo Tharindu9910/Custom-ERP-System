@@ -10,9 +10,20 @@ import * as bcrypt from 'bcrypt';
 import { randomInt } from 'crypto';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { Role, isGlobalRole, type ChangePasswordDto, type CreateChiefDto } from '@erp/shared';
+import {
+  Role,
+  isGlobalRole,
+  type AssignRoleDto,
+  type ChangePasswordDto,
+  type CreateChiefDto,
+  type CreateUserDto,
+  type UpdateUserDto,
+} from '@erp/shared';
 import type { Actor } from '../../common/actor';
 import { ERR } from '../../common/errors';
+import { AuditService } from '../../core/audit.service';
+import { UserEntity } from '../../database/entities/user.entity';
+import { UserRoleEntity } from '../../database/entities/user-role.entity';
 import { UsersRepository } from './users.repository';
 
 export interface SafeUser {
@@ -35,29 +46,15 @@ export interface SafeUser {
 }
 export type UserWithRole = SafeUser & { role: Role | null };
 
-export class CreateUserDto {
-  username: string;
-  password: string;
-  full_name: string;
-  email?: string;
-  phone?: string;
-  branch_id?: string;
+/** Who is managing users: head-office roles have branch_id null. */
+export interface UserAdmin {
+  user_id: string;
   role: Role;
+  branch_id: string | null;
 }
 
-export class UpdateUserDto {
-  full_name?: string;
-  email?: string;
-  phone?: string;
-  is_active?: boolean;
-}
-
-export class AssignRoleDto {
-  role: Role;
-  branch_id?: string;
-}
-
-const BCRYPT_ROUNDS = 10;
+// New hashes use 12; existing 10-round hashes keep verifying (the cost is stored in the hash)
+const BCRYPT_ROUNDS = 12;
 
 /** Temporary passwords stop working after this many hours (ER-v6 temp_password_expires_at). */
 export const TEMP_PASSWORD_HOURS = 72;
@@ -88,11 +85,23 @@ function assertCanGrant(role: Role, actorRole: Role): void {
   }
 }
 
+/**
+ * A branch-scoped admin (manage:users granted to a branch role) works only inside their
+ * own branch and can't hand out head-office roles. Head-office admins are unrestricted here.
+ */
+function assertWithinActorBranch(actor: UserAdmin, role: Role | null, branchId: string | null | undefined): void {
+  if (actor.branch_id === null) return;
+  if ((role && isGlobalRole(role)) || (branchId ?? null) !== actor.branch_id) {
+    throw new ForbiddenException(ERR.AUTH_INSUFFICIENT_PERMISSION);
+  }
+}
+
 @Injectable()
 export class UsersService {
   constructor(
     private readonly usersRepository: UsersRepository,
     @InjectDataSource() private readonly ds: DataSource,
+    private readonly audit: AuditService,
   ) {}
 
   async validateCredentials(
@@ -179,6 +188,7 @@ export class UsersService {
       return { user_id: row.user_id, full_name: employees[0].full_name };
     });
 
+    this.audit.record(actor, { type: 'user', id: user.user_id }, 'CREATE_CHIEF', { after: { employee_id: dto.employee_id, username: dto.email } });
     return {
       user_id: user.user_id,
       full_name: user.full_name,
@@ -206,52 +216,67 @@ export class UsersService {
     }));
   }
 
-  async createUser(dto: CreateUserDto, actorId: string, actorRole: Role): Promise<SafeUser> {
+  async createUser(dto: CreateUserDto, actor: UserAdmin): Promise<SafeUser> {
     const existing = await this.usersRepository.findByUsername(dto.username);
     if (existing) throw new ConflictException(ERR.USER_USERNAME_EXISTS);
     // Blank email/phone are "not given"; an email must not belong to another user
     const email = dto.email?.trim() || null;
     if (email && (await this.usersRepository.findByEmail(email))) throw new ConflictException(ERR.USER_EMAIL_EXISTS);
-    assertCanGrant(dto.role, actorRole);
+    assertCanGrant(dto.role, actor.role);
     assertRoleBranchScope(dto.role, dto.branch_id);
+    assertWithinActorBranch(actor, dto.role, dto.branch_id);
 
     const password_hash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
 
-    const user = await this.usersRepository.save({
-      username: dto.username,
-      password_hash,
-      full_name: dto.full_name,
-      email,
-      phone: dto.phone?.trim() || null,
-      branch_id: dto.branch_id ?? null,
-      created_by: actorId,
+    // User and role together: a user without a role could never log in, and its username would be taken
+    const user = await this.ds.transaction(async (em) => {
+      const user = await em.getRepository(UserEntity).save({
+        username: dto.username,
+        password_hash,
+        full_name: dto.full_name,
+        email,
+        phone: dto.phone?.trim() || null,
+        branch_id: dto.branch_id ?? null,
+        created_by: actor.user_id,
+      });
+      await em.getRepository(UserRoleEntity).save({
+        user_id: user.user_id,
+        branch_id: dto.branch_id ?? null,
+        role: dto.role,
+        assigned_by: actor.user_id,
+        is_active: true,
+      });
+      return user;
     });
 
-    await this.usersRepository.saveRole({
-      user_id: user.user_id,
-      branch_id: dto.branch_id ?? null,
-      role: dto.role,
-      assigned_by: actorId,
-      is_active: true,
+    this.audit.record(actor, { type: 'user', id: user.user_id }, 'CREATE', {
+      after: { username: dto.username, role: dto.role, branch_id: dto.branch_id ?? null },
     });
-
     const { password_hash: _, ...safeUser } = user;
     return safeUser;
   }
 
-  async updateUser(
-    userId: string,
-    dto: UpdateUserDto,
-  ): Promise<SafeUser> {
+  async updateUser(userId: string, dto: UpdateUserDto, actor: UserAdmin): Promise<SafeUser> {
     const user = await this.usersRepository.findById(userId);
     if (!user) throw new NotFoundException(ERR.USER_NOT_FOUND);
+    await this.assertMayManage(user, actor);
 
+    if (dto.is_active !== undefined && dto.is_active !== user.is_active) {
+      if (userId === actor.user_id) throw new ForbiddenException(ERR.USER_SELF_CHANGE);
+      await this.assertNotProtectedSuperAdmin(userId, actor);
+    }
+
+    const before = { full_name: user.full_name, email: user.email, phone: user.phone, is_active: user.is_active };
     if (dto.full_name !== undefined) user.full_name = dto.full_name;
     if (dto.email !== undefined) user.email = dto.email?.trim() || null;
     if (dto.phone !== undefined) user.phone = dto.phone ?? null;
     if (dto.is_active !== undefined) user.is_active = dto.is_active;
 
     const saved = await this.usersRepository.save(user);
+    this.audit.record(actor, { type: 'user', id: userId }, dto.is_active === false && before.is_active ? 'DEACTIVATE' : 'UPDATE', {
+      before,
+      after: { full_name: saved.full_name, email: saved.email, phone: saved.phone, is_active: saved.is_active },
+    });
 
     if (dto.is_active === false) {
       await this.usersRepository.revokeUserSessions(userId);
@@ -261,30 +286,58 @@ export class UsersService {
     return safeUser;
   }
 
-  async assignRole(
-    userId: string,
-    dto: AssignRoleDto,
-    actorId: string,
-    actorRole: Role,
-  ): Promise<void> {
+  async assignRole(userId: string, dto: AssignRoleDto, actor: UserAdmin): Promise<void> {
     const user = await this.usersRepository.findById(userId);
     if (!user) throw new NotFoundException(ERR.USER_NOT_FOUND);
-    assertCanGrant(dto.role, actorRole);
+    await this.assertMayManage(user, actor);
     assertRoleBranchScope(dto.role, dto.branch_id);
 
-    // Deactivate any existing active role before assigning new one
-    await this.usersRepository.deactivateActiveRole(userId);
+    // The Users form re-sends the role on every edit: an unchanged role is a no-op (no
+    // new role row, no sign-out), so editing a name never logs anyone out
+    const current = await this.usersRepository.findActiveRole(userId);
+    const branchId = dto.branch_id ?? null;
+    if (current && current.role === dto.role && (current.branch_id ?? null) === branchId) return;
 
-    await this.usersRepository.saveRole({
-      user_id: userId,
-      branch_id: dto.branch_id ?? null,
-      role: dto.role,
-      assigned_by: actorId,
-      is_active: true,
+    if (userId === actor.user_id) throw new ForbiddenException(ERR.USER_SELF_CHANGE);
+    if (current?.role === Role.SUPER_ADMIN && actor.role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException(ERR.USER_SUPER_ADMIN_PROTECTED);
+    }
+    assertCanGrant(dto.role, actor.role);
+    assertWithinActorBranch(actor, dto.role, branchId);
+
+    const previous = current ? { role: current.role, branch_id: current.branch_id ?? null } : undefined;
+
+    // Swap the role in one transaction, so a failed insert can't leave the user with no role
+    await this.ds.transaction(async (em) => {
+      await em.getRepository(UserRoleEntity).update({ user_id: userId, is_active: true }, { is_active: false });
+      await em.getRepository(UserRoleEntity).save({
+        user_id: userId,
+        branch_id: branchId,
+        role: dto.role,
+        assigned_by: actor.user_id,
+        is_active: true,
+      });
+      // Keep user.branch_id in sync with the new role's branch
+      await em.getRepository(UserEntity).update({ user_id: userId }, { branch_id: branchId });
     });
 
-    // Keep user.branch_id in sync with the new role's branch
-    user.branch_id = dto.branch_id ?? null;
-    await this.usersRepository.save(user);
+    this.audit.record(actor, { type: 'user', id: userId }, 'ASSIGN_ROLE', { before: previous, after: { role: dto.role, branch_id: branchId } });
+
+    // Role and branch_id live in the access token — end old sessions so they can't outlive the change
+    await this.usersRepository.revokeUserSessions(userId);
+  }
+
+  /** Branch-scoped admins only reach users of their own branch (looks like not-found otherwise). */
+  private async assertMayManage(target: UserEntity, actor: UserAdmin): Promise<void> {
+    if (actor.branch_id !== null && target.branch_id !== actor.branch_id) {
+      throw new NotFoundException(ERR.USER_NOT_FOUND);
+    }
+  }
+
+  /** Only a super admin may deactivate or re-role a super admin. */
+  private async assertNotProtectedSuperAdmin(userId: string, actor: UserAdmin): Promise<void> {
+    if (actor.role === Role.SUPER_ADMIN) return;
+    const role = await this.usersRepository.findActiveRole(userId);
+    if (role?.role === Role.SUPER_ADMIN) throw new ForbiddenException(ERR.USER_SUPER_ADMIN_PROTECTED);
   }
 }

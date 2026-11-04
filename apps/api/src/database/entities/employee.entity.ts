@@ -32,7 +32,8 @@ export class EmployeeEntity {
   @Column({ type: 'varchar', nullable: true })
   phone: string | null;
 
-  @Column({ type: 'jsonb', nullable: true })
+  // Never selected by default: worker lists go to every role at the branch. Payroll must opt in.
+  @Column({ type: 'jsonb', nullable: true, select: false })
   salary: EmployeeSalary | null;
 
   @Column({ default: true })

@@ -6,6 +6,7 @@ import { Request } from 'express';
 import { Repository } from 'typeorm';
 import { Role, isGlobalRole, type ChangePasswordDto } from '@erp/shared';
 import { ERR } from '../../common/errors';
+import { AuditService } from '../../core/audit.service';
 import { UserRoleEntity } from '../../database/entities/user-role.entity';
 import { UserSessionEntity } from '../../database/entities/user-session.entity';
 import { UsersRepository } from '../users/users.repository';
@@ -26,15 +27,22 @@ export class AuthService {
     private readonly userRoleRepo: Repository<UserRoleEntity>,
     @InjectRepository(UserSessionEntity)
     private readonly sessionRepo: Repository<UserSessionEntity>,
+    private readonly audit: AuditService,
   ) {}
 
   async login(username: string, password: string, req: Request) {
-    const user = await this.usersService.validateCredentials(
-      username,
-      password,
-    );
+    let user;
+    try {
+      user = await this.usersService.validateCredentials(username, password);
+    } catch (e) {
+      // A failed attempt on a real account is worth a trail (guessing); unknown usernames have no user to attach it to
+      const known = e instanceof UnauthorizedException ? await this.usersRepository.findByUsername(username) : null;
+      if (known) this.audit.record({ user_id: known.user_id, role: null, branch_id: null }, { type: 'user', id: known.user_id }, 'LOGIN_FAILED', { ip: req.ip });
+      throw e;
+    }
     const roleRow = await this.getActiveRole(user.user_id);
     const tokens = await this.createSession(user.user_id, roleRow, req);
+    this.audit.record({ user_id: user.user_id, role: roleRow.role, branch_id: roleRow.branch_id ?? null }, { type: 'user', id: user.user_id }, 'LOGIN', { ip: req.ip });
     await this.usersRepository.updateLastLogin(user.user_id);
     return { ...tokens, user: await this.getMe(user.user_id) };
   }
@@ -65,8 +73,14 @@ export class AuthService {
       throw new UnauthorizedException(ERR.AUTH_USER_INACTIVE);
     }
 
-    // Rotate — revoke old session, create a new one
-    await this.revokeSession(session);
+    // Rotate: claim the old session atomically, so two concurrent refreshes with the same
+    // token can't both succeed. The loser is a replay, handled as above.
+    const claimed = await this.sessionRepo.update({ jti, is_active: true }, { is_active: false, revoked_at: new Date() });
+    if (!claimed.affected) {
+      this.logger.warn(`Concurrent refresh token reuse for user ${userId} — revoking all sessions`);
+      await this.revokeAllSessions(userId);
+      throw new UnauthorizedException(ERR.AUTH_REFRESH_TOKEN_INVALID);
+    }
     const roleRow = await this.getActiveRole(userId);
     return this.createSession(userId, roleRow, req);
   }
@@ -77,6 +91,7 @@ export class AuthService {
     const session = await this.sessionRepo.findOne({ where: { jti } });
     if (session) await this.revokeSession(session);
     const roleRow = await this.getActiveRole(userId);
+    this.audit.record({ user_id: userId, role: roleRow.role, branch_id: roleRow.branch_id ?? null }, { type: 'user', id: userId }, 'CHANGE_PASSWORD', { ip: req.ip });
     const tokens = await this.createSession(userId, roleRow, req);
     return { ...tokens, user: await this.getMe(userId) };
   }

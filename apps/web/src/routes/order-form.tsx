@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import {
   DEFAULT_BRANCH_SETTINGS,
+  ERR_CODES,
   MaterialSource,
   OrderStatus,
   ROOFING_CATEGORIES,
@@ -622,10 +623,7 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
           ...body,
           version: existing.version,
         });
-        const notice =
-          res.refund_due > 0
-            ? `Order ${res.order_number} updated. The customer has paid ${formatRs(res.refund_due)} more than the new total — refund it at the counter.`
-            : `Order ${res.order_number} updated.`;
+        const notice = `Order ${res.order_number} updated.`;
         // Orders still at the cashier are not on the Order Queue; go back to History
         if (res.status === OrderStatus.DRAFT)
           void navigate({
@@ -654,7 +652,11 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
     } catch (err) {
       const info = apiError(err);
       if (info.code === 'STK_001') setShortage(info.details as StockShortageDetails);
-      else if (override) setOverrideError(info.message);
+      else if (info.code === ERR_CODES.ORDER_TOTAL_BELOW_PAID) {
+        // No refunds (BR16): the edited order must still cost at least what was paid
+        const d = info.details as { paid: number; new_total: number };
+        setError(`The new total ${formatRs(d.new_total)} is below the ${formatRs(d.paid)} already paid. There are no refunds — keep the total at ${formatRs(d.paid)} or more.`);
+      } else if (override) setOverrideError(info.message);
       else setError(info.message);
     }
   };

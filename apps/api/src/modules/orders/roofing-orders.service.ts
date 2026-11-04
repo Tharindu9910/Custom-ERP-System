@@ -32,6 +32,7 @@ import {
   type UpdateRoofingOrderDto,
 } from '@erp/shared';
 import type { Actor } from '../../common/actor';
+import { replayOnDuplicate } from '../../common/idempotency';
 import { ERR, errWith } from '../../common/errors';
 import { AuditService } from '../../core/audit.service';
 import { BranchContextService } from '../../core/branch-context.service';
@@ -136,7 +137,7 @@ export class RoofingOrdersService {
     const payment = dto.payment;
     const status = payment ? OrderStatus.IN_QUEUE : OrderStatus.DRAFT;
 
-    const orderId = await this.ds.transaction(async (em) => {
+    const orderId = await replayOnDuplicate(() => this.ds.transaction(async (em) => {
       const p = await this.prepare(em, dto.lines, dto.global_coil_item_id, dto.discount, settings, actor.branch_id, true);
 
       // Placement payment (prototype): at least the branch minimum, never more than the total
@@ -196,7 +197,7 @@ export class RoofingOrdersService {
         await this.payments.insertPayment(em, order, payment, settings, actor);
       }
       return order.order_id;
-    });
+    }), () => this.queries.findByRequestId(dto.client_request_id, actor.branch_id));
 
     this.audit.record(actor, { type: 'order', id: orderId, version: 1 }, dto.override ? 'PLACE_ROOFING_ORDER_WITH_STOCK_OVERRIDE' : 'PLACE_ROOFING_ORDER', {
       after: { lines: dto.lines.length, payment: payment?.amount ?? 0, ...(dto.override ? { override_reason: dto.override.reason } : {}) },
@@ -209,11 +210,11 @@ export class RoofingOrdersService {
    * Edits an order before work starts. An unpaid order still at the cashier (DRAFT) is
    * edited by whoever may create orders (the supervisor, from History). Once money is
    * taken, or the order is in the Order Queue, it is the cashier's edit (edit:order, gated
-   * by allow_cashier_edit_before_start). Prices are recalculated; payments are kept and
-   * any overpayment is reported as a refund due at the counter. Only the cashier changes
-   * the discount.
+   * by allow_cashier_edit_before_start). Prices are recalculated and payments are kept.
+   * A new total below what was already paid is refused: there are no refunds (BR16).
+   * Only the cashier changes the discount.
    */
-  async update(orderId: string, dto: UpdateRoofingOrderDto, actor: Actor): Promise<OrderDetail & { refund_due: number }> {
+  async update(orderId: string, dto: UpdateRoofingOrderDto, actor: Actor): Promise<OrderDetail> {
     const settings = (await this.branches.get(actor.branch_id)).settings;
     this.checkMaterialRules(dto, settings);
     const cashier = await this.isCashier(actor);
@@ -233,6 +234,10 @@ export class RoofingOrdersService {
       if (existing.some((l) => lineHasStarted(l.status))) throw new ConflictException(ERR.ORDER_LOCKED);
 
       const p = await this.prepare(em, dto.lines, dto.global_coil_item_id, dto.discount, settings, actor.branch_id, true);
+      // paid_amount is read from the locked row, so a payment taken meanwhile is counted
+      if (p.total < order.paid_amount) {
+        throw new ConflictException(errWith(ERR.ORDER_TOTAL_BELOW_PAID, { paid: order.paid_amount, new_total: p.total }));
+      }
       const customerId = await this.customers.findOrCreateForIntake(em, dto.customer, actor.branch_id, actor.user_id);
 
       const byId = new Map(existing.map((l) => [l.line_id, l]));
@@ -300,8 +305,7 @@ export class RoofingOrdersService {
       after: { lines: dto.lines.length, ...(dto.override ? { override_reason: dto.override.reason } : {}) },
     });
     this.events.changed(actor.branch_id, 'orders', 'gate_passes', 'stock');
-    const detail = await this.queries.detail(orderId, actor.branch_id);
-    return { ...detail, refund_due: Math.max(0, detail.paid_amount - detail.total) };
+    return this.queries.detail(orderId, actor.branch_id);
   }
 
   /**

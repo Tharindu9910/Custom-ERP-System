@@ -395,6 +395,26 @@ describe('RS supervisor orders go through the cashier', () => {
     expect((await edit(CASHIER.thangalla, placed.version)).status).toBe(200);
   });
 
+  it('RS-03b an edit that brings the total below what was paid is refused (ORD_032, no refunds BR16)', async () => {
+    const paid = await roofingOrder(t, { user: CASHIER.thangalla, payFull: true, lines: [sheetLine(coil.item_id, { pieces: 4 })] });
+    expect(paid.paid_amount).toBe(paid.total);
+    const r = await t.as(CASHIER.thangalla).put(`/roofing-orders/${paid.order_id}`, {
+      customer: { phone: paid.customer.phone, name: 'Roof Test' },
+      lines: [{ ...sheetLine(coil.item_id, { pieces: 2 }), line_id: paid.lines[0].line_id }],
+      discount: 0,
+      version: paid.version,
+    });
+    expect([r.status, r.code, r.details.paid]).toEqual([409, 'ORD_032', paid.paid_amount]);
+    expect(r.details.new_total).toBeLessThan(paid.paid_amount);
+    // Nothing changed
+    const after = (await t.as(CASHIER.thangalla).get(`/orders/${paid.order_id}`)).data;
+    expect([after.total, after.version, after.lines[0].pieces ?? after.lines[0].quantity]).toEqual([
+      paid.total,
+      paid.version,
+      paid.lines[0].pieces ?? paid.lines[0].quantity,
+    ]);
+  });
+
   it('RS-04 an unpaid order can be cancelled by the cashier; it releases its coil', async () => {
     const before = await t.reserved('thangalla', coil.sku);
     const draft = await roofingOrder(t, { unpaid: true, lines: [sheetLine(coil.item_id, { length_ft: 10, pieces: 1 })] });

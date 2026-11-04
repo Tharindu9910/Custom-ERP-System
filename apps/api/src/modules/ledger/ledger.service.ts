@@ -46,15 +46,34 @@ export class LedgerService {
         { ...base, account_id: accounts['2100'], entry_type: EntryType.CREDIT, amount: payment.amount, description: 'Advance payment recorded' },
       ]);
     } else {
-      // FINAL: clear advance balance + recognise full revenue
-      // The caller provides total_amount; advance_paid is resolved from ledger
+      // FINAL: the order is now paid in full, so the whole total is revenue. The advances
+      // taken earlier move out of 2100 (advance liability) into revenue alongside this payment.
+      const advances = await this.advanceBalance(repo, payment.order_id);
+      const revenue = payment.order_type === OrderType.HARDWARE_SALE
+        ? { account_id: accounts['4100'], description: 'Hardware sale revenue recognised' }
+        : { account_id: accounts['4000'], description: 'Service revenue recognised' };
       await repo.save([
         { ...base, account_id: accounts['1200'], entry_type: EntryType.DEBIT,  amount: payment.amount, description: 'Cash received (final)' },
-        payment.order_type === OrderType.HARDWARE_SALE
-          ? { ...base, account_id: accounts['4100'], entry_type: EntryType.CREDIT, amount: payment.amount, description: 'Hardware sale revenue recognised' }
-          : { ...base, account_id: accounts['4000'], entry_type: EntryType.CREDIT, amount: payment.amount, description: 'Service revenue recognised' },
+        { ...base, ...revenue, entry_type: EntryType.CREDIT, amount: payment.amount },
+        ...(advances > 0
+          ? [
+              { ...base, account_id: accounts['2100'], entry_type: EntryType.DEBIT, amount: advances, description: 'Advances cleared on final payment' },
+              { ...base, ...revenue, entry_type: EntryType.CREDIT, amount: advances },
+            ]
+          : []),
       ]);
     }
+  }
+
+  /** What the order still holds in 2100 (advances credited minus any already cleared). */
+  private async advanceBalance(repo: Repository<LedgerEntryEntity>, orderId: string): Promise<number> {
+    const [row]: { balance: string | null }[] = await repo.query(
+      `SELECT SUM(CASE WHEN e.entry_type = 'CREDIT' THEN e.amount ELSE -e.amount END) AS balance
+       FROM ledger_entry e JOIN financial_account a ON a.account_id = e.account_id
+       WHERE e.order_id = $1 AND a.code = '2100'`,
+      [orderId],
+    );
+    return Math.max(0, Number(row?.balance ?? 0));
   }
 
   async recordCancellationLoss(
@@ -106,7 +125,11 @@ export class LedgerService {
       ? em.getRepository(FinancialAccountEntity)
       : this.accountRepo;
     const accounts = await repo.find({ where: { is_active: true } });
-    return Object.fromEntries(accounts.map((a) => [a.code, a.account_id]));
+    const map = Object.fromEntries(accounts.map((a) => [a.code, a.account_id]));
+    // A missing account would insert NULL and fail as an unexplained 500; say which one
+    const missing = Object.values(SYSTEM_ACCOUNTS).filter((a) => !map[a.code]).map((a) => a.code);
+    if (missing.length) throw new Error(`Chart of accounts is missing system account(s) ${missing.join(', ')} — run the seed`);
+    return map;
   }
 
   async seedChartOfAccounts(): Promise<void> {

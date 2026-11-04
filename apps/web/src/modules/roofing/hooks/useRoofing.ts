@@ -94,7 +94,7 @@ export function useUpdateRoofingOrder(orderId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (dto: UpdateRoofingOrderDto) =>
-      (await apiClient.put<{ data: OrderDetailDto & { refund_due: number } }>(`/roofing-orders/${orderId}`, dto)).data.data,
+      (await apiClient.put<{ data: OrderDetailDto }>(`/roofing-orders/${orderId}`, dto)).data.data,
     onSuccess: () => invalidateOrders(qc),
   });
 }
