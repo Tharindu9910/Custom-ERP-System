@@ -237,10 +237,10 @@ export class InventoryService {
   ): Promise<{ branches: NetworkBranch[]; rows: NetworkAlertRow[]; requested: NetworkAlertRow[]; counts: AlertCounts; categories: string[] }> {
     const branches = await this.networkBranches('stockAlerts');
     const main = (await this.networkBranches('inventory')).find((b) => b.is_main) ?? null;
-    const [perBranch, mainRows] = await Promise.all([
-      Promise.all(branches.map((b) => this.stockRows(b.branch_id))),
-      main ? this.stockRows(main.branch_id) : Promise.resolve([]),
-    ]);
+    const mainIndex = branches.findIndex((b) => b.branch_id === main?.branch_id);
+    const perBranch = await Promise.all(branches.map((b) => this.stockRows(b.branch_id)));
+    // The main branch's rows are already loaded when it is one of the alert branches; load them again only if it is not
+    const mainRows = mainIndex >= 0 ? perBranch[mainIndex] : main ? await this.stockRows(main.branch_id) : [];
     // Only free stock can be sent (Docs/decisions/0003)
     const mainStock = new Map(mainRows.map((r) => [r.item_id, r.available]));
     const all: NetworkAlertRow[] = branches.flatMap((b, i) =>
