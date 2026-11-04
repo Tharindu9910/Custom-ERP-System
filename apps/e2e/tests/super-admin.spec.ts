@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { BRANCH, OVERRIDE_PASSWORD, SA, SUP, call, jobCard, login, material, newPhone, roofingOrder, withGrant, workerIds } from '../support/api';
+import { BRANCH, OVERRIDE_PASSWORD, SA, SUP, call, jobCard, login, material, newPhone, patchBranch, patchBranchConfig, roofingOrder, withGrant, workerIds } from '../support/api';
 import { expect, signIn, test } from '../support/fixtures';
 import { dialog, menuLabels, pickBranch, row } from '../support/ui';
 
@@ -67,7 +67,7 @@ test.describe('branch config', () => {
       await page.getByRole('button', { name: 'Save changes' }).click();
       await expect(page.getByText('Saved.')).toBeVisible();
     } finally {
-      await call(SA, 'PATCH', `/branches/${BRANCH.thangalla}/config`, { features: { gatePass: true } });
+      await patchBranchConfig('thangalla', { features: { gatePass: true } });
     }
   });
 
@@ -92,7 +92,7 @@ test.describe('branch config', () => {
       const list = (await call(SA, 'GET', '/branches')).data;
       expect(list.find((b: any) => b.is_main).name).toBe('Veyangoda');
     } finally {
-      await call(SA, 'PATCH', `/branches/${BRANCH.naiwala}`, { is_main: true });
+      await patchBranch('naiwala', { is_main: true });
     }
   });
 
@@ -121,7 +121,7 @@ test.describe('branch config', () => {
         expect(ok.status).toBe(201);
       });
     } finally {
-      await call(SA, 'PATCH', `/branches/${BRANCH.thangalla}/config`, { stock_override_password: OVERRIDE_PASSWORD });
+      await patchBranchConfig('thangalla', { stock_override_password: OVERRIDE_PASSWORD });
     }
   });
 
@@ -147,7 +147,7 @@ test.describe('branch config', () => {
       const names = (await call(SUP.thangalla, 'GET', '/stock-transfers/targets')).data.map((t: any) => t.name);
       expect(names).not.toContain('Veyangoda');
     } finally {
-      await call(SA, 'PATCH', `/branches/${BRANCH.veyangoda}`, { is_active: true });
+      await patchBranch('veyangoda', { is_active: true });
     }
   });
 });
@@ -198,10 +198,11 @@ test.describe('users', () => {
     await row(page, username).getByRole('button', { name: 'Deactivate' }).click();
     // Confirm in the dialog (its button is the last "Deactivate" on the page)
     await page.getByRole('button', { name: 'Deactivate', exact: true }).last().click();
-    await expect(row(page, username).getByRole('button', { name: 'Activate' })).toBeVisible();
+    // exact: 'Activate' alone also matches 'Deactivate', so the check passed before the change was saved
+    await expect(row(page, username).getByRole('button', { name: 'Activate', exact: true })).toBeVisible();
     await expect(login(username, 'Dev@1234')).rejects.toThrow(/deactivated|401/);
-    await row(page, username).getByRole('button', { name: 'Activate' }).click();
-    await expect(row(page, username).getByRole('button', { name: 'Deactivate' })).toBeVisible();
+    await row(page, username).getByRole('button', { name: 'Activate', exact: true }).click();
+    await expect(row(page, username).getByRole('button', { name: 'Deactivate', exact: true })).toBeVisible();
     await expect(login(username, 'Dev@1234')).resolves.toBeTruthy();
   });
 

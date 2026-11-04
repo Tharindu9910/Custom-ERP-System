@@ -177,6 +177,8 @@ export const UpdateBranchConfigSchema = z
     roofing: sectionPatch,
     orders: sectionPatch,
     gate_pass: sectionPatch,
+    // The version the client loaded; a stale one is refused with BR_006
+    version: z.number().int().min(1),
   })
   .strict();
 export type UpdateBranchConfigDto = z.infer<typeof UpdateBranchConfigSchema>;

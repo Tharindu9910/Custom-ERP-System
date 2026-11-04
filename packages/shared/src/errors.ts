@@ -19,6 +19,9 @@ export const ERR = {
 
   // ── Validation & generic ────────────────────────────────────────────────
   VALIDATION_FAILED: { code: 'VAL_001', message: 'Some fields are invalid' },
+  DUPLICATE: { code: 'VAL_002', message: 'This already exists' },
+  TRY_AGAIN: { code: 'VAL_003', message: 'Another change happened at the same moment — please try again' },
+  BAD_REQUEST: { code: 'VAL_004', message: 'The request could not be processed' },
   BRANCH_CONTEXT_REQUIRED: { code: 'CTX_001', message: 'Select a branch first' },
   FEATURE_DISABLED: { code: 'CTX_002', message: 'This feature is turned off for this branch' },
   GLOBAL_VIEW_ONLY: { code: 'CTX_003', message: 'Head-office accounts can view branch work but not change it — branch staff make changes' },
@@ -57,6 +60,7 @@ export const ERR = {
   ORDER_PAYMENT_DENIED: { code: 'ORD_029', message: 'Only the cashier can take payment — submit the order without one' },
   ORDER_ITEM_ADVANCE_RANGE: { code: 'ORD_031', message: "An item's advance must be between Rs 0 and the item total" },
   ORDER_DRAFT_PAID_LOCKED: { code: 'ORD_030', message: "A payment has been taken — only the cashier can edit this order now" },
+  ORDER_TOTAL_BELOW_PAID: { code: 'ORD_032', message: 'The new total is below what the customer has already paid — there are no refunds (BR16)' },
 
   // ── Pricing ─────────────────────────────────────────────────────────────
   PRICE_MISSING_RATE: { code: 'PRC_001', message: 'No standard rate found — enter a custom price' },
@@ -97,6 +101,9 @@ export const ERR = {
   TRANSFER_LINE_UNKNOWN: { code: 'TRF_008', message: 'A line does not belong to this stock request' },
   TRANSFER_BRANCH_UNAVAILABLE: { code: 'TRF_009', message: 'That branch is not taking stock requests' },
   TRANSFER_WRONG_BRANCH: { code: 'TRF_010', message: 'Only the other branch on this request can do that' },
+  TRANSFER_LINE_MISSING: { code: 'TRF_011', message: 'Count every item that was sent, even if none arrived (enter 0)' },
+  TRANSFER_SHORTAGE_REASON_REQUIRED: { code: 'TRF_012', message: 'Choose why each short item is short' },
+  TRANSFER_SHORTAGE_COUNT_DOWN: { code: 'TRF_013', message: 'A corrected count can only go up, and never above what was sent' },
 
   // ── New catalogue items (Docs/decisions/0013) ───────────────────────────
   ITEM_SKU_TAKEN: { code: 'ITM_001', message: 'Another item already uses this SKU' },
@@ -122,6 +129,8 @@ export const ERR = {
   USER_ROLE_BRANCH_REQUIRED: { code: 'USR_004', message: 'This role must be assigned to a branch' },
   USER_ROLE_BRANCH_FORBIDDEN: { code: 'USR_006', message: 'Head-office roles are not tied to a branch — leave the branch empty' },
   USER_EMAIL_EXISTS: { code: 'USR_005', message: 'A user with this email already exists' },
+  USER_SELF_CHANGE: { code: 'USR_007', message: 'You cannot change your own role or deactivate your own account — ask another administrator' },
+  USER_SUPER_ADMIN_PROTECTED: { code: 'USR_008', message: 'Only a Super Admin can change or deactivate a Super Admin' },
 
   // ── Branches ────────────────────────────────────────────────────────────
   BRANCH_NOT_FOUND: { code: 'BR_001', message: 'Branch not found' },
@@ -129,6 +138,7 @@ export const ERR = {
   BRANCH_SETTINGS_INVALID: { code: 'BR_003', message: 'Branch settings are invalid' },
   BRANCH_MAIN_REQUIRED: { code: 'BR_004', message: 'There must always be a main branch — make another branch main instead' },
   BRANCH_MAIN_INACTIVE: { code: 'BR_005', message: 'The main branch must be active' },
+  BRANCH_VERSION_CONFLICT: { code: 'BR_006', message: 'This branch was changed by someone else — refresh and try again' },
 
   // ── Permissions ─────────────────────────────────────────────────────────
   PERMISSION_NOT_FOUND: { code: 'PRM_001', message: 'Permission not found' },

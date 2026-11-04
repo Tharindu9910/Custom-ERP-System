@@ -2,6 +2,7 @@ export * from './common.schema';
 export * from './customer.schema';
 export * from './worker.schema';
 export * from './branch-settings.schema';
+export * from './branch.schema';
 export * from './gate-pass.schema';
 export * from './job-card.schema';
 export * from './roofing-order.schema';

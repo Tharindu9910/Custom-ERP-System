@@ -41,6 +41,10 @@ export class BranchEntity {
   @Column({ default: true })
   is_active: boolean;
 
+  /** Optimistic lock, bumped by bumpVersion() on every details or settings save. */
+  @Column({ type: 'int', default: 1 })
+  version: number;
+
   @Column({ type: 'uuid', nullable: true })
   updated_by: string | null;
 

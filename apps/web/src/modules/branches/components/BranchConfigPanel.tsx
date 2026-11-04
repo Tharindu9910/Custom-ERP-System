@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BranchType, DEFAULT_BRANCH_SETTINGS, isGlobalRole, type BranchSettings } from '@erp/shared';
+import { BranchType, DEFAULT_BRANCH_SETTINGS, ERR_CODES, isGlobalRole, type BranchSettings } from '@erp/shared';
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog';
 import { Icon } from '@/shared/components/Icon';
 import { MainBadge } from '@/shared/components/MainBadge';
@@ -39,6 +39,7 @@ const toSettings = (dto: BranchConfigDto): BranchSettings => {
   delete settings.updated_by;
   delete settings.updated_at;
   delete settings.stock_override_configured;
+  delete settings.version;
   return settings as BranchSettings;
 };
 
@@ -297,14 +298,44 @@ function AddBranchDialog({ open, existing, onClose, onCreated }: { open: boolean
 type NavKey = 'details' | ConfigSection;
 
 function BranchEditor({ branch, canEditDetails, onBack }: { branch: BranchDto; canEditDetails: boolean; onBack?: () => void }) {
-  const { data: loaded, isLoading, error: loadError } = useBranchConfig(branch.branch_id);
+  const { data: loaded, isLoading, isFetching, error: loadError, refetch } = useBranchConfig(branch.branch_id);
+  // Bumped after a reload so the form starts again from the stored values
+  const [formKey, setFormKey] = useState(0);
+  const reload = async () => {
+    await refetch();
+    setFormKey((k) => k + 1);
+  };
 
   if (isLoading) return <p className="text-sm text-gray-400">Loading config…</p>;
   if (!loaded) return <p className="text-sm text-red-600">{loadError ? apiError(loadError).message : 'Could not load the branch config.'}</p>;
-  return <EditorForm branch={branch} loaded={loaded} canEditDetails={canEditDetails} onBack={onBack} />;
+  return (
+    <EditorForm
+      key={formKey}
+      branch={branch}
+      loaded={loaded}
+      canEditDetails={canEditDetails}
+      onBack={onBack}
+      onReload={() => void reload()}
+      reloading={isFetching}
+    />
+  );
 }
 
-function EditorForm({ branch, loaded, canEditDetails, onBack }: { branch: BranchDto; loaded: BranchConfigDto; canEditDetails: boolean; onBack?: () => void }) {
+function EditorForm({
+  branch,
+  loaded,
+  canEditDetails,
+  onBack,
+  onReload,
+  reloading,
+}: {
+  branch: BranchDto;
+  loaded: BranchConfigDto;
+  canEditDetails: boolean;
+  onBack?: () => void;
+  onReload: () => void;
+  reloading: boolean;
+}) {
   const updateConfig = useUpdateBranchConfig(branch.branch_id);
   const updateBranch = useUpdateBranch(branch.branch_id);
 
@@ -319,6 +350,10 @@ function EditorForm({ branch, loaded, canEditDetails, onBack }: { branch: Branch
   const [showErrors, setShowErrors] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
+  // Someone else saved this branch first (BR_006): the form must reload before saving again
+  const [conflict, setConflict] = useState(false);
+  // Details and settings share one version; every save returns the next one
+  const [version, setVersion] = useState(loaded.version);
   const [confirmDeactivate, setConfirmDeactivate] = useState(false);
   const [confirmMain, setConfirmMain] = useState(false);
 
@@ -366,12 +401,19 @@ function EditorForm({ branch, loaded, canEditDetails, onBack }: { branch: Branch
 
   const deactivating = canEditDetails && initialDetails.is_active && !details.is_active;
 
+  const showSaveError = (err: unknown) => {
+    const e = apiError(err);
+    setSaveError(e.message);
+    setConflict(e.code === ERR_CODES.BRANCH_VERSION_CONFLICT);
+  };
+
   const makeMain = async () => {
     setSaveError('');
     try {
-      await updateBranch.mutateAsync({ is_main: true });
+      const b = await updateBranch.mutateAsync({ is_main: true, version });
+      setVersion(b.version);
     } catch (err) {
-      setSaveError(apiError(err).message);
+      showSaveError(err);
     }
     setConfirmMain(false);
   };
@@ -389,20 +431,25 @@ function EditorForm({ branch, loaded, canEditDetails, onBack }: { branch: Branch
       return;
     }
     setConfirmDeactivate(false);
+    // Tracked locally too: a details save followed by a settings save needs the bumped version
+    let nextVersion = version;
     try {
       if (detailsDirty && canEditDetails) {
-        const b = await updateBranch.mutateAsync({ ...details, name: details.name.trim(), code: details.code.trim() });
+        const b = await updateBranch.mutateAsync({ ...details, name: details.name.trim(), code: details.code.trim(), version: nextVersion });
+        nextVersion = b.version;
+        setVersion(b.version);
         setInitialDetails(toDetails(b));
         setDetails(toDetails(b));
       }
       if (configDirty || overridePassword) {
         // Send only the settings that changed; the API merges them into the stored config
-        const payload: UpdateBranchConfigPayload = {};
+        const payload: UpdateBranchConfigPayload = { version: nextVersion };
         for (const k of Object.keys(config) as (keyof BranchSettings)[]) {
           if (!same(config[k], initialConfig[k])) (payload as Record<string, unknown>)[k] = config[k];
         }
         if (overridePassword) payload.stock_override_password = overridePassword;
         const next = await updateConfig.mutateAsync(payload);
+        setVersion(next.version);
         setInitialConfig(toSettings(next));
         setConfig(toSettings(next));
         setOverrideConfigured(next.stock_override_configured);
@@ -411,7 +458,7 @@ function EditorForm({ branch, loaded, canEditDetails, onBack }: { branch: Branch
       setShowErrors(false);
       setSaved(true);
     } catch (err) {
-      setSaveError(apiError(err).message);
+      showSaveError(err);
     }
   };
 
@@ -513,7 +560,18 @@ function EditorForm({ branch, loaded, canEditDetails, onBack }: { branch: Branch
           <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 rounded-b-lg border-t border-gray-200 bg-white px-6 py-3">
             <p className="text-sm text-gray-500">
               {saveError ? (
-                <span className="text-red-600">{saveError}</span>
+                <span className="text-red-600">
+                  {saveError}
+                  {conflict && (
+                    <>
+                      {' '}
+                      <button type="button" disabled={reloading} onClick={onReload} className="font-medium underline hover:text-red-800">
+                        {reloading ? 'Reloading…' : 'Reload latest'}
+                      </button>
+                      <span className="text-gray-500"> (your unsaved changes will be lost)</span>
+                    </>
+                  )}
+                </span>
               ) : dirty ? (
                 'You have unsaved changes.'
               ) : saved ? (

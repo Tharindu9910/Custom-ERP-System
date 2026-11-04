@@ -9,14 +9,18 @@ afterAll(() => t.close());
 
 const sa = () => t.as('superadmin');
 const unique = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+/** Branch saves carry the version the client loaded (optimistic lock, BR_006). */
+const branchVersion = async (id: string): Promise<number> =>
+  (await sa().get(`/branches/${id}/config`)).data.version;
+const patchBranch = async (id: string, body: Record<string, unknown>) =>
+  sa().patch(`/branches/${id}`, { ...body, version: await branchVersion(id) });
+const patchConfig = async (id: string, body: Record<string, unknown>) =>
+  sa().patch(`/branches/${id}/config`, { ...body, version: await branchVersion(id) });
 const setFeature = (
   branch: keyof typeof BRANCH,
   feature: string,
   on: boolean,
-) =>
-  sa().patch(`/branches/${BRANCH[branch]}/config`, {
-    features: { [feature]: on },
-  });
+) => patchConfig(BRANCH[branch], { features: { [feature]: on } });
 
 describe('SA-BR branches', () => {
   it('SA-BR-01 adds a branch; a duplicate code is refused (BR_002); ADMIN cannot add one (AUTH_004)', async () => {
@@ -51,7 +55,7 @@ describe('SA-BR branches', () => {
     ).data.map((x: any) => x.branch_id);
     expect(targets).toContain(r.data.branch_id);
     // Deactivating it removes it again
-    await sa().patch(`/branches/${r.data.branch_id}`, { is_active: false });
+    await patchBranch(r.data.branch_id, { is_active: false });
     expect(
       (await t.as(SUP.thangalla).get('/stock-transfers/targets')).data.map(
         (x: any) => x.branch_id,
@@ -61,31 +65,27 @@ describe('SA-BR branches', () => {
 
   it('SA-BR-02 there is always one active main branch (BR_004, BR_005); the flag can move and back', async () => {
     expect(
-      (await sa().patch(`/branches/${BRANCH.naiwala}`, { is_main: false }))
+      (await patchBranch(BRANCH.naiwala, { is_main: false }))
         .code,
     ).toBe('BR_004');
     expect(
-      (await sa().patch(`/branches/${BRANCH.naiwala}`, { is_active: false }))
+      (await patchBranch(BRANCH.naiwala, { is_active: false }))
         .code,
     ).toBe('BR_005');
-    const moved = await sa().patch(`/branches/${BRANCH.veyangoda}`, {
-      is_main: true,
-    });
+    const moved = await patchBranch(BRANCH.veyangoda, { is_main: true });
     expect(moved.status).toBe(200);
     const list = (await sa().get('/branches')).data;
     expect(
       list.filter((b: any) => b.is_main).map((b: any) => b.branch_id),
     ).toEqual([BRANCH.veyangoda]);
     expect(
-      (await sa().patch(`/branches/${BRANCH.naiwala}`, { is_main: true }))
+      (await patchBranch(BRANCH.naiwala, { is_main: true }))
         .status,
     ).toBe(200);
   });
 
   it('SA-BR-03 edits branch details; ADMIN can view config but not change details', async () => {
-    const r = await sa().patch(`/branches/${BRANCH.thangalla}`, {
-      phone: '0112223334',
-    });
+    const r = await patchBranch(BRANCH.thangalla, { phone: '0112223334' });
     expect(r.status).toBe(200);
     expect(
       (
@@ -97,6 +97,49 @@ describe('SA-BR branches', () => {
     expect(
       (await t.as('admin').get(`/branches/${BRANCH.thangalla}/config`)).status,
     ).toBe(200);
+  });
+
+  it('SA-BR-04 the list is summaries: features but no settings', async () => {
+    const list = (await sa().get('/branches')).data;
+    expect(list.length).toBeGreaterThan(1);
+    for (const b of list) {
+      expect(b).not.toHaveProperty('settings');
+      expect(b).not.toHaveProperty('stock_override_password_hash');
+      expect(typeof b.features.gatePass).toBe('boolean');
+      expect(typeof b.version).toBe('number');
+    }
+  });
+
+  it('SA-BR-05 bad input is a coded 400, not a false duplicate or a 500', async () => {
+    // A missing code used to match any branch and come back as BR_002
+    const noCode = await sa().post('/branches', { name: 'No code', branch_type: 'WORKSHOP' });
+    expect([noCode.status, noCode.code]).toEqual([400, 'VAL_001']);
+    const badType = await sa().post('/branches', { code: `BR-X-${unique()}`, name: 'Bad type', branch_type: 'SHOP' });
+    expect([badType.status, badType.code]).toEqual([400, 'VAL_001']);
+    const extra = await sa().post('/branches', { code: `BR-X-${unique()}`, name: 'Extra', branch_type: 'WORKSHOP', is_main: true });
+    expect(extra.status).toBe(400);
+    const badId = await sa().get('/branches/not-a-uuid/config');
+    expect([badId.status, badId.code]).toEqual([400, 'VAL_001']);
+    const noVersion = await sa().patch(`/branches/${BRANCH.thangalla}`, { phone: '0112223334' });
+    expect([noVersion.status, noVersion.code]).toEqual([400, 'VAL_001']);
+  });
+
+  it('SA-BR-06 a save from a stale copy is refused (BR_006) and changes nothing', async () => {
+    const before = (await sa().get(`/branches/${BRANCH.thangalla}/config`)).data;
+    const stale: number = before.version;
+    const fresh = before.orders.max_discount_pct === 6 ? 7 : 6;
+    expect((await patchConfig(BRANCH.thangalla, { orders: { max_discount_pct: fresh } })).status).toBe(200);
+    try {
+      const late = await sa().patch(`/branches/${BRANCH.thangalla}/config`, { orders: { max_discount_pct: 9 }, version: stale });
+      expect([late.status, late.code]).toEqual([409, 'BR_006']);
+      const lateDetails = await sa().patch(`/branches/${BRANCH.thangalla}`, { phone: '0110000000', version: stale });
+      expect(lateDetails.code).toBe('BR_006');
+      const cfg = (await sa().get(`/branches/${BRANCH.thangalla}/config`)).data;
+      expect(cfg.orders.max_discount_pct).toBe(fresh);
+      expect(cfg.version).toBe(stale + 1);
+    } finally {
+      await patchConfig(BRANCH.thangalla, { orders: { max_discount_pct: before.orders.max_discount_pct } });
+    }
   });
 });
 
@@ -143,16 +186,14 @@ describe('SA-CFG branch config drives supervisor access', () => {
   });
 
   it('SA-CFG-03 invalid settings are refused (400)', async () => {
-    const r = await sa().patch(`/branches/${BRANCH.thangalla}/config`, {
+    const r = await patchConfig(BRANCH.thangalla, {
       orders: { max_discount_pct: 500 },
     });
-    expect(r.status).toBe(400);
+    expect([r.status, r.code]).toEqual([400, 'BR_003']);
+    // The failing field is named so the UI can point at it
+    expect(r.details.issues.map((i: any) => i.path)).toContain('orders.max_discount_pct');
     expect(
-      (
-        await sa().patch(`/branches/${BRANCH.thangalla}/config`, {
-          not_a_section: true,
-        })
-      ).status,
+      (await patchConfig(BRANCH.thangalla, { not_a_section: true })).status,
     ).toBe(400);
   });
 
@@ -172,7 +213,7 @@ describe('SA-CFG branch config drives supervisor access', () => {
     // override:stock is MANAGER-only by default; the Super Admin lets supervisors use it here
     await t.withGrant('SUPERVISOR', 'override:stock', async () => {
       try {
-        await sa().patch(`/branches/${BRANCH.thangalla}/config`, {
+        await patchConfig(BRANCH.thangalla, {
           stock_override_password: 'NewOverride@1',
         });
         const old = await t.as(SUP.thangalla).post(
@@ -190,7 +231,7 @@ describe('SA-CFG branch config drives supervisor access', () => {
         );
         expect(ok.status).toBe(201);
       } finally {
-        await sa().patch(`/branches/${BRANCH.thangalla}/config`, {
+        await patchConfig(BRANCH.thangalla, {
           stock_override_password: OVERRIDE_PASSWORD,
         });
       }
@@ -315,6 +356,32 @@ describe('SA-USR users', () => {
     await sa().patch(`/users/${u.user_id}`, { is_active: true });
     expect((await t.login(username, 'Dev@1234')).status).toBe(200);
   });
+
+  it('SA-USR-07 changing a user\'s role ends their session; the next login carries the new role', async () => {
+    const username = `e2e_rc_${unique()}`;
+    const u = (
+      await sa().post('/users', {
+        username,
+        password: 'Dev@1234',
+        full_name: 'E2E Role Change',
+        role: 'SUPERVISOR',
+        branch_id: BRANCH.thangalla,
+      })
+    ).data;
+    const login = await t.login(username, 'Dev@1234');
+    const me = t.as(username, { token: login.data.accessToken });
+    expect((await me.get('/auth/me')).status).toBe(200);
+    expect(
+      (
+        await sa().patch(`/users/${u.user_id}/role`, {
+          role: 'CASHIER',
+          branch_id: BRANCH.thangalla,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await me.get('/auth/me')).status).toBe(401);
+    expect((await t.login(username, 'Dev@1234')).data.user.role).toBe('CASHIER');
+  });
 });
 
 describe('SA-USR blank and duplicate emails', () => {
@@ -437,7 +504,7 @@ describe('SA-PRM role permissions', () => {
     expect(r.status).toBe(201);
     expect((await t.as('admin').post('/branches', body())).code).toBe('AUTH_004');
     // Keep it out of other specs' transfer targets
-    await sa().patch(`/branches/${r.data.branch_id}`, { is_active: false });
+    await patchBranch(r.data.branch_id, { is_active: false });
   });
 
   it('SA-PRM-05 view:job_cards opens the workshop queue: revoking it from SUPERVISOR closes it; head office reads it', async () => {

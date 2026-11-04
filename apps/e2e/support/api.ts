@@ -312,6 +312,21 @@ export async function employee(branch: BranchKey, name = `E2E Employee ${Date.no
   };
 }
 
+/** Branch saves carry the version the client loaded (optimistic lock, BR_006). */
+async function branchVersion(branchId: string): Promise<number> {
+  return (await ok(call(SA, 'GET', `/branches/${branchId}/config`), 'branchVersion')).version;
+}
+
+/** PATCH /branches/:id as the Super Admin, with the current version. */
+export async function patchBranch(branch: BranchKey, body: Record<string, unknown>) {
+  return call(SA, 'PATCH', `/branches/${BRANCH[branch]}`, { ...body, version: await branchVersion(BRANCH[branch]) });
+}
+
+/** PATCH /branches/:id/config as the Super Admin, with the current version. */
+export async function patchBranchConfig(branch: BranchKey, body: Record<string, unknown>) {
+  return call(SA, 'PATCH', `/branches/${BRANCH[branch]}/config`, { ...body, version: await branchVersion(BRANCH[branch]) });
+}
+
 export async function setFeature(branch: BranchKey, feature: string, on: boolean) {
-  return ok(call(SA, 'PATCH', `/branches/${BRANCH[branch]}/config`, { features: { [feature]: on } }), 'setFeature');
+  return ok(patchBranchConfig(branch, { features: { [feature]: on } }), 'setFeature');
 }

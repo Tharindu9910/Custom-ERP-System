@@ -1,29 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/shared/api/client';
 import { queryKeys } from '@/shared/api/query-keys';
-import { BranchSettingsSchema, type BranchSettings, type BranchType, type UpdateBranchConfigDto } from '@erp/shared';
+import type { BranchConfig, BranchSummary, CreateBranchDto, UpdateBranchConfigDto, UpdateBranchDto } from '@erp/shared';
 
-export interface BranchDto {
-  branch_id: string;
-  code: string;
-  name: string;
-  branch_type: BranchType;
-  location: string | null;
-  phone: string | null;
-  /** The distribution branch (Naiwala). Lists come main first. */
-  is_main: boolean;
-  is_active: boolean;
-  settings: BranchSettings;
-  updated_at: string;
-}
-
-export type BranchConfigDto = BranchSettings & {
-  branch_id: string;
-  stock_override_configured: boolean;
-  updated_by: string | null;
-  updated_at: string;
-};
-
+/** A row of GET /branches: details and module switches. Full settings: useBranchConfig. */
+export type BranchDto = BranchSummary;
+export type BranchConfigDto = BranchConfig;
 export type UpdateBranchConfigPayload = UpdateBranchConfigDto;
 
 export function useBranches() {
@@ -36,10 +18,7 @@ export function useBranches() {
   });
 }
 
-/**
- * Active branches for pickers, main first, with settings parsed so missing keys get
- * their defaults. Only global roles can list every branch.
- */
+/** Active branches for pickers, main first. Only global roles can list every branch. */
 export function useBranchOptions(enabled = true) {
   return useQuery({
     queryKey: queryKeys.branches.all(),
@@ -47,8 +26,7 @@ export function useBranchOptions(enabled = true) {
       const { data } = await apiClient.get<{ data: BranchDto[] }>('/branches');
       return data.data;
     },
-    select: (rows) =>
-      rows.filter((b) => b.is_active).map((b) => ({ ...b, settings: BranchSettingsSchema.parse(b.settings ?? {}) })),
+    select: (rows) => rows.filter((b) => b.is_active),
     enabled,
     staleTime: 60_000,
   });
@@ -92,24 +70,9 @@ function invalidateAllBranches(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ['branch-context'] });
 }
 
-export interface CreateBranchPayload {
-  code: string;
-  name: string;
-  branch_type: BranchType;
-  location?: string;
-  phone?: string;
-}
-
-export interface UpdateBranchPayload {
-  code?: string;
-  name?: string;
-  branch_type?: BranchType;
-  location?: string;
-  phone?: string;
-  is_active?: boolean;
-  /** Only true: makes this the main branch (Super Admin) */
-  is_main?: true;
-}
+export type CreateBranchPayload = CreateBranchDto;
+/** Send the version from the loaded branch; `is_main: true` moves the main flag here (Super Admin). */
+export type UpdateBranchPayload = UpdateBranchDto;
 
 export function useCreateBranch() {
   const qc = useQueryClient();
