@@ -17,7 +17,7 @@ export const OrderHistoryQuerySchema = z
     from: LocalDate,
     to: LocalDate,
     search: z.string().trim().max(80).optional(),
-    page: z.coerce.number().int().min(1).default(1),
+    page: z.coerce.number().int().min(1).max(10000).default(1),
   })
   .refine((q) => q.from <= q.to, { message: '"From" must be on or before "To"', path: ['from'] })
   .refine((q) => days(q.from, q.to) < HISTORY_MAX_DAYS, { message: `Pick at most ${HISTORY_MAX_DAYS} days`, path: ['to'] });

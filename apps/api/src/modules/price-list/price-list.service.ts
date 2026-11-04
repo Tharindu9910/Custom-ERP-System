@@ -75,25 +75,27 @@ export class PriceListService {
 
   /** Amount, basis and active state can change; the key fields can't (deactivate and add a new rate). */
   async updateRate(id: string, dto: UpdatePriceRateDto, actor: RequestUser): Promise<PriceRateView> {
-    const repo = this.ds.getRepository(PriceRateEntity);
-    const rate = await repo.findOneBy({ rate_id: id });
-    if (!rate) throw new NotFoundException(ERR.PRICE_RATE_NOT_FOUND);
+    // Row locked for the edit, so the audit "before" is what was really replaced
+    const outcome = await this.ds.transaction(async (em) => {
+      const repo = em.getRepository(PriceRateEntity);
+      const rate = await repo.findOne({ where: { rate_id: id }, lock: { mode: 'pessimistic_write' } });
+      if (!rate) throw new NotFoundException(ERR.PRICE_RATE_NOT_FOUND);
 
-    const changed = (Object.keys(dto) as (keyof UpdatePriceRateDto)[]).filter((k) => dto[k] !== undefined && dto[k] !== rate[k]);
-    if (changed.length === 0) return this.getRate(id);
-    const before = Object.fromEntries(changed.map((k) => [k, rate[k]]));
-    Object.assign(rate, Object.fromEntries(changed.map((k) => [k, dto[k]])), { updated_by: actor.user_id });
-    try {
-      await repo.save(rate);
-    } catch (e) {
-      // Reactivating a rate whose key another active rate already has
-      if (isDuplicate(e)) throw new ConflictException(ERR.PRICE_RATE_DUPLICATE);
-      throw e;
-    }
-    this.audit.record({ ...actor, branch_id: null }, { type: 'price_rate', id }, 'UPDATE', {
-      before,
-      after: Object.fromEntries(changed.map((k) => [k, rate[k]])),
+      const changed = (Object.keys(dto) as (keyof UpdatePriceRateDto)[]).filter((k) => dto[k] !== undefined && dto[k] !== rate[k]);
+      if (changed.length === 0) return null;
+      const before = Object.fromEntries(changed.map((k) => [k, rate[k]]));
+      Object.assign(rate, Object.fromEntries(changed.map((k) => [k, dto[k]])), { updated_by: actor.user_id });
+      try {
+        await repo.save(rate);
+      } catch (e) {
+        // Reactivating a rate whose key another active rate already has
+        if (isDuplicate(e)) throw new ConflictException(ERR.PRICE_RATE_DUPLICATE);
+        throw e;
+      }
+      return { before, after: Object.fromEntries(changed.map((k) => [k, rate[k]])) };
     });
+    if (!outcome) return this.getRate(id);
+    this.audit.record({ ...actor, branch_id: null }, { type: 'price_rate', id }, 'UPDATE', outcome);
     this.events.changedEverywhere('prices');
     return this.getRate(id);
   }
@@ -110,20 +112,22 @@ export class PriceListService {
   }
 
   async updateItemPrice(id: string, dto: UpdateItemPriceDto, actor: RequestUser): Promise<ItemPriceView> {
-    const repo = this.ds.getRepository(ItemEntity);
-    const item = await repo.findOneBy({ item_id: id });
-    if (!item) throw new NotFoundException(ERR.PRICE_ITEM_NOT_FOUND);
+    // Row locked for the edit, so the audit "before" is what was really replaced
+    const change = await this.ds.transaction(async (em) => {
+      const repo = em.getRepository(ItemEntity);
+      const item = await repo.findOne({ where: { item_id: id }, lock: { mode: 'pessimistic_write' } });
+      if (!item) throw new NotFoundException(ERR.PRICE_ITEM_NOT_FOUND);
 
-    const changed = (['price', 'unit_cost'] as const).filter((k) => dto[k] !== undefined && dto[k] !== item[k]);
-    if (changed.length > 0) {
+      const changed = (['price', 'unit_cost'] as const).filter((k) => dto[k] !== undefined && dto[k] !== item[k]);
+      if (changed.length === 0) return null;
       const before = Object.fromEntries(changed.map((k) => [k, item[k]]));
       for (const k of changed) item[k] = dto[k]!;
       item.updated_by = actor.user_id;
       await repo.save(item);
-      this.audit.record({ ...actor, branch_id: null }, { type: 'item_price', id }, 'UPDATE', {
-        before: { sku: item.sku, ...before },
-        after: Object.fromEntries(changed.map((k) => [k, item[k]])),
-      });
+      return { before: { sku: item.sku, ...before }, after: Object.fromEntries(changed.map((k) => [k, item[k]])) };
+    });
+    if (change) {
+      this.audit.record({ ...actor, branch_id: null }, { type: 'item_price', id }, 'UPDATE', change);
       this.events.changedEverywhere('prices');
     }
     const [row] = await this.ds.query(`SELECT ${ITEM_COLUMNS} FROM item WHERE item_id = $1`, [id]);

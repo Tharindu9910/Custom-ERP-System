@@ -51,7 +51,7 @@ import { HardwareSalesModule } from './modules/hardware-sales/hardware-sales.mod
       envFilePath: ['../../.env', '.env'],
     }),
 
-    EventEmitterModule.forRoot(),
+    EventEmitterModule.forRoot({ maxListeners: 50 }),
 
     ScheduleModule.forRoot(),
 

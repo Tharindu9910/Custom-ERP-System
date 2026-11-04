@@ -4,10 +4,15 @@ import { z } from 'zod';
 export const ClientRequestId = z.string().uuid();
 
 /** Money in integer cents (Rs × 100). */
-export const Cents = z.number().int().min(0);
+// max keeps a value the DB's INT cents column can hold (a bigger one used to surface as a 500)
+export const Cents = z.number().int().min(0).max(2_000_000_000);
 
 /** A calendar date in the branch's timezone, YYYY-MM-DD. */
-export const LocalDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+export const isCalendarDate = (v: string) => {
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v; // rejects 2026-02-31
+};
+export const LocalDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').refine(isCalendarDate, 'Not a real date');
 
 /** Customer as typed on intake forms; the server finds or creates the profile by phone. */
 export const CustomerRefSchema = z.object({

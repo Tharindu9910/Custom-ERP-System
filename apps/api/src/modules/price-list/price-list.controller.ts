@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   CreatePriceRateSchema,
   ItemPriceQuerySchema,
@@ -15,6 +15,7 @@ import { CurrentUser, RequirePermissions } from '../../common/decorators';
 import type { RequestUser } from '../../common/types';
 import { ZodPipe } from '../../common/zod.pipe';
 import { PriceListService } from './price-list.service';
+import { UuidPipe } from '../../common/uuid.pipe';
 
 // A global setting: no @BranchId, so head office (ADMIN) can edit it too (Docs/decisions/0004)
 @Controller('price-list')
@@ -36,7 +37,7 @@ export class PriceListController {
   @Patch('rates/:id')
   @RequirePermissions('configure:price_list')
   updateRate(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(UpdatePriceRateSchema)) dto: UpdatePriceRateDto,
     @CurrentUser() u: RequestUser,
   ) {
@@ -52,7 +53,7 @@ export class PriceListController {
   @Patch('items/:id')
   @RequirePermissions('configure:item_prices')
   updateItem(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(UpdateItemPriceSchema)) dto: UpdateItemPriceDto,
     @CurrentUser() u: RequestUser,
   ) {

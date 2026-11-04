@@ -18,6 +18,13 @@ const envSchema = z.object({
 
   // Local folder for uploaded files (design photos); relative to the API's working directory
   UPLOAD_DIR: z.string().default('uploads'),
+
+  // Behind a reverse proxy set this (e.g. 1) so req.ip, the throttler and audit entries see the client, not the proxy.
+  // Unset keeps today's behaviour.
+  TRUST_PROXY: z.string().optional(),
+}).refine((e) => e.JWT_SECRET !== e.JWT_REFRESH_SECRET, {
+  message: 'JWT_SECRET and JWT_REFRESH_SECRET must differ, or a refresh token would pass as an access token',
+  path: ['JWT_REFRESH_SECRET'],
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

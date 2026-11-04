@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -7,6 +7,8 @@ import { AuditableEvent } from './auditable.event';
 
 @Injectable()
 export class AuditLogListener {
+  private readonly logger = new Logger(AuditLogListener.name);
+
   constructor(
     @InjectRepository(AuditLogEntity)
     private readonly repo: Repository<AuditLogEntity>,
@@ -27,8 +29,9 @@ export class AuditLogListener {
         entity_version: event.entity_version,
         ip_address: event.ip_address,
       });
-    } catch {
-      // Audit failures never propagate — business ops must not roll back for audit
+    } catch (e) {
+      // Audit failures never propagate — business ops must not roll back for audit — but they are logged
+      this.logger.error(`Audit entry lost: ${event.entity_type} ${event.action} ${event.entity_id ?? ''}`, e instanceof Error ? e.stack : String(e));
     }
   }
 }

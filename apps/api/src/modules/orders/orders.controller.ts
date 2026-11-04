@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import {
   CloseJobCardSchema,
   CompleteJobCardSchema,
@@ -47,6 +47,7 @@ import { LineActionsService } from './line-actions.service';
 import { OrderQueriesService } from './order-queries.service';
 import { PaymentsService } from './payments.service';
 import { RoofingOrdersService } from './roofing-orders.service';
+import { UuidPipe } from '../../common/uuid.pipe';
 
 @Controller()
 export class OrdersController {
@@ -79,7 +80,7 @@ export class OrdersController {
   @RequirePermissions('create:job_card')
   @RequireFeature({ section: 'workshop' })
   update(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(UpdateJobCardSchema)) dto: UpdateJobCardDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -89,7 +90,7 @@ export class OrdersController {
 
   @Post('job-cards/:id/void')
   @RequirePermissions('cancel:job_card_draft')
-  void(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(ReasonSchema)) dto: ReasonDto, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+  void(@Param('id') id: string, @Body(new ZodPipe(ReasonSchema)) dto: ReasonDto, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.jobCards.void(id, dto.reason, toActor(u, b));
   }
 
@@ -112,7 +113,7 @@ export class OrdersController {
   @Post('job-cards/:id/start')
   @RequirePermissions('update:job_card_status')
   startJobCard(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(StartJobCardSchema)) dto: StartJobCardDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -123,7 +124,7 @@ export class OrdersController {
   @Post('job-cards/:id/complete')
   @RequirePermissions('complete:work_order')
   completeJobCard(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(CompleteJobCardSchema)) dto: CompleteJobCardDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -134,7 +135,7 @@ export class OrdersController {
   @Post('job-cards/:id/send-to-workshop')
   @RequirePermissions('process:payment')
   sendToWorkshop(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(SendToWorkshopSchema)) dto: SendToWorkshopDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -146,7 +147,7 @@ export class OrdersController {
   @RequirePermissions('process:payment')
   @RequireFeature({ section: 'roofing' })
   sendRoofingToQueue(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(SendToWorkshopSchema)) dto: SendToWorkshopDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -157,7 +158,7 @@ export class OrdersController {
   @Post('job-cards/:id/close')
   @RequirePermissions('close:job_card')
   closeJobCard(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(CloseJobCardSchema)) dto: CloseJobCardDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -167,14 +168,14 @@ export class OrdersController {
 
   @Post('order-lines/:id/start')
   @RequirePermissions('update:job_card_status')
-  start(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(StartWorkSchema)) dto: StartWorkDto, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+  start(@Param('id') id: string, @Body(new ZodPipe(StartWorkSchema)) dto: StartWorkDto, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.lines.start(id, dto, toActor(u, b));
   }
 
   @Post('order-lines/:id/complete')
   @RequirePermissions('complete:work_order')
   complete(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(CompleteWorkSchema)) dto: CompleteWorkDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -205,7 +206,7 @@ export class OrdersController {
   @RequirePermissions('create:roofing_order')
   @RequireFeature({ section: 'roofing' })
   updateRoofingOrder(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(UpdateRoofingOrderSchema)) dto: UpdateRoofingOrderDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -230,14 +231,14 @@ export class OrdersController {
 
   @Post('roofing-orders/:id/start')
   @RequirePermissions('update:order_status')
-  startRoofingOrder(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(StartWorkSchema)) dto: StartWorkDto, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+  startRoofingOrder(@Param('id') id: string, @Body(new ZodPipe(StartWorkSchema)) dto: StartWorkDto, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.roofing.start(id, dto, toActor(u, b));
   }
 
   @Post('roofing-orders/:id/complete')
   @RequirePermissions('update:order_status')
   completeRoofingOrder(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(CompleteWorkSchema)) dto: CompleteWorkDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -248,7 +249,7 @@ export class OrdersController {
   @Post('roofing-orders/:id/release')
   @RequirePermissions('release:order')
   releaseRoofingOrder(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(ReleaseOrderSchema)) dto: ReleaseOrderDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -258,14 +259,14 @@ export class OrdersController {
 
   @Post('roofing-orders/:id/cancel')
   @RequirePermissions('cancel:order')
-  cancelRoofingOrder(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(ReasonSchema)) dto: ReasonDto, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+  cancelRoofingOrder(@Param('id') id: string, @Body(new ZodPipe(ReasonSchema)) dto: ReasonDto, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.roofing.cancel(id, dto.reason, toActor(u, b));
   }
 
   // ── Orders (shared) ───────────────────────────────────────────────────────
 
   @Get('orders/:id')
-  detail(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+  detail(@Param('id') id: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.queries.detail(id, toActor(u, b).branch_id);
   }
 
@@ -280,7 +281,7 @@ export class OrdersController {
   @Post('orders/:id/payments')
   @RequirePermissions('process:payment')
   recordPayment(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(RecordPaymentSchema)) dto: RecordPaymentDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,

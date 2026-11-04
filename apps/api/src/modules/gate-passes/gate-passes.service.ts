@@ -10,6 +10,8 @@ import {
   type GatePassQuery,
 } from '@erp/shared';
 import type { Actor } from '../../common/actor';
+import { replayOnDuplicate } from '../../common/idempotency';
+import { likeContains } from '../../common/like';
 import { ERR } from '../../common/errors';
 import { AuditService } from '../../core/audit.service';
 import { BranchContextService } from '../../core/branch-context.service';
@@ -53,7 +55,7 @@ export class GatePassesService {
     const dropColor =
       branch.branch_type === BranchType.WORKSHOP && (actor.role === Role.SUPERVISOR || actor.role === Role.CHIEF);
 
-    const id = await this.ds.transaction(async (em) => {
+    const id = await replayOnDuplicate(() => this.ds.transaction(async (em) => {
       const customerId = await this.customers.findOrCreateForIntake(em, dto.customer, actor.branch_id, actor.user_id);
       const passNumber = await this.numbers.next(em, 'GATE_PASS', branch.settings.number_prefixes);
       const [{ gate_pass_id }]: { gate_pass_id: string }[] = await em.query(
@@ -78,7 +80,7 @@ export class GatePassesService {
         );
       }
       return gate_pass_id;
-    });
+    }), () => this.findIdByRequestId(dto.client_request_id, actor.branch_id));
 
     this.audit.record(actor, { type: 'gate_pass', id }, 'CREATE', { after: { items: dto.items.length } });
     this.events.changed(actor.branch_id, 'gate_passes');
@@ -89,7 +91,7 @@ export class GatePassesService {
     const params: unknown[] = [branchId];
     const where = ['gp.branch_id = $1'];
     if (query.search) {
-      params.push(`%${query.search}%`);
+      params.push(likeContains(query.search));
       where.push(`(gp.pass_number ILIKE $${params.length} OR c.name ILIKE $${params.length} OR c.phone ILIKE $${params.length})`);
     }
     if (query.from) {
@@ -177,7 +179,8 @@ export class GatePassesService {
    * work on a linked order completes or an allocation changes.
    */
   async syncStoredStatus(em: EntityManager, gatePassIds: string[], branchId: string): Promise<void> {
-    for (const id of new Set(gatePassIds)) {
+    // Sorted: two orders closing passes in different orders can't lock them against each other
+    for (const id of [...new Set(gatePassIds)].sort()) {
       const view = await this.get(id, branchId, em);
       const closed = view.summary.status === 'CLOSED';
       await em.query(
@@ -185,6 +188,14 @@ export class GatePassesService {
         [id, closed ? GatePassStatus.CLOSED : GatePassStatus.OPEN, closed ? (view.summary.closed_at ?? new Date()) : null],
       );
     }
+  }
+
+  private async findIdByRequestId(requestId: string, branchId: string): Promise<string | null> {
+    const rows: { gate_pass_id: string }[] = await this.ds.query(
+      `SELECT gate_pass_id FROM gate_pass WHERE client_request_id = $1 AND branch_id = $2`,
+      [requestId, branchId],
+    );
+    return rows[0]?.gate_pass_id ?? null;
   }
 
   private async findByRequestId(requestId: string, branchId: string): Promise<GatePassView | null> {

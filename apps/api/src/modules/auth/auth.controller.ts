@@ -10,12 +10,11 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
-import { ChangePasswordSchema, type ChangePasswordDto } from '@erp/shared';
+import { ChangePasswordSchema, LoginBodySchema, type ChangePasswordDto, type LoginBodyDto } from '@erp/shared';
 import { AllowDuringPasswordChange, CurrentUser, Public } from '../../common/decorators';
 import { ZodPipe } from '../../common/zod.pipe';
 import { RequestUser } from '../../common/types';
 import { AuthService } from './auth.service';
-import { LoginDto } from './dto/login.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -26,7 +25,7 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() dto: LoginDto, @Req() req: any) {
+  login(@Body(new ZodPipe(LoginBodySchema)) dto: LoginBodyDto, @Req() req: any) {
     return this.authService.login(dto.username, dto.password, req);
   }
 

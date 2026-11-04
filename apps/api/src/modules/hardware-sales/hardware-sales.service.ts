@@ -171,7 +171,7 @@ export class HardwareSalesService {
 
   /** Collect the balance at the branch that owns the order; the sale completes and stock leaves. */
   async pay(orderId: string, dto: PayHardwareSaleDto, actor: Actor): Promise<OrderDetail> {
-    const duplicate: { order_id: string }[] = await this.ds.query(`SELECT order_id FROM payment WHERE client_request_id = $1`, [dto.client_request_id]);
+    const duplicate: { order_id: string }[] = await this.ds.query(`SELECT order_id FROM payment WHERE client_request_id = $1 AND order_id = $2`, [dto.client_request_id, orderId]);
     if (duplicate[0]) return this.queries.detail(duplicate[0].order_id, actor.branch_id);
 
     const settings = (await this.branches.get(actor.branch_id)).settings;

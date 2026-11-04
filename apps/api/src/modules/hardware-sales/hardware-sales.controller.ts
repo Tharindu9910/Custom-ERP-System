@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   CancelHardwareSaleSchema,
   CreateHardwareSaleSchema,
@@ -15,6 +15,7 @@ import type { RequestUser } from '../../common/types';
 import { ZodPipe } from '../../common/zod.pipe';
 import { HardwareQueriesService } from './hardware-queries.service';
 import { HardwareSalesService } from './hardware-sales.service';
+import { UuidPipe } from '../../common/uuid.pipe';
 
 /**
  * Hardware Store (place orders) and Hardware Queue (collect payment), Docs/decisions/0006.
@@ -57,7 +58,7 @@ export class HardwareSalesController {
   @RequirePermissions('process:payment')
   @RequireFeature({ feature: 'hardwareQueue' })
   pay(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(PayHardwareSaleSchema)) dto: PayHardwareSaleDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -68,7 +69,7 @@ export class HardwareSalesController {
   @Post('hardware-sales/:id/cancel')
   @RequirePermissions('cancel:hardware_sale')
   cancel(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(CancelHardwareSaleSchema)) dto: CancelHardwareSaleDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,

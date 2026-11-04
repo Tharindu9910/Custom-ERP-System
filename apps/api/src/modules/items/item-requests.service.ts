@@ -134,11 +134,12 @@ export class ItemRequestsService {
         : null;
       return { request_id, itemId };
     });
-    if (!result)
-      return (await this.findByClientId(
-        dto.client_request_id,
-        actor.branch_id,
-      ))!;
+    if (!result) {
+      const first = await this.findByClientId(dto.client_request_id, actor.branch_id);
+      // The request id belongs to another branch's request: not a replay of this one
+      if (!first) throw new ConflictException(ERR.DUPLICATE);
+      return first;
+    }
 
     this.audit.record(
       actor,

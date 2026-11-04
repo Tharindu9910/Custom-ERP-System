@@ -21,6 +21,7 @@ import {
   type WorkshopLineInput,
 } from '@erp/shared';
 import type { Actor } from '../../common/actor';
+import { replayOnDuplicate } from '../../common/idempotency';
 import { ERR, errWith } from '../../common/errors';
 import { AuditService } from '../../core/audit.service';
 import { BranchContextService } from '../../core/branch-context.service';
@@ -88,7 +89,7 @@ export class JobCardsService {
     this.checkAgainstSettings(dto, settings);
 
     let advances: PricedInput[] = [];
-    const orderId = await this.ds.transaction(async (em) => {
+    const orderId = await replayOnDuplicate(() => this.ds.transaction(async (em) => {
       await this.assertWorkers(em, dto.worker_ids, actor.branch_id);
       const priced = await this.priceAll(em, dto.lines, settings);
       advances = priced;
@@ -137,7 +138,7 @@ export class JobCardsService {
       });
       // Every card waits for the cashier, even with nothing due (Docs/decisions/0005)
       return order_id;
-    });
+    }), () => this.queries.findByRequestId(dto.client_request_id, actor.branch_id));
 
     this.audit.record(actor, { type: 'order', id: orderId, version: 1 }, dto.override ? 'CREATE_JOB_CARD_WITH_STOCK_OVERRIDE' : 'CREATE_JOB_CARD', {
       after: { lines: dto.lines.length, ...advanceOverrides(advances), ...(dto.override ? { override_reason: dto.override.reason } : {}) },

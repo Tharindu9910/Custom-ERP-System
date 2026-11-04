@@ -7,6 +7,8 @@ import {
 import type { EntityManager } from 'typeorm';
 import { CustomerType, phoneKey, type CustomerRef } from '@erp/shared';
 import { ERR } from '../../common/errors';
+import type { Actor } from '../../common/actor';
+import { AuditService } from '../../core/audit.service';
 import { CustomerEntity } from '../../database/entities/customer.entity';
 import { CustomersRepository } from './customers.repository';
 
@@ -17,8 +19,8 @@ export class CreateCustomerDto {
 
 export class UpdateCustomerDto {
   name?: string;
-  email?: string;
-  address?: string;
+  email?: string | null;
+  address?: string | null;
   customer_type?: CustomerType;
   company_name?: string | null;
   contact_person?: string | null;
@@ -26,7 +28,10 @@ export class UpdateCustomerDto {
 
 @Injectable()
 export class CustomersService {
-  constructor(private readonly customersRepo: CustomersRepository) {}
+  constructor(
+    private readonly customersRepo: CustomersRepository,
+    private readonly audit: AuditService,
+  ) {}
 
   /** Exact match on the last 9 digits, however the phone was typed (prototype rule). */
   async lookupByPhone(phone: string): Promise<Pick<CustomerEntity, 'customer_id' | 'name' | 'phone'> | null> {
@@ -65,24 +70,27 @@ export class CustomersService {
   async createCustomer(
     dto: CreateCustomerDto,
     branchId: string | null,
-    actorId: string,
+    actor: Pick<Actor, 'user_id' | 'role'>,
   ): Promise<CustomerEntity> {
     const existing = await this.customersRepo.findByPhone(dto.phone);
     if (existing) throw new ConflictException(ERR.CUSTOMER_PHONE_EXISTS);
 
-    return this.customersRepo.save({
+    const saved = await this.customersRepo.save({
       name: dto.name,
       phone: dto.phone,
       home_branch_id: branchId,
       customer_type: CustomerType.INDIVIDUAL,
-      created_by: actorId,
+      created_by: actor.user_id,
     });
+    this.audit.record({ ...actor, branch_id: branchId }, { type: 'customer', id: saved.customer_id }, 'CREATE', { after: { name: saved.name, phone: saved.phone } });
+    return saved;
   }
 
   async updateCustomer(
     customerId: string,
     dto: UpdateCustomerDto,
     branchId: string | null,
+    actor: Pick<Actor, 'user_id' | 'role'>,
   ): Promise<CustomerEntity> {
     const customer = await this.customersRepo.findById(customerId);
     if (!customer) throw new NotFoundException(ERR.CUSTOMER_NOT_FOUND);
@@ -92,6 +100,10 @@ export class CustomersService {
       throw new NotFoundException(ERR.CUSTOMER_NOT_FOUND);
     }
 
+    const snapshot = (c: CustomerEntity) => ({
+      name: c.name, email: c.email, address: c.address, customer_type: c.customer_type, company_name: c.company_name, contact_person: c.contact_person,
+    });
+    const before = snapshot(customer);
     if (dto.name !== undefined) customer.name = dto.name;
     if (dto.email !== undefined) customer.email = dto.email ?? null;
     if (dto.address !== undefined) customer.address = dto.address ?? null;
@@ -103,6 +115,8 @@ export class CustomersService {
       throw new BadRequestException(ERR.CUSTOMER_COMPANY_REQUIRED);
     }
 
-    return this.customersRepo.save(customer);
+    const saved = await this.customersRepo.save(customer);
+    this.audit.record({ ...actor, branch_id: branchId }, { type: 'customer', id: customerId }, 'UPDATE', { before, after: snapshot(saved) });
+    return saved;
   }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { z } from 'zod';
 import { ATTACHMENT_PURPOSES } from '@erp/shared';
@@ -7,6 +7,7 @@ import { BranchId, CurrentUser, RequirePermissions } from '../../common/decorato
 import type { RequestUser } from '../../common/types';
 import { ZodPipe } from '../../common/zod.pipe';
 import { AttachmentsService, MAX_UPLOAD_BYTES, type UploadedImage } from './attachments.service';
+import { UuidPipe } from '../../common/uuid.pipe';
 
 const UploadBodySchema = z.object({ purpose: z.enum(ATTACHMENT_PURPOSES) });
 
@@ -29,7 +30,7 @@ export class AttachmentsController {
   }
 
   @Get(':id/file')
-  file(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+  file(@Param('id') id: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.attachments.openFile(id, toActor(u, b));
   }
 }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createReadStream, type ReadStream } from 'fs';
-import { mkdir, stat, writeFile } from 'fs/promises';
+import { mkdir, rm, stat, writeFile } from 'fs/promises';
 import { dirname, join, normalize, resolve } from 'path';
 
 /**
@@ -21,6 +21,11 @@ export class StorageService {
     const path = this.pathFor(key);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, data, { flag: 'wx' });
+  }
+
+  /** Removes a file; a missing file is fine. */
+  async remove(key: string): Promise<void> {
+    await rm(this.pathFor(key), { force: true });
   }
 
   async open(key: string): Promise<ReadStream | null> {

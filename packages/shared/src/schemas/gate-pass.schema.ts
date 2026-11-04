@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { LengthUnit } from '../enums/inventory.enums';
-import { ClientRequestId, CustomerRefSchema } from './common.schema';
+import { ClientRequestId, CustomerRefSchema, LocalDate } from './common.schema';
 
 export const GatePassItemInputSchema = z
   .object({
@@ -21,7 +21,7 @@ export const CreateGatePassSchema = z.object({
   client_request_id: ClientRequestId,
   customer: CustomerRefSchema,
   notes: z.string().trim().max(500).optional(),
-  items: z.array(GatePassItemInputSchema).min(1, 'Add at least one item'),
+  items: z.array(GatePassItemInputSchema).min(1, 'Add at least one item').max(200),
 });
 export type CreateGatePassDto = z.infer<typeof CreateGatePassSchema>;
 
@@ -31,7 +31,13 @@ export type GatePassFilter = (typeof GATE_PASS_FILTERS)[number];
 export const GatePassQuerySchema = z.object({
   search: z.string().trim().max(80).optional(),
   status: z.enum(GATE_PASS_FILTERS).default('ALL'),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: LocalDate.optional(),
+  to: LocalDate.optional(),
+
+});
+// Order forms ask for the customer's open passes: ?phone=…&order_id=… (order_id ignored unless it is a uuid, as before)
+export const GatePassAvailableQuerySchema = z.object({
+  phone: z.string().max(100).default(''),
+  order_id: z.string().max(100).optional(),
 });
 export type GatePassQuery = z.infer<typeof GatePassQuerySchema>;

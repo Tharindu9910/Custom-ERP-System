@@ -138,6 +138,8 @@ export class LineActionsService {
       if (!canTransitionLine(line.status, LineStatus.IN_PROGRESS)) throw new ConflictException(ERR.ORDER_INVALID_TRANSITION);
       await this.access.assertChiefMayModify(em, order, actor);
       usedOverride = await this.startLines(em, order, [line], actor, dto.override);
+      // Like completing a line: the order changed, so a stale order version is refused
+      await em.query(`UPDATE "order" SET version = version + 1, updated_at = now() WHERE order_id = $1`, [order.order_id]);
     });
 
     this.audit.record(actor, { type: 'order_line', id: lineId }, usedOverride ? 'START_LINE_WITH_STOCK_OVERRIDE' : 'START_LINE', {

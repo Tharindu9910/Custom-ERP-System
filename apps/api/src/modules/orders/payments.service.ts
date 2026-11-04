@@ -14,6 +14,7 @@ import {
   type SendToWorkshopDto,
 } from '@erp/shared';
 import type { Actor } from '../../common/actor';
+import { replayOnDuplicate } from '../../common/idempotency';
 import { ERR, errWith } from '../../common/errors';
 import { AuditService } from '../../core/audit.service';
 import { BranchContextService } from '../../core/branch-context.service';
@@ -43,21 +44,23 @@ export class PaymentsService {
   ) {}
 
   async record(orderId: string, dto: RecordPaymentDto, actor: Actor): Promise<OrderDetail> {
-    const duplicate: { order_id: string }[] = await this.ds.query(`SELECT order_id FROM payment WHERE client_request_id = $1`, [
+    // Scoped to this order: a request id reused on another order is not a replay of this payment
+    const duplicate: { order_id: string }[] = await this.ds.query(`SELECT order_id FROM payment WHERE client_request_id = $1 AND order_id = $2`, [
       dto.client_request_id,
+      orderId,
     ]);
     if (duplicate[0]) return this.queries.detail(duplicate[0].order_id, actor.branch_id);
 
     const settings = (await this.branches.get(actor.branch_id)).settings;
-    let paymentId = '';
-    await this.ds.transaction(async (em) => {
+    const REPLAY = 'replay';
+    const paymentId = await replayOnDuplicate(() => this.ds.transaction(async (em) => {
       const order = await this.access.lockOrder(em, orderId, actor.branch_id);
       // Hardware sales are paid in full through /hardware-sales/:id/pay, which also deducts stock
       if (order.order_type === OrderType.HARDWARE_SALE) throw new BadRequestException(ERR.ORDER_WRONG_TYPE);
       if (order.status === OrderStatus.CLOSED || order.status === OrderStatus.VOIDED) {
         throw new ConflictException(ERR.PAYMENT_ORDER_CLOSED);
       }
-      paymentId = await this.insertPayment(em, order, dto, settings, actor);
+      const paymentId = await this.insertPayment(em, order, dto, settings, actor);
 
       // BR05: a job card enters the Workshop Queue once the minimum advance is paid
       if (order.order_type === OrderType.JOB_CARD && order.status === OrderStatus.DRAFT) {
@@ -72,7 +75,13 @@ export class PaymentsService {
         }
       }
       // A completed card paid in full waits for the supervisor's hand-over (Docs/decisions/0005); paying never closes it
+      return paymentId;
+    }), async () => {
+      // A double-tap raced past the check above: the first one's payment stands
+      const taken: { order_id: string }[] = await this.ds.query(`SELECT order_id FROM payment WHERE client_request_id = $1 AND order_id = $2`, [dto.client_request_id, orderId]);
+      return taken[0] ? REPLAY : null;
     });
+    if (paymentId === REPLAY) return this.queries.detail(orderId, actor.branch_id);
 
     this.audit.record(actor, { type: 'payment', id: paymentId }, 'RECORD_PAYMENT', {
       after: { order_id: orderId, amount: dto.amount, mode: dto.mode },
@@ -93,6 +102,7 @@ export class PaymentsService {
       if (order.paid_amount < (await this.minAdvance(em, orderId))) throw new ConflictException(ERR.ORDER_NOT_PAID);
       await this.enterQueue(em, orderId, actor, 'No advance required — sent to the Workshop Queue by the cashier');
     });
+    this.audit.record(actor, { type: 'order', id: orderId, version: dto.version }, 'SEND_TO_WORKSHOP', { after: { status: OrderStatus.IN_QUEUE } });
     this.events.changed(actor.branch_id, 'orders');
     return this.queries.detail(orderId, actor.branch_id);
   }
@@ -106,6 +116,7 @@ export class PaymentsService {
       if (order.paid_amount < minToPlace(order)) throw new ConflictException(ERR.ORDER_NOT_PAID);
       await this.enterQueue(em, orderId, actor, 'No payment required — sent to the Order Queue by the cashier');
     });
+    this.audit.record(actor, { type: 'order', id: orderId, version: dto.version }, 'SEND_TO_ORDER_QUEUE', { after: { status: OrderStatus.IN_QUEUE } });
     this.events.changed(actor.branch_id, 'orders');
     return this.queries.detail(orderId, actor.branch_id);
   }

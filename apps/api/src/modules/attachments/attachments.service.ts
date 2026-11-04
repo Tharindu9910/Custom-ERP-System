@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, StreamableFile } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import { DataSource, type EntityManager } from 'typeorm';
@@ -38,6 +39,8 @@ function sniffImage(buf: Buffer): string | null {
  */
 @Injectable()
 export class AttachmentsService {
+  private readonly logger = new Logger(AttachmentsService.name);
+
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
     private readonly storage: StorageService,
@@ -50,13 +53,32 @@ export class AttachmentsService {
 
     const id = randomUUID();
     const key = `${purpose.toLowerCase()}/${toBranchDate().slice(0, 7)}/${id}.${EXT[type]}`;
-    await this.storage.save(key, file.buffer);
     const name = file.originalname.replace(/[^\w.\- ]+/g, '_').slice(0, 120) || `photo.${EXT[type]}`;
+    // Row first: if the file write then fails the row is removed, and a failed insert leaves no file behind
     await this.ds.query(
       `INSERT INTO attachment (attachment_id, purpose, file_name, file_type, file_url, uploaded_by) VALUES ($1, $2, $3, $4, $5, $6)`,
       [id, purpose, name, type, key, actor.user_id],
     );
+    try {
+      await this.storage.save(key, file.buffer);
+    } catch (e) {
+      await this.ds.query(`DELETE FROM attachment WHERE attachment_id = $1`, [id]);
+      throw e;
+    }
     return { attachment_id: id, file_name: name, file_type: type };
+  }
+
+  /** Uploads that never made it onto an order (form abandoned) are removed after a day. */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async removeAbandoned(): Promise<void> {
+    try {
+      const rows: { file_url: string }[] = await this.ds.query(
+        `DELETE FROM attachment WHERE entity_id IS NULL AND uploaded_at < now() - interval '24 hours' RETURNING file_url`,
+      );
+      for (const r of rows) await this.storage.remove(r.file_url);
+    } catch (e) {
+      this.logger.error('Clearing abandoned uploads failed', e instanceof Error ? e.stack : String(e));
+    }
   }
 
   /** The uploader can always read their file; once linked, anyone at the order's branch can. */

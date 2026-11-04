@@ -10,10 +10,10 @@ export class AuditService {
 
   record(
     // branch_id null: a head-office change that belongs to no branch (e.g. role permissions)
-    actor: Pick<Actor, 'user_id' | 'role'> & { branch_id: string | null },
+    actor: Pick<Actor, 'user_id'> & { role: Actor['role'] | null; branch_id: string | null },
     entity: { type: string; id?: string; version?: number },
     action: string,
-    change: { before?: Record<string, unknown>; after?: Record<string, unknown> } = {},
+    change: { before?: Record<string, unknown>; after?: Record<string, unknown>; ip?: string } = {},
   ): void {
     this.events.emit(
       'audit',
@@ -27,6 +27,7 @@ export class AuditService {
         change.before,
         change.after,
         entity.version,
+        change.ip,
       ),
     );
   }

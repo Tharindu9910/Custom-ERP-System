@@ -1,3 +1,4 @@
+import { likeContains } from '../../common/like';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
@@ -42,7 +43,7 @@ export class CustomersRepository {
       const digits = text.replace(/\D/g, '').replace(/^(94|0)/, '');
       qb.andWhere(
         new Brackets((w) => {
-          w.where('c.name ILIKE :name', { name: `%${text}%` });
+          w.where('c.name ILIKE :name', { name: likeContains(text) });
           if (digits) w.orWhere(`regexp_replace(c.phone, '\\D', '', 'g') LIKE :digits`, { digits: `%${digits}%` });
         }),
       );

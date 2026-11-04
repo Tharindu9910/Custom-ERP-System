@@ -120,9 +120,22 @@ export async function buildGatePassViews(em: EntityManager, passes: GatePassRow[
     }
   }
 
+  // Group once, so a long list isn't scanned once per pass
+  const group = <T extends { gate_pass_id: string }>(rows: T[]) => {
+    const by = new Map<string, T[]>();
+    for (const r of rows) {
+      const list = by.get(r.gate_pass_id);
+      if (list) list.push(r);
+      else by.set(r.gate_pass_id, [r]);
+    }
+    return by;
+  };
+  const itemsByPass = group(items);
+  const allocsByPass = group(allocations);
+
   return passes.map((p) => {
-    const myItems = items.filter((i) => i.gate_pass_id === p.gate_pass_id);
-    const myAllocs = allocations.filter((a) => a.gate_pass_id === p.gate_pass_id);
+    const myItems = itemsByPass.get(p.gate_pass_id) ?? [];
+    const myAllocs = allocsByPass.get(p.gate_pass_id) ?? [];
     const myOrderIds = [...new Set(myAllocs.map((a) => a.order_id).filter((x): x is string => !!x))];
     const myOrders = myOrderIds.map((id) => linked.get(id)).filter((x): x is LinkedOrderLike => !!x);
     const summary = gatePassSummary(myItems, myAllocs, myOrders, now);

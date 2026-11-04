@@ -3,7 +3,6 @@ import {
   Controller,
   Get,
   Param,
-  ParseUUIDPipe,
   Post,
   Query,
 } from '@nestjs/common';
@@ -27,6 +26,7 @@ import {
 import type { RequestUser } from '../../common/types';
 import { ZodPipe } from '../../common/zod.pipe';
 import { ItemRequestsService } from './item-requests.service';
+import { UuidPipe } from '../../common/uuid.pipe';
 
 // Branch work (@BranchId): head office can read a branch's requests but not decide them (Docs/decisions/0013)
 @Controller('item-requests')
@@ -64,7 +64,7 @@ export class ItemRequestsController {
   @Post(':id/approve')
   @RequirePermissions('approve:item_request')
   approve(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(ApproveItemRequestSchema)) dto: ApproveItemRequestDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -75,7 +75,7 @@ export class ItemRequestsController {
   @Post(':id/reject')
   @RequirePermissions('approve:item_request')
   reject(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body(new ZodPipe(RejectItemRequestSchema)) dto: RejectItemRequestDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
@@ -86,7 +86,7 @@ export class ItemRequestsController {
   @Post(':id/cancel')
   @RequirePermissions('request:new_item')
   cancel(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
   ) {

@@ -26,6 +26,7 @@ import {
   type WorkshopDisplayStatus,
   type WorkshopQueueQuery,
 } from '@erp/shared';
+import { likeContains } from '../../common/like';
 import { ERR } from '../../common/errors';
 import { BranchContextService } from '../../core/branch-context.service';
 import type { OrderHeader } from '../../database/entities/order.entity';
@@ -411,7 +412,7 @@ export class OrderQueriesService {
     const params: unknown[] = [branchId];
     const where = [`o.branch_id = $1`, `o.order_type = 'ROOFING_ORDER'`];
     if (q.search) {
-      params.push(`%${q.search}%`);
+      params.push(likeContains(q.search));
       const n = params.length;
       where.push(`(o.order_number ILIKE $${n} OR c.name ILIKE $${n} OR c.phone ILIKE $${n} OR o.header->>'technician' ILIKE $${n})`);
     }
@@ -500,7 +501,7 @@ export class OrderQueriesService {
     const params: unknown[] = [branchId, type, q.from, q.to];
     const where = [`o.branch_id = $1`, `o.order_type = $2`, `${date} BETWEEN $3 AND $4`];
     if (q.search) {
-      params.push(`%${q.search}%`);
+      params.push(likeContains(q.search));
       where.push(`(o.order_number ILIKE $${params.length} OR c.name ILIKE $${params.length} OR c.phone ILIKE $${params.length})`);
     }
     params.push(HISTORY_PAGE_SIZE, (q.page - 1) * HISTORY_PAGE_SIZE);
@@ -557,7 +558,7 @@ export class OrderQueriesService {
     const params: unknown[] = [branchId];
     const where = [`o.branch_id = $1`, `o.order_type = 'JOB_CARD'`, `o.status IN ('IN_QUEUE', 'IN_PROGRESS', 'COMPLETED')`];
     if (q.search) {
-      params.push(`%${q.search}%`);
+      params.push(likeContains(q.search));
       where.push(`(o.order_number ILIKE $${params.length} OR c.name ILIKE $${params.length} OR c.phone ILIKE $${params.length})`);
     }
     const rows = await this.ds.query(

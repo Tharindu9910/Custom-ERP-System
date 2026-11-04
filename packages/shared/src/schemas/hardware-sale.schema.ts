@@ -17,7 +17,7 @@ export const HardwareSaleLineSchema = z.object({
 });
 
 export const HardwarePaymentSchema = z.object({
-  amount: z.number().int().positive('Amount must be more than 0'),
+  amount: z.number().int().positive('Amount must be more than 0').max(2_000_000_000),
   mode: z.nativeEnum(PaymentMode),
   reference: z.string().trim().max(80).optional(),
 });

@@ -29,3 +29,26 @@ export const UpdateCustomerSchema = CustomerFieldsSchema.partial();
 
 export type CreateCustomerDto = z.infer<typeof CreateCustomerSchema>;
 export type UpdateCustomerDto = z.infer<typeof UpdateCustomerSchema>;
+
+
+// What the API accepts today: types and sizes only (the form schemas above are stricter).
+const text = (max: number) => z.string().trim().max(max);
+export const CustomerCreateBodySchema = z.object({
+  name: text(120).min(1, 'Enter the customer name'),
+  phone: text(30).min(1, 'Enter the phone number'),
+});
+export const CustomerUpdateBodySchema = z.object({
+  name: text(120).min(1, 'Enter the customer name').optional(),
+  email: text(254).nullable().optional(),
+  address: text(255).nullable().optional(),
+  customer_type: z.nativeEnum(CustomerType).optional(),
+  company_name: text(120).nullable().optional(),
+  contact_person: text(120).nullable().optional(),
+});
+// Query strings: oversized or repeated (array) values are refused; `limit` falls back to 50 as before
+export const CustomerSearchQuerySchema = z.object({
+  q: z.string().max(100).default(''),
+  phone: z.string().max(100).default(''),
+  limit: z.string().max(10).default('50'),
+});
+export const CustomerLookupQuerySchema = z.object({ phone: z.string().max(100).default('') });

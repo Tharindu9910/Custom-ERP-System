@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { CreateGatePassSchema, GatePassQuerySchema, type CreateGatePassDto, type GatePassQuery } from '@erp/shared';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { CreateGatePassSchema, GatePassAvailableQuerySchema, GatePassQuerySchema, type CreateGatePassDto, type GatePassQuery } from '@erp/shared';
 import { toActor } from '../../common/actor';
 import { BranchId, CurrentUser, RequireFeature, RequirePermissions } from '../../common/decorators';
 import type { RequestUser } from '../../common/types';
 import { ZodPipe } from '../../common/zod.pipe';
 import { GatePassesService } from './gate-passes.service';
+import { UuidPipe } from '../../common/uuid.pipe';
 
 @Controller()
 @RequireFeature({ feature: 'gatePass' })
@@ -20,8 +21,7 @@ export class GatePassesController {
   // Order forms (job card / roofing) pick from the customer's open passes
   @Get('gate-passes/available')
   available(
-    @Query('phone') phone: string = '',
-    @Query('order_id') orderId: string | undefined,
+    @Query(new ZodPipe(GatePassAvailableQuerySchema)) { phone, order_id: orderId }: { phone: string; order_id?: string },
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,
   ) {
@@ -45,7 +45,7 @@ export class GatePassesController {
 
   @Get('gate-passes/:id')
   @RequirePermissions('view:gate_pass')
-  get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+  get(@Param('id') id: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.gatePasses.get(id, toActor(u, b).branch_id);
   }
 

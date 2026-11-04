@@ -21,7 +21,7 @@ const lineBase = {
   // Manual "Custom" toggle (BR23 c) — requires a reason when set by hand
   custom: z.boolean().default(false),
   customized_reason_code: z.string().trim().max(60).optional(),
-  custom_charges: z.array(CustomChargeSchema).default([]),
+  custom_charges: z.array(CustomChargeSchema).max(100).default([]),
   notes: z.string().trim().max(500).optional(),
   // Customer material: the one gate pass item this line uses (Docs/decisions/0007)
   customer_material: CustomerMaterialSchema.nullable().optional(),
@@ -108,10 +108,10 @@ export function isCustomMode(line: Pick<WorkshopLineInput, 'job_type' | 'custom'
 const jobCardBody = {
   customer: CustomerRefSchema,
   // No job_date: the server stamps the branch-local date when the card is created
-  worker_ids: z.array(z.string().uuid()).min(1, 'Assign at least one worker'),
+  worker_ids: z.array(z.string().uuid()).min(1, 'Assign at least one worker').max(100),
   notes: z.string().trim().max(500).optional(),
   // Material source and gate pass material are per line (customer_material); nothing order-level
-  lines: z.array(WorkshopLineSchema).min(1, 'Add at least one sub-job'),
+  lines: z.array(WorkshopLineSchema).min(1, 'Add at least one sub-job').max(200),
   // Branch material is reserved on save; given only after a 409 STOCK_INSUFFICIENT (Docs/decisions/0003)
   override: StockOverrideSchema.optional(),
 };
@@ -135,6 +135,6 @@ export const WorkshopQueueQuerySchema = z.object({
 export type WorkshopQueueQuery = z.infer<typeof WorkshopQueueQuerySchema>;
 
 export const QuoteJobCardSchema = z.object({
-  lines: z.array(WorkshopLineSchema).min(1),
+  lines: z.array(WorkshopLineSchema).min(1).max(200),
 });
 export type QuoteJobCardDto = z.infer<typeof QuoteJobCardSchema>;

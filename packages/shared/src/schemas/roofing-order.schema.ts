@@ -48,7 +48,7 @@ const roofingBody = {
   // One coil applied to every branch-material item that needs a coil
   global_coil_item_id: OptionalId,
   // Material source and gate pass material are per line (customer_material); nothing order-level
-  lines: z.array(RoofingLineSchema).min(1, 'Add at least one item'),
+  lines: z.array(RoofingLineSchema).min(1, 'Add at least one item').max(200),
   discount: Cents.default(0),
   // Branch material is reserved on save; given only after a 409 STOCK_INSUFFICIENT (Docs/decisions/0003)
   override: StockOverrideSchema.optional(),

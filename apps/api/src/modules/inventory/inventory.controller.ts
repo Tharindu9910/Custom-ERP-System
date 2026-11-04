@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
 import {
   InventoryQuerySchema,
   StockAlertQuerySchema,
@@ -12,6 +12,7 @@ import { BranchId, CurrentUser, RequireFeature, RequirePermissions } from '../..
 import type { RequestUser } from '../../common/types';
 import { ZodPipe } from '../../common/zod.pipe';
 import { InventoryService } from './inventory.service';
+import { UuidPipe } from '../../common/uuid.pipe';
 
 @Controller()
 export class InventoryController {
@@ -27,7 +28,7 @@ export class InventoryController {
   @Get('inventory/:itemId')
   @RequirePermissions('view:inventory')
   @RequireFeature({ feature: 'inventory' })
-  item(@Param('itemId', ParseUUIDPipe) itemId: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
+  item(@Param('itemId') itemId: string, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.inventory.item(itemId, toActor(u, b).branch_id);
   }
 
@@ -36,7 +37,7 @@ export class InventoryController {
   @RequirePermissions('configure:stock_minimum')
   @RequireFeature({ feature: 'inventory' })
   setMinimum(
-    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Param('itemId') itemId: string,
     @Body(new ZodPipe(UpdateStockMinimumSchema)) dto: UpdateStockMinimumDto,
     @CurrentUser() u: RequestUser,
     @BranchId() b: string | null,

@@ -17,7 +17,7 @@ export type CompleteWorkDto = z.infer<typeof CompleteWorkSchema>;
 
 export const RecordPaymentSchema = z.object({
   client_request_id: ClientRequestId,
-  amount: z.number().int().positive('Amount must be more than 0'),
+  amount: z.number().int().positive('Amount must be more than 0').max(2_000_000_000),
   mode: z.nativeEnum(PaymentMode),
   reference: z.string().trim().max(80).optional(),
 })
@@ -34,7 +34,7 @@ export type SendToWorkshopDto = z.infer<typeof SendToWorkshopSchema>;
 /** Card-level Start Job: the card moves to In Progress and the chosen sub-jobs start. */
 export const StartJobCardSchema = z.object({
   version: z.number().int().positive(),
-  line_ids: z.array(z.string().uuid()),
+  line_ids: z.array(z.string().uuid()).max(200),
   override: StockOverrideSchema.optional(),
 });
 export type StartJobCardDto = z.infer<typeof StartJobCardSchema>;
