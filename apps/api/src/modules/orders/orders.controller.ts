@@ -39,7 +39,7 @@ import {
   type WorkshopQueueQuery,
 } from '@erp/shared';
 import { toActor } from '../../common/actor';
-import { BranchId, CurrentUser, RequireFeature, RequirePermissions } from '../../common/decorators';
+import { BranchId, CurrentUser, RequireAnyPermission, RequireFeature, RequirePermissions } from '../../common/decorators';
 import type { RequestUser } from '../../common/types';
 import { ZodPipe } from '../../common/zod.pipe';
 import { JobCardsService } from './job-cards.service';
@@ -94,9 +94,12 @@ export class OrdersController {
     return this.jobCards.void(id, dto.reason, toActor(u, b));
   }
 
-  /** History popup on Create Job Card: this branch's job cards in a date range. */
+  /**
+   * History on Create Job Card, the Workshop Queue and the Cashier Queue: this branch's job cards
+   * in a date range. Whoever sees job cards on those screens can read it (Docs/decisions/0005).
+   */
   @Get('job-cards/history')
-  @RequirePermissions('create:job_card')
+  @RequireAnyPermission('create:job_card', 'view:job_cards', 'process:payment')
   @RequireFeature({ section: 'workshop' })
   jobCardHistory(@Query(new ZodPipe(OrderHistoryQuerySchema)) q: OrderHistoryQuery, @CurrentUser() u: RequestUser, @BranchId() b: string | null) {
     return this.queries.history(OrderType.JOB_CARD, q, toActor(u, b).branch_id);

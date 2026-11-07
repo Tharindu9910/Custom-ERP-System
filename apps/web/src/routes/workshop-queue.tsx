@@ -11,6 +11,7 @@ import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 import { HandOverCheckout } from '@/modules/job-cards/components/HandOverCheckout';
 import { CompleteJobDialog, StartJobDialog } from '@/modules/job-cards/components/JobCardMoveDialogs';
 import { WorkOrderModal } from '@/modules/job-cards/components/WorkOrderModal';
+import { OrderHistoryModal } from '@/modules/orders/components/OrderHistoryModal';
 import { useWorkshopQueue, type WorkshopQueueRow } from '@/modules/orders/hooks/useOrders';
 import { useCanTransact } from '@/shared/hooks/useCanTransact';
 import { usePermission } from '@/shared/hooks/usePermission';
@@ -77,6 +78,8 @@ export function WorkshopQueuePage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [moving, setMoving] = useState<{ orderId: string; to: 'start' | 'complete' } | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOrderId, setHistoryOrderId] = useState<string | null>(null);
   // One request once typing pauses, not one per key
   const searchQuery = useDebouncedValue(search.trim());
   const { data, isLoading, isFetching, refetch } = useWorkshopQueue({ search: searchQuery || undefined });
@@ -145,8 +148,15 @@ export function WorkshopQueuePage() {
             </button>
           </div>
           {!handover && (
-            <div className="w-full lg:max-w-md">
-              <SearchInput value={search} onChange={setSearch} placeholder="Search work order, customer name, or phone..." />
+            <div className="flex w-full items-center gap-2 lg:max-w-xl">
+              <div className="min-w-0 flex-1">
+                <SearchInput value={search} onChange={setSearch} placeholder="Search work order, customer name, or phone..." />
+              </div>
+              {/* Closed and voided job cards leave the board (Docs/decisions/0005) */}
+              <button type="button" onClick={() => setHistoryOpen(true)} className="btn-secondary inline-flex shrink-0 items-center gap-1.5">
+                <Icon name="clock" className="h-4 w-4" />
+                History
+              </button>
             </div>
           )}
         </div>
@@ -261,6 +271,10 @@ export function WorkshopQueuePage() {
       {selected && <WorkOrderModal orderId={selected} onClose={() => setSelected(null)} onEdit={() => edit(selected)} onMoved={finish} />}
       {moving?.to === 'start' && <StartJobDialog orderId={moving.orderId} onClose={() => setMoving(null)} onDone={finish} />}
       {moving?.to === 'complete' && <CompleteJobDialog orderId={moving.orderId} onClose={() => setMoving(null)} onDone={finish} />}
+      {historyOpen && (
+        <OrderHistoryModal types={['job-cards']} hidden={!!historyOrderId} onClose={() => setHistoryOpen(false)} onOpenOrder={setHistoryOrderId} />
+      )}
+      {historyOrderId && <WorkOrderModal readOnly orderId={historyOrderId} onClose={() => setHistoryOrderId(null)} />}
     </div>
   );
 }

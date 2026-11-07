@@ -185,7 +185,7 @@ export interface QuoteResult {
   missing_rates: { line_index: number; missing: string }[];
 }
 
-export type CashierColumn = 'AWAITING_PAYMENT' | 'IN_WORKSHOP' | 'FINISHED_BALANCE_DUE' | 'ROOFING_BALANCE';
+export type CashierColumn = 'AWAITING_PAYMENT' | 'IN_WORKSHOP' | 'FINISHED_BALANCE_DUE';
 
 export interface CashierQueueRow {
   order_id: string;
@@ -227,6 +227,7 @@ export interface OrderHistoryRowDto {
   balance: number;
   status: OrderStatus;
   display_label: string;
+  last_action_at: string;
 }
 
 export interface OrderHistoryPage {

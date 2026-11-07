@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
-import { Outlet, Link, useNavigate, useRouter, useRouterState } from '@tanstack/react-router';
+import { Outlet, Link, Navigate, useNavigate, useRouter, useRouterState } from '@tanstack/react-router';
 import { Role, isGlobalRole } from '@erp/shared';
 import { SUPER_ADMIN_NAV, isNavItemActive, pageRunsAt, useVisibleNav, type NavItem } from '@/app/navigation';
 import { useAuthStore } from '@/shared/stores/auth.store';
@@ -240,6 +240,10 @@ export function Layout() {
   // Keeps permissions in Zustand fresh: re-fetches GET /auth/me on window focus
   // so sidebar updates without re-login after SA grants/revokes permissions.
   useMe();
+
+  // The route guard only runs on navigation: a session that ends on this page (refresh token
+  // expired → logout() in the API client) must leave the shell too, not show an empty one
+  if (!user) return <Navigate to="/login" replace />;
 
   const handleLogout = async () => {
     try {

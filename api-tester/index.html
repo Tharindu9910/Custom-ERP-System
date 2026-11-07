@@ -625,7 +625,7 @@ main {
 //
 //   cat      sidebar category (grouped by what the endpoint does)
 //   auth     'access' (default) | 'refresh' | 'none'
-//   perm     @RequirePermissions(...) on the route
+//   perm     @RequirePermissions(...) on the route ('a|b' = @RequireAnyPermission: either one)
 //   feature  @RequireFeature(...) — the branch switch that must be on
 //   scope    'branch' = uses the branch context (X-Branch-Id for global roles)
 //            'global' = head office only (requireGlobal)
@@ -816,10 +816,10 @@ const ENDPOINTS = [
   { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/targets', perm:'request:stock', feature:'stockRequest', scope:'branch', desc:'Branches that can be asked for stock.' },
   { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/items', perm:'request:stock', feature:'stockRequest', scope:'branch',
     query:{ q:'', ids:'' }, desc:'Item picker for a new request. ids = comma-separated item ids.' },
-  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers', perm:'request:stock', feature:'stockRequest', scope:'branch',
+  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers', perm:'request:stock|approve:transfer_shortage', feature:'stockRequest', scope:'branch',
     query:{ direction:'OUTGOING', open:'true', q:'' }, desc:'Requests this branch made (OUTGOING) or received (INCOMING).' },
-  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/count', perm:'request:stock', feature:'stockRequest', scope:'branch', desc:'To-do count (sidebar badge).' },
-  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/:id', perm:'request:stock', feature:'stockRequest', scope:'branch', desc:'One transfer with its lines (transfer_line_id for send/receive).' },
+  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/count', perm:'request:stock|approve:transfer_shortage', feature:'stockRequest', scope:'branch', desc:'To-do count (sidebar badge).' },
+  { cat:'Stock Transfers', method:'GET', path:'/stock-transfers/:id', perm:'request:stock|approve:transfer_shortage', feature:'stockRequest', scope:'branch', desc:'One transfer with its lines (transfer_line_id for send/receive).' },
   { cat:'Stock Transfers', method:'POST', path:'/stock-transfers', perm:'request:stock', feature:'stockRequest', scope:'branch',
     body:{ client_request_id:'$uuid', supplying_branch_id:BR.NAIWALA, needed_before:'$today+7', is_urgent:false, notes:'Tester request', lines:[{ item_id:'<item_id>', quantity:10 }] },
     desc:'Ask another branch for stock.' },
@@ -863,7 +863,7 @@ const ENDPOINTS = [
     desc:'Replace a job card. version = current version from GET /orders/:id.' },
   { cat:'Job Cards (Workshop)', method:'POST', path:'/job-cards/:id/void', perm:'cancel:job_card_draft', scope:'branch',
     body:{ reason:'Customer changed their mind' }, desc:'Void an unpaid job card.' },
-  { cat:'Job Cards (Workshop)', method:'GET', path:'/job-cards/history', perm:'create:job_card', feature:'section: workshop', scope:'branch',
+  { cat:'Job Cards (Workshop)', method:'GET', path:'/job-cards/history', perm:'create:job_card|view:job_cards|process:payment', feature:'section: workshop', scope:'branch',
     query:{ from:'$today-30', to:'$today', search:'', page:'1' }, desc:'This branch\'s job cards in a date range (max 366 days, 25 per page).' },
   { cat:'Job Cards (Workshop)', method:'GET', path:'/workshop-queue', perm:'view:job_cards', feature:'section: workshop', scope:'branch',
     query:{ search:'' }, desc:'Workshop Queue board: every column at once.' },
@@ -1080,7 +1080,7 @@ function absorbBranches(data) {
 function allowed(e) {
   if (!e.perm || store.permissions === null) return true;
   if (store.role === 'SUPER_ADMIN') return true;
-  return store.permissions.includes(e.perm);
+  return e.perm.split('|').some(p => store.permissions.includes(p));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

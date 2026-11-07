@@ -7,11 +7,13 @@ import { Notice } from '@/shared/components/Notice';
 import { SearchInput } from '@/shared/components/SearchInput';
 import { BoardSection, StatusCards, type StatusStep } from '@/shared/components/StatusBoard';
 import { TONES } from '@/shared/lib/status-tones';
+import { useBranchContext } from '@/shared/hooks/useBranchContext';
 import { useCanTransact } from '@/shared/hooks/useCanTransact';
 import { formatDateTime, formatRs } from '@/shared/lib/format';
-import { cn } from '@/shared/lib/utils';
 import { WorkOrderModal } from '@/modules/job-cards/components/WorkOrderModal';
+import { OrderDetailModal } from '@/modules/roofing/components/OrderDetailModal';
 import { CashierCheckout } from '@/modules/orders/components/CashierCheckout';
+import { OrderHistoryModal, type HistoryType } from '@/modules/orders/components/OrderHistoryModal';
 import { useCashierQueue, type CashierColumn, type CashierQueueRow } from '@/modules/orders/hooks/useOrders';
 
 type StepKey = CashierColumn;
@@ -29,32 +31,26 @@ const STEPS: StatusStep<StepKey>[] = [
     key: 'IN_WORKSHOP',
     title: 'In Workshop',
     icon: 'wrench',
-    empty: 'No jobs in the workshop.',
+    empty: 'No jobs in the workshop or on the Order Queue.',
     tone: TONES.blue,
   },
   {
     key: 'FINISHED_BALANCE_DUE',
     title: 'Finished – Balance Due',
     icon: 'checkCircle',
-    empty: 'No balances due on finished jobs.',
+    empty: 'No balances due on finished jobs or orders.',
     tone: TONES.emerald,
-  },
-  {
-    key: 'ROOFING_BALANCE',
-    title: 'Roofing – Balance Due',
-    icon: 'house',
-    empty: 'No roofing balances due.',
-    tone: TONES.violet,
   },
 ];
 
 /**
- * Cashier Queue (Docs/decisions/0005): the cashier's statuses as cards. Awaiting
- * Payment → (take advance) → workshop; while the job is there the customer can pay more
- * (In Workshop lists every job there, paid or not; the card does not move); finished cards that still owe money
- * wait under Finished – Balance Due. Once a card is paid in full it leaves for the
- * supervisor, who checks the items and hands them over. Picking a card shows only its
- * list, full width. Roofing balances have their own card until roofing gets its own flow.
+ * Cashier Queue (Docs/decisions/0005): the cashier's statuses as cards, job cards and
+ * roofing orders side by side. Awaiting Payment → (take advance) → Workshop / Order Queue;
+ * while the work runs the customer can pay more (In Workshop lists every job card in the
+ * workshop and every roofing order on the Order Queue, paid or not; it does not move);
+ * finished ones that still owe money wait under Finished – Balance Due. Once paid in full
+ * they leave for the supervisor, who checks the items and hands them over / releases them.
+ * Picking a card shows only its list, full width.
  * Every payment button opens the checkout (?checkout=<order>) in place of the board:
  * the cashier ticks off each item, then takes the payment.
  */
@@ -80,12 +76,15 @@ export function CashierQueuePage() {
   const checkoutRow = checkout ? all.find((r) => r.order_id === checkout) : undefined;
   const openCheckout = (r: CashierQueueRow) => void navigate({ to: '/cashier-queue', search: { checkout: r.order_id } });
   const closeCheckout = () => void navigate({ to: '/cashier-queue', search: {} });
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<CashierQueueRow | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // History has a tab for each kind of work this branch does
+  const { hasWorkshop, hasRoofing } = useBranchContext();
+  const historyTypes: HistoryType[] = [...(hasWorkshop ? ['job-cards' as const] : []), ...(hasRoofing ? ['roofing-orders' as const] : [])];
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOrder, setHistoryOrder] = useState<{ id: string; type: HistoryType } | null>(null);
 
-  // The roofing card shows only where there is roofing work
-  const steps = STEPS.filter((s) => s.key !== 'ROOFING_BALANCE' || all.some((r) => r.column === 'ROOFING_BALANCE'));
-  const current = steps.find((s) => s.key === step) ?? steps[0];
+  const current = STEPS.find((s) => s.key === step) ?? STEPS[0];
   const list = rows.filter((r) => r.column === current.key);
 
   const actionFor = (r: CashierQueueRow) => {
@@ -99,23 +98,22 @@ export function CashierQueuePage() {
     }
     if (r.column === 'IN_WORKSHOP') {
       // Paid in full while the job runs: nothing to collect, it waits for the workshop to finish
-      if (r.balance === 0) return <span className="whitespace-nowrap text-xs font-semibold text-slate-500">Waiting for workshop</span>;
+      if (r.balance === 0) {
+        return (
+          <span className="whitespace-nowrap text-xs font-semibold text-slate-500">
+            {r.order_type === OrderType.JOB_CARD ? 'Waiting for workshop' : 'Waiting for Order Queue'}
+          </span>
+        );
+      }
       return (
         <button onClick={() => openCheckout(r)} className="btn-primary whitespace-nowrap">
           <Icon name="banknote" className="h-4 w-4" /> Take Payment
         </button>
       );
     }
-    if (r.column === 'FINISHED_BALANCE_DUE') {
-      return (
-        <button onClick={() => openCheckout(r)} className="btn-primary whitespace-nowrap bg-emerald-600 hover:bg-emerald-700">
-          <Icon name="banknote" className="h-4 w-4" /> Collect Balance
-        </button>
-      );
-    }
     return (
-      <button onClick={() => openCheckout(r)} className="btn-secondary whitespace-nowrap">
-        Record payment
+      <button onClick={() => openCheckout(r)} className="btn-primary whitespace-nowrap bg-emerald-600 hover:bg-emerald-700">
+        <Icon name="banknote" className="h-4 w-4" /> Collect Balance
       </button>
     );
   };
@@ -136,8 +134,17 @@ export function CashierQueuePage() {
             </button>
           </div>
           {!checkout && (
-            <div className="w-full lg:max-w-md">
-              <SearchInput value={search} onChange={setSearch} placeholder="Search order number, customer name or phone..." />
+            <div className="flex w-full items-center gap-2 lg:max-w-xl">
+              <div className="min-w-0 flex-1">
+                <SearchInput value={search} onChange={setSearch} placeholder="Search order number, customer name or phone..." />
+              </div>
+              {/* Paid-off job cards and orders leave the board (Docs/decisions/0005) */}
+              {historyTypes.length > 0 && (
+                <button type="button" onClick={() => setHistoryOpen(true)} className="btn-secondary inline-flex shrink-0 items-center gap-1.5">
+                  <Icon name="clock" className="h-4 w-4" />
+                  History
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -171,12 +178,11 @@ export function CashierQueuePage() {
           <>
             {/* One card per status, in lifecycle order; the picked one shows its list below */}
             <StatusCards
-              steps={steps}
+              steps={STEPS}
               value={current.key}
               onChange={setStep}
               loading={isLoading}
-              counts={Object.fromEntries(steps.map((s) => [s.key, rows.filter((r) => r.column === s.key).length]))}
-              // The arrow joins the job card steps; roofing is a separate flow
+              counts={Object.fromEntries(STEPS.map((s) => [s.key, rows.filter((r) => r.column === s.key).length]))}
               arrowAfter={(key) => key === 'AWAITING_PAYMENT' || key === 'IN_WORKSHOP'}
             />
 
@@ -222,8 +228,8 @@ export function CashierQueuePage() {
                       return (
                         <tr
                           key={r.order_id}
-                          onClick={isJobCard ? () => setSelected(r.order_id) : undefined}
-                          className={cn('transition-colors hover:bg-slate-50/70', isJobCard && 'cursor-pointer')}
+                          onClick={() => setSelected(r)}
+                          className="cursor-pointer transition-colors hover:bg-slate-50/70"
                         >
                           <td className="whitespace-nowrap px-6 py-4">
                             <IdChip>{r.order_number}</IdChip>
@@ -232,7 +238,7 @@ export function CashierQueuePage() {
                             </div>
                             {r.column === 'IN_WORKSHOP' && (
                               <span className="mt-1 inline-block rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
-                                Workshop: {r.display_label}
+                                {isJobCard ? 'Workshop' : 'Order Queue'}: {r.display_label}
                               </span>
                             )}
                           </td>
@@ -271,7 +277,26 @@ export function CashierQueuePage() {
         )}
       </main>
 
-      {selected && <WorkOrderModal readOnly orderId={selected} onClose={() => setSelected(null)} />}
+      {selected &&
+        (selected.order_type === OrderType.JOB_CARD ? (
+          <WorkOrderModal readOnly orderId={selected.order_id} onClose={() => setSelected(null)} />
+        ) : (
+          <OrderDetailModal orderId={selected.order_id} onClose={() => setSelected(null)} actions={() => null} />
+        ))}
+      {historyOpen && historyTypes.length > 0 && (
+        <OrderHistoryModal
+          types={historyTypes}
+          hidden={!!historyOrder}
+          onClose={() => setHistoryOpen(false)}
+          onOpenOrder={(id, type) => setHistoryOrder({ id, type })}
+        />
+      )}
+      {historyOrder &&
+        (historyOrder.type === 'job-cards' ? (
+          <WorkOrderModal readOnly orderId={historyOrder.id} onClose={() => setHistoryOrder(null)} />
+        ) : (
+          <OrderDetailModal orderId={historyOrder.id} onClose={() => setHistoryOrder(null)} actions={() => null} />
+        ))}
     </div>
   );
 }

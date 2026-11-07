@@ -95,7 +95,7 @@ const fromDetail = (o: OrderDetailDto): Target => ({
  * Finished → Ready for Release, the same as the Workshop Queue. Picking a card shows only
  * its orders, full width, each with the button that moves it on. Unpaid orders stay at the
  * cashier; finished orders wait under Finished until the cashier has the full amount (Cashier
- * Queue → Roofing – Balance Due), then under Ready for Release, where Check & Release
+ * Queue → Finished – Balance Due), then under Ready for Release, where Check & Release
  * (?release=<order>) opens in place of the board: the supervisor ticks off each item and
  * releases the order. One board for every role: the buttons follow the user's permissions
  * and the server enforces the same rules. Released and cancelled orders are in History.
@@ -414,7 +414,7 @@ export function OrderQueuePage() {
       {selectedId && <OrderDetailModal orderId={selectedId} onClose={() => setSelectedId(null)} actions={(o) => actionsFor(fromDetail(o))} />}
 
       {historyOpen && (
-        <OrderHistoryModal type="roofing-orders" hidden={!!historyOrderId} onClose={() => setHistoryOpen(false)} onOpenOrder={setHistoryOrderId} />
+        <OrderHistoryModal types={['roofing-orders']} hidden={!!historyOrderId} onClose={() => setHistoryOpen(false)} onOpenOrder={setHistoryOrderId} />
       )}
       {historyOrderId && <OrderDetailModal orderId={historyOrderId} onClose={() => setHistoryOrderId(null)} actions={() => null} />}
 

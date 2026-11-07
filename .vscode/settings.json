@@ -11,5 +11,6 @@
             "password": "admin",
             "database": "erp_db"
         }
-    ]
+    ],
+    "liveServer.settings.port": 5501
 }

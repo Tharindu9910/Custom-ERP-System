@@ -31,6 +31,16 @@ describe('HIS order history', () => {
     expect(times).toEqual([...times].sort().reverse());
   });
 
+  it('HIS-01b the status and payment filters narrow the list', async () => {
+    const d = await jobCard(t, { lines: [CUSTOM_LINE] }); // DRAFT, nothing paid
+    const base = `/job-cards/history?from=${today}&to=${today}&search=${d.order_number}`;
+    expect((await tha().get(`${base}&stage=AWAITING_PAYMENT`)).data.total).toBe(1);
+    expect((await tha().get(`${base}&stage=CLOSED`)).data.total).toBe(0);
+    expect((await tha().get(`${base}&payment=BALANCE_DUE`)).data.total).toBe(1);
+    expect((await tha().get(`${base}&payment=PAID`)).data.total).toBe(0);
+    expect((await tha().get(`${base}&stage=NOPE`)).status).toBe(400);
+  });
+
   it('HIS-02 a range before the card was made does not list it; total and paging agree', async () => {
     const c = await jobCard(t, { lines: [ROLLING_LINE] });
     const old = (await tha().get(`/job-cards/history?from=2000-01-01&to=2000-01-31&search=${c.order_number}`)).data;
@@ -64,5 +74,15 @@ describe('HIS order history', () => {
     expect(cashier.data.total).toBe(1);
     // Job card history doesn't list roofing orders
     expect((await tha().get(`/job-cards/history?from=${today}&to=${today}&search=${o.order_number}`)).data.total).toBe(0);
+  });
+
+  it('HIS-06 job card history opens from the Workshop and Cashier Queues: manager and cashier read it, own branch only', async () => {
+    const c = await jobCard(t, { lines: [ROLLING_LINE] });
+    const url = `/job-cards/history?from=${today}&to=${today}&search=${c.order_number}`;
+    // view:job_cards (Workshop Queue) without create:job_card
+    expect((await t.as('manager_thangalla').get(url)).data.total).toBe(1);
+    // process:payment (Cashier Queue)
+    expect((await t.as(CASHIER.thangalla).get(url)).data.total).toBe(1);
+    expect((await t.as(CASHIER.veyangoda).get(url)).data.total).toBe(0);
   });
 });

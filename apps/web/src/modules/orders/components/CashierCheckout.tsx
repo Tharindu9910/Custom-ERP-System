@@ -27,9 +27,9 @@ const KIND_LABEL: Record<string, string> = {
 /**
  * Cashier checkout, shown in place of the Cashier Queue board (prototype CashierQueue
  * checkout): step 1 the cashier ticks every item off with the customer, step 2 takes
- * the payment. Covers Take Advance, Take Payment mid-job, Collect Balance and roofing
- * balances. The cashier never closes a card: once a finished card is paid in full the
- * supervisor checks and hands it over (Docs/decisions/0005).
+ * the payment. Covers Take Advance, Take Payment mid-job and Collect Balance, for job
+ * cards and roofing orders alike. The cashier never closes an order: once a finished one
+ * is paid in full the supervisor checks it and hands it over / releases it (Docs/decisions/0005).
  */
 export function CashierCheckout({ row, onBack, onPaid }: { row: CashierQueueRow; onBack: () => void; onPaid: (msg: string) => void }) {
   const { data: order, isLoading } = useOrderDetail(row.order_id);
@@ -87,9 +87,9 @@ export function CashierCheckout({ row, onBack, onPaid }: { row: CashierQueueRow;
         res.status === OrderStatus.IN_QUEUE && isDraft
           ? `${formatRs(amount)} received for ${row.order_number}. It is now in the ${queueName}.`
           : finished && res.balance === 0
-            ? `${formatRs(amount)} received for ${row.order_number}. Paid in full — sent to the supervisor for hand-over.`
+            ? `${formatRs(amount)} received for ${row.order_number}. Paid in full — ${roofing ? 'ready for release on the Order Queue' : 'sent to the supervisor for hand-over'}.`
             : inWorkshop
-              ? `${formatRs(amount)} received for ${row.order_number}. ${res.balance > 0 ? `Balance now ${formatRs(res.balance)}` : 'Paid in full'} — the job stays in the workshop.`
+              ? `${formatRs(amount)} received for ${row.order_number}. ${res.balance > 0 ? `Balance now ${formatRs(res.balance)}` : 'Paid in full'} — ${roofing ? 'the order stays on the Order Queue' : 'the job stays in the workshop'}.`
               : `${formatRs(amount)} received for ${row.order_number}.`,
       );
     } catch (e) {
@@ -199,7 +199,8 @@ export function CashierCheckout({ row, onBack, onPaid }: { row: CashierQueueRow;
                 {!online && <Notice tone="warning">Payments can't be recorded offline (BR18). Reconnect to continue.</Notice>}
                 {inWorkshop && (
                   <Notice tone="info">
-                    The job is still in the workshop ({row.display_label}). This payment lowers the balance; the job stays where it is.
+                    {roofing ? 'The order is still on the Order Queue' : 'The job is still in the workshop'} ({row.display_label}). This payment lowers the
+                    balance; the {roofing ? 'order' : 'job'} stays where it is.
                   </Notice>
                 )}
                 <PaymentCapture

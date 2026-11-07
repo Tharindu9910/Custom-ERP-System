@@ -66,7 +66,7 @@ Seeded branches:
 | | Placed: customer material from a gate pass | `supervisor_naiwala` → Roof Material Customer |
 | | In progress | Green Valley Hotel |
 | | In progress after a **coil override** | `supervisor_thangalla` → Coil Override Customer |
-| | Ready, balance due (Release locked) | Nuwan Silva |
+| | Ready, balance due (Release locked; Cashier · Finished – Balance Due) | Nuwan Silva |
 | | Ready and fully paid (Release available) | `supervisor_thangalla` → Ready To Release |
 | | Released | Mahesh Fernando |
 | | Cancelled | Ruwan Jayasinghe |

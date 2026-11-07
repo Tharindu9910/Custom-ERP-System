@@ -3,7 +3,7 @@ import { HISTORY_MAX_DAYS, toBranchDate } from '@erp/shared';
 import { Icon } from '@/shared/components/Icon';
 import { Notice } from '@/shared/components/Notice';
 import { apiError } from '@/shared/api/errors';
-import { formatLocalDate, formatRs } from '@/shared/lib/format';
+import { formatDateTime, formatLocalDate, formatRs } from '@/shared/lib/format';
 import { useOrderHistory } from '@/modules/orders/hooks/useOrders';
 
 /** Shift a YYYY-MM-DD date by whole days (calendar maths, no timezone involved). */
@@ -32,7 +32,7 @@ const STATUS_STYLE: Record<string, string> = {
 
 /**
  * Job card / roofing order history: this branch's documents whose form date is in
- * From–To (branch time), newest first, 25 a page. Used as a full-page tab on Create
+ * From–To (branch time), latest action first (each row shows its status and when it last changed), 25 a page. Used as a full-page tab on Create
  * Job Card and inside the History popup elsewhere. Requests are kept to one per change:
  * nothing loads until it is shown, the search waits until typing pauses, pages are
  * cached, and the list doesn't poll.
@@ -163,6 +163,7 @@ export function OrderHistoryPanel({ type, onOpenOrder }: { type: 'job-cards' | '
                       {r.display_label}
                       <Icon name="chevronRight" className="h-3 w-3 opacity-50" />
                     </span>
+                    <div className="mt-0.5 text-xs text-slate-400">{formatDateTime(r.last_action_at)}</div>
                   </td>
                 </tr>
               ))

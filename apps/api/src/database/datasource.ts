@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import './pg-types';
 import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
 import * as path from 'path';

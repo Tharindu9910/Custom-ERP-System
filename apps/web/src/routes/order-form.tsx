@@ -6,6 +6,7 @@ import {
   MaterialSource,
   OrderStatus,
   ROOFING_CATEGORIES,
+  Role,
   isAccessoryCategory,
   isSearchablePhone,
   lineNeedsCoil,
@@ -31,6 +32,7 @@ import { useBranchContext } from '@/shared/hooks/useBranchContext';
 import { readFormDraft, useFormDraft } from '@/shared/hooks/useFormDraft';
 import { useOnlineStatus } from '@/shared/hooks/useOnlineStatus';
 import { usePermission } from '@/shared/hooks/usePermission';
+import { useAuthStore } from '@/shared/stores/auth.store';
 import { centsToInput, formatRs, parseMoney } from '@/shared/lib/format';
 import { emptyPaymentDraft, toPayment, validatePaymentDraft, type PaymentDraft } from '@/shared/lib/payment-draft';
 import { CustomerPhoneInput } from '@/modules/customers/components/CustomerPhoneInput';
@@ -191,6 +193,8 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
   const isEdit = !!orderId;
   const online = useOnlineStatus();
   const { can } = usePermission();
+  // Cashiers have no Order Queue; they go back to History instead
+  const isCashier = useAuthStore((st) => st.user?.role === Role.CASHIER);
   const { settings, featureOn } = useBranchContext();
   const roofing = settings?.roofing ?? DEFAULT_BRANCH_SETTINGS.roofing;
   const general = settings?.general ?? DEFAULT_BRANCH_SETTINGS.general;
@@ -571,7 +575,8 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
 
   const cancel = () => {
     if (isEdit) {
-      void navigate({ to: '/order-queue', search: { notice: undefined } });
+      if (isCashier) void navigate({ to: '/orders/new', search: { tab: 'history', notice: undefined } });
+      else void navigate({ to: '/order-queue', search: { notice: undefined } });
       return;
     }
     resetForm();
@@ -625,7 +630,7 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
         });
         const notice = `Order ${res.order_number} updated.`;
         // Orders still at the cashier are not on the Order Queue; go back to History
-        if (res.status === OrderStatus.DRAFT)
+        if (res.status === OrderStatus.DRAFT || isCashier)
           void navigate({
             to: '/orders/new',
             search: { tab: 'history', notice },
@@ -1147,7 +1152,7 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
                               <input
                                 type="number"
                                 min="0"
-                                value={numberValue(draft.total_cuts)}
+                                value={draft.total_cuts || ''}
                                 onChange={(e) => setField('total_cuts', parseNumber(e.target.value) ?? 0)}
                                 className={inputCls}
                               />
@@ -1157,7 +1162,7 @@ function OrderForm({ orderId, existing, initial }: { orderId?: string; existing?
                               <input
                                 type="number"
                                 min="0"
-                                value={numberValue(draft.total_bends)}
+                                value={draft.total_bends || ''}
                                 onChange={(e) => setField('total_bends', parseNumber(e.target.value) ?? 0)}
                                 className={inputCls}
                               />

@@ -60,7 +60,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: 'Cashier Queue', to: '/cashier-queue', icon: 'creditCard', scope: 'branch', permission: { action: 'process', subject: 'payment' } },
       { label: 'Gate Pass', to: '/gate-pass', icon: 'fileText', scope: 'branch', permission: { action: 'view', subject: 'gate_pass' }, feature: 'gatePass' },
       { label: 'Create Order', to: '/orders/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'roofing_order' }, section: 'roofing' },
-      { label: 'Order Queue', to: '/order-queue', icon: 'listOrdered', scope: 'branch', permission: { action: 'view', subject: 'orders' }, section: 'roofing', activeFor: [/^\/orders\/[^/]+\/edit$/] },
+      { label: 'Order Queue', to: '/order-queue', icon: 'listOrdered', scope: 'branch', permission: { action: 'view', subject: 'orders' }, section: 'roofing', hideFor: [Role.CASHIER], activeFor: [/^\/orders\/[^/]+\/edit$/] },
       { label: 'Create Job Card', to: '/job-cards/new', icon: 'plusSquare', scope: 'branch', transact: true, permission: { action: 'create', subject: 'job_card' }, section: 'workshop' },
       { label: 'Workshop Queue', to: '/workshop-queue', icon: 'clipboardList', scope: 'branch', permission: { action: 'view', subject: 'job_cards' }, section: 'workshop', activeFor: [/^\/job-cards\/[^/]+\/edit$/] },
       // Hardware sales (Docs/decisions/0006): role permission says who, the branch switch says where

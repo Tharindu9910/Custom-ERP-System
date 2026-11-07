@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
 import { DEFAULT_BRANCH_SETTINGS, PaymentMode } from '@erp/shared';
-import { Icon, type IconName } from '@/shared/components/Icon';
+import { Icon } from '@/shared/components/Icon';
 import { IdChip } from '@/shared/components/Marks';
 import { Modal } from '@/shared/components/Modal';
 import { Notice } from '@/shared/components/Notice';
+import { OverflowMenu } from '@/shared/components/OverflowMenu';
 import { SearchInput } from '@/shared/components/SearchInput';
 import { apiError, newRequestId } from '@/shared/api/errors';
 import { useBranchContext } from '@/shared/hooks/useBranchContext';
@@ -11,7 +12,6 @@ import { useCanTransact } from '@/shared/hooks/useCanTransact';
 import { useOnlineStatus } from '@/shared/hooks/useOnlineStatus';
 import { usePermission } from '@/shared/hooks/usePermission';
 import { formatDateTime, formatRs } from '@/shared/lib/format';
-import { cn } from '@/shared/lib/utils';
 import { FullPaymentFields } from '@/modules/hardware/components/FullPaymentFields';
 import { fullPaymentError, type FullPaymentDraft } from '@/modules/hardware/lib/full-payment';
 import { HardwareSaleModal } from '@/modules/hardware/components/HardwareSaleModal';
@@ -23,22 +23,22 @@ import {
   type HardwareQueueRow,
 } from '@/modules/hardware/hooks/useHardware';
 
-// The cashier's hardware lifecycle, in order (Docs/decisions/0006)
-const STEPS: { key: HardwareColumn; title: string; icon: IconName; empty: string; tone: { ring: string; count: string; icon: string } }[] = [
-  {
-    key: 'AWAITING_PAYMENT',
-    title: 'Awaiting Payment',
-    icon: 'wallet',
-    empty: 'No hardware orders waiting for payment.',
-    tone: { ring: 'border-amber-400 ring-amber-200', count: 'text-amber-600', icon: 'bg-amber-100 text-amber-700' },
-  },
-  {
-    key: 'PAID',
-    title: 'Paid Today',
-    icon: 'packageCheck',
-    empty: 'No hardware orders paid today.',
-    tone: { ring: 'border-emerald-400 ring-emerald-200', count: 'text-emerald-600', icon: 'bg-emerald-100 text-emerald-700' },
-  },
+type QueueFilter = 'ALL' | HardwareColumn | 'OTHER_BRANCH';
+type QueueSort = 'NEWEST' | 'OLDEST' | 'TOTAL_DESC' | 'TOTAL_ASC' | 'CUSTOMER';
+
+const FILTERS: { key: QueueFilter; label: string; empty: string }[] = [
+  { key: 'ALL', label: 'All orders', empty: 'No hardware orders in the queue.' },
+  { key: 'AWAITING_PAYMENT', label: 'Awaiting Payment', empty: 'No hardware orders waiting for payment.' },
+  { key: 'PAID', label: 'Paid Today', empty: 'No hardware orders paid today.' },
+  { key: 'OTHER_BRANCH', label: 'From another branch', empty: 'No orders from other branches.' },
+];
+
+const SORTS: { key: QueueSort; label: string; compare: (a: HardwareQueueRow, b: HardwareQueueRow) => number }[] = [
+  { key: 'NEWEST', label: 'Newest first', compare: (a, b) => b.created_at.localeCompare(a.created_at) },
+  { key: 'OLDEST', label: 'Oldest first', compare: (a, b) => a.created_at.localeCompare(b.created_at) },
+  { key: 'TOTAL_DESC', label: 'Total: high to low', compare: (a, b) => b.total - a.total },
+  { key: 'TOTAL_ASC', label: 'Total: low to high', compare: (a, b) => a.total - b.total },
+  { key: 'CUSTOMER', label: 'Customer A–Z', compare: (a, b) => (a.customer_name ?? 'Walk-in').localeCompare(b.customer_name ?? 'Walk-in') },
 ];
 
 const qty = (n: number | null) => (n === null ? '' : Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, ''));
@@ -72,14 +72,22 @@ export function HardwareQueuePage() {
     );
   }, [all, search]);
 
-  const [step, setStep] = useState<HardwareColumn>('AWAITING_PAYMENT');
+  const [filter, setFilter] = useState<QueueFilter>('ALL');
+  const [sort, setSort] = useState<QueueSort>('NEWEST');
   const [paying, setPaying] = useState<HardwareQueueRow | null>(null);
   const [cancelling, setCancelling] = useState<HardwareQueueRow | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  const current = STEPS.find((s) => s.key === step) ?? STEPS[0];
-  const list = rows.filter((r) => r.column === current.key);
+  const current = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
+  const compare = (SORTS.find((o) => o.key === sort) ?? SORTS[0]).compare;
+  const list = useMemo(
+    () =>
+      rows
+        .filter((r) => (filter === 'ALL' ? true : filter === 'OTHER_BRANCH' ? !!r.origin_branch_name : r.column === filter))
+        .sort(compare),
+    [rows, filter, compare],
+  );
 
   const actionFor = (r: HardwareQueueRow) => {
     if (r.column === 'PAID') {
@@ -90,16 +98,18 @@ export function HardwareQueuePage() {
       );
     }
     return (
-      <div className="flex gap-2">
-        {canCancel && (
-          <button onClick={() => setCancelling(r)} className="btn-secondary whitespace-nowrap" title="Cancel order">
-            <Icon name="ban" className="h-4 w-4" />
+      <div className="flex items-center gap-1.5">
+        {canPay && (
+          <button
+            onClick={() => setPaying(r)}
+            title="Collect payment"
+            className="btn-primary !gap-1 !px-2.5 !py-1.5 !text-xs whitespace-nowrap bg-emerald-600 hover:bg-emerald-700"
+          >
+            <Icon name="banknote" className="h-3.5 w-3.5" /> Collect
           </button>
         )}
-        {canPay && (
-          <button onClick={() => setPaying(r)} className="btn-primary whitespace-nowrap bg-emerald-600 hover:bg-emerald-700">
-            <Icon name="banknote" className="h-4 w-4" /> Collect Payment
-          </button>
+        {canCancel && (
+          <OverflowMenu items={[{ label: 'Cancel order', icon: 'ban', danger: true, onSelect: () => setCancelling(r) }]} />
         )}
       </div>
     );
@@ -120,8 +130,24 @@ export function HardwareQueuePage() {
               <Icon name="refresh" className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
             </button>
           </div>
-          <div className="w-full lg:max-w-md">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search order no, customer, phone or item SKU..." />
+          <div className="flex w-full flex-col gap-3 sm:flex-row lg:max-w-3xl">
+            <div className="flex-1">
+              <SearchInput value={search} onChange={setSearch} placeholder="Search order no, customer, phone or item SKU..." />
+            </div>
+            <select value={filter} onChange={(e) => setFilter(e.target.value as QueueFilter)} aria-label="Filter orders" className="field-input sm:w-52">
+              {FILTERS.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            <select value={sort} onChange={(e) => setSort(e.target.value as QueueSort)} aria-label="Sort orders" className="field-input sm:w-48">
+              {SORTS.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </header>
@@ -129,59 +155,22 @@ export function HardwareQueuePage() {
       <main className="flex flex-1 flex-col gap-6 p-8">
         {done && <Notice tone="success">{done}</Notice>}
 
-        {/* One card per status, in lifecycle order; the picked one shows its list below */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          {STEPS.map((s) => {
-            const on = s.key === current.key;
-            const count = rows.filter((r) => r.column === s.key).length;
-            const amount = s.key === 'AWAITING_PAYMENT' ? data?.counts.awaiting_balance : data?.counts.paid_today_total;
-            return (
-              <button
-                key={s.key}
-                type="button"
-                onClick={() => setStep(s.key)}
-                aria-pressed={on}
-                className={cn(
-                  'relative flex items-center gap-4 rounded-xl border bg-white p-5 text-left shadow-sm transition-all hover:shadow-md',
-                  on ? cn('ring-2', s.tone.ring) : 'border-slate-200',
-                )}
-              >
-                <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-lg', s.tone.icon)}>
-                  <Icon name={s.icon} className="h-5 w-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-base font-bold text-slate-900">{s.title}</span>
-                  {!search.trim() && amount !== undefined && (
-                    <span className="block text-xs font-semibold text-slate-500">
-                      {s.key === 'AWAITING_PAYMENT' ? 'To collect' : 'Sold'} {formatRs(amount)}
-                    </span>
-                  )}
-                </span>
-                <span className={cn('text-3xl font-bold leading-none', count ? s.tone.count : 'text-slate-300')}>{isLoading ? '–' : count}</span>
-                {s.key === 'AWAITING_PAYMENT' && (
-                  <Icon name="chevronRight" className="absolute -right-3.5 top-1/2 z-10 hidden h-5 w-5 -translate-y-1/2 rounded-full bg-slate-50 text-slate-300 sm:block" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-
         <section className="flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <header className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
-              {current.title} <span className="ml-1 font-semibold text-slate-400">({list.length})</span>
+              {current.label} <span className="ml-1 font-semibold text-slate-400">({list.length})</span>
             </h2>
           </header>
           <div className="flex-1 overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 <tr>
-                  <th className="px-6 py-3 text-left">Order</th>
-                  <th className="px-6 py-3 text-left">Customer</th>
+                  <th className="w-px whitespace-nowrap px-6 py-3 text-left">Order</th>
+                  <th className="w-px whitespace-nowrap px-6 py-3 text-left">Customer</th>
                   <th className="px-6 py-3 text-left">Items</th>
-                  <th className="px-6 py-3 text-right">Total</th>
-                  <th className="px-6 py-3 text-right">{current.key === 'AWAITING_PAYMENT' ? 'Balance' : 'Paid'}</th>
-                  <th className="px-6 py-3 text-right">Action</th>
+                  <th className="w-px whitespace-nowrap px-6 py-3 text-right">Total</th>
+                  <th className="w-px whitespace-nowrap px-6 py-3 text-right">{filter === 'AWAITING_PAYMENT' ? 'Balance' : filter === 'PAID' ? 'Paid' : 'Balance / Paid'}</th>
+                  <th className="w-px whitespace-nowrap px-6 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
@@ -248,7 +237,7 @@ export function HardwareQueuePage() {
                         <span className="text-emerald-600">{formatRs(r.paid_amount)}</span>
                       )}
                     </td>
-                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                    <td className="whitespace-nowrap px-6 py-4" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end">{actionFor(r)}</div>
                     </td>
                   </tr>

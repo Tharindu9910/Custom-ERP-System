@@ -210,7 +210,7 @@ export interface WorkshopQueueRow {
   can_edit: boolean;
 }
 
-export type CashierColumn = 'AWAITING_PAYMENT' | 'IN_WORKSHOP' | 'FINISHED_BALANCE_DUE' | 'ROOFING_BALANCE';
+export type CashierColumn = 'AWAITING_PAYMENT' | 'IN_WORKSHOP' | 'FINISHED_BALANCE_DUE';
 
 /** One job card or roofing order in the History popup. */
 export interface OrderHistoryRow {
@@ -228,6 +228,8 @@ export interface OrderHistoryRow {
   balance: number;
   status: OrderStatus;
   display_label: string;
+  /** The latest action on the order (save, status change or payment); the list is ordered by it */
+  last_action_at: string;
 }
 
 const iso = (d: Date | string | null) => (d ? new Date(d).toISOString() : null);
@@ -488,7 +490,7 @@ export class OrderQueriesService {
 
   /**
    * History popup on the Create pages: every job card / roofing order at the branch
-   * (any status) whose form date is in From–To, newest first. One query per page:
+   * (any status) whose form date is in From–To, latest action first. One query per page:
    * the total comes back with the rows (count(*) OVER ()).
    */
   async history(
@@ -504,9 +506,21 @@ export class OrderQueriesService {
       params.push(likeContains(q.search));
       where.push(`(o.order_number ILIKE $${params.length} OR c.name ILIKE $${params.length} OR c.phone ILIKE $${params.length})`);
     }
+    const stages: Record<string, string> = {
+      AWAITING_PAYMENT: `o.status = 'DRAFT'`,
+      ACTIVE: `o.status IN ('IN_QUEUE', 'IN_PROGRESS', 'COMPLETED')`,
+      CLOSED: `o.status = 'CLOSED'`,
+      CANCELLED: `o.status = 'VOIDED'`,
+    };
+    if (q.stage) where.push(stages[q.stage]);
+    if (q.payment === 'BALANCE_DUE') where.push(`o.status <> 'VOIDED' AND o.total > o.paid_amount`);
+    if (q.payment === 'PAID') where.push(`o.status <> 'VOIDED' AND o.total <= o.paid_amount`);
     params.push(HISTORY_PAGE_SIZE, (q.page - 1) * HISTORY_PAGE_SIZE);
+    const lastAction = `GREATEST(o.updated_at, o.created_at,
+                (SELECT max(h.created_at) FROM status_history h WHERE h.order_id = o.order_id),
+                (SELECT max(p.paid_at) FROM payment p WHERE p.order_id = o.order_id AND p.status = 'COMPLETED'))`;
     const rows: Record<string, any>[] = await this.ds.query(
-      `SELECT o.order_id, o.order_number, o.status, o.total, o.paid_amount, o.created_at, ${date} AS date,
+      `SELECT o.order_id, o.order_number, o.status, o.total, o.paid_amount, o.created_at, ${date} AS date, ${lastAction} AS last_action_at,
               c.name AS customer_name, c.phone AS customer_phone, u.full_name AS created_by_name,
               (SELECT array_agg(l.status ORDER BY l.line_no) FROM order_line l WHERE l.order_id = o.order_id AND l.status <> 'CANCELLED') AS line_statuses,
               (SELECT count(*) FROM order_line l WHERE l.order_id = o.order_id AND (l.status <> 'CANCELLED' OR o.status = 'VOIDED'))::int AS item_count,
@@ -515,7 +529,7 @@ export class OrderQueriesService {
        LEFT JOIN customer c ON c.customer_id = o.customer_id
        LEFT JOIN "user" u ON u.user_id = o.created_by
        WHERE ${where.join(' AND ')}
-       ORDER BY ${date} DESC, o.created_at DESC
+       ORDER BY ${lastAction} DESC, o.created_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
@@ -527,6 +541,7 @@ export class OrderQueriesService {
           order_number: r.order_number,
           date: r.date,
           created_at: iso(r.created_at)!,
+          last_action_at: iso(r.last_action_at)!,
           customer_name: r.customer_name,
           customer_phone: r.customer_phone,
           created_by_name: r.created_by_name,
@@ -570,7 +585,7 @@ export class OrderQueriesService {
        LEFT JOIN order_line l ON l.order_id = o.order_id
        WHERE ${where.join(' AND ')}
        GROUP BY o.order_id, c.name, c.phone
-       ORDER BY o.created_at`,
+       ORDER BY o.created_at DESC`,
       params,
     );
 
@@ -610,11 +625,11 @@ export class OrderQueriesService {
   }
 
   /**
-   * Cashier Queue board (Docs/decisions/0005): job cards and unpaid roofing orders waiting
-   * for the advance / minimum, every job card in the workshop (paid any time while it is
-   * there; the card does not move), finished job cards with a balance due, and roofing
-   * orders in the Order Queue with a balance due. Once a finished card is paid in full it
-   * leaves for the supervisor's hand-over.
+   * Cashier Queue board (Docs/decisions/0005): job cards and roofing orders share the same
+   * columns. Drafts wait for the advance / minimum; every job card in the workshop and every
+   * roofing order on the Order Queue is listed (paid any time while it is there; it does not
+   * move); finished ones (job card COMPLETED, roofing READY) wait while a balance is due.
+   * Once a finished order is paid in full it leaves for the supervisor's hand-over / release.
    */
   async cashierQueue(branchId: string) {
     const rows = await this.ds.query(
@@ -626,26 +641,21 @@ export class OrderQueriesService {
        FROM "order" o LEFT JOIN customer c ON c.customer_id = o.customer_id
        LEFT JOIN order_line l ON l.order_id = o.order_id
        WHERE o.branch_id = $1
-         AND ((o.order_type IN ('JOB_CARD', 'ROOFING_ORDER') AND o.status = 'DRAFT')
-           OR (o.order_type = 'JOB_CARD' AND o.status IN ('IN_QUEUE', 'IN_PROGRESS'))
-           OR (o.order_type = 'JOB_CARD' AND o.status = 'COMPLETED' AND o.paid_amount < o.total)
-           OR (o.order_type = 'ROOFING_ORDER' AND o.status IN ('IN_QUEUE', 'IN_PROGRESS') AND o.paid_amount < o.total))
+         AND o.order_type IN ('JOB_CARD', 'ROOFING_ORDER')
+         AND (o.status IN ('DRAFT', 'IN_QUEUE', 'IN_PROGRESS')
+           OR (o.order_type = 'JOB_CARD' AND o.status = 'COMPLETED' AND o.paid_amount < o.total))
        GROUP BY o.order_id, c.name, c.phone
-       ORDER BY o.created_at`,
+       ORDER BY o.created_at DESC`,
       [branchId],
     );
-    return rows.map((r: Record<string, any>) => {
+    const mapped = rows.map((r: Record<string, any>) => {
       const statuses = parsePgArray(r.line_statuses) as LineStatus[];
       const isRoofing = r.order_type === OrderType.ROOFING_ORDER;
       const display = isRoofing ? roofingDisplayStatus(r.status, statuses) : workshopDisplayStatus(r.status);
+      // Roofing READY is derived from the lines (never stored), so it is classified here
+      const finished = isRoofing ? display === 'READY' : r.status === OrderStatus.COMPLETED;
       const column: CashierColumn =
-        r.status === OrderStatus.DRAFT
-          ? 'AWAITING_PAYMENT'
-          : isRoofing
-            ? 'ROOFING_BALANCE'
-            : r.status === OrderStatus.COMPLETED
-              ? 'FINISHED_BALANCE_DUE'
-              : 'IN_WORKSHOP';
+        r.status === OrderStatus.DRAFT ? 'AWAITING_PAYMENT' : finished ? 'FINISHED_BALANCE_DUE' : 'IN_WORKSHOP';
       const minAdvance: number = isRoofing ? (r.status === OrderStatus.DRAFT ? r.min_to_place : 0) : r.min_advance;
       return {
         order_id: r.order_id,
@@ -666,6 +676,8 @@ export class OrderQueriesService {
         version: r.version,
       };
     });
+    // A finished roofing order paid in full has left for the supervisor's release
+    return mapped.filter((r) => r.column !== 'FINISHED_BALANCE_DUE' || r.balance > 0);
   }
 }
 

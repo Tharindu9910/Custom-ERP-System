@@ -159,7 +159,7 @@ export class HardwareQueriesService {
        ) l
        WHERE o.branch_id = $1 AND o.order_type = 'HARDWARE_SALE'
          AND (o.status = 'IN_QUEUE' OR (o.status = 'CLOSED' AND ${localDate('o.released_at')} = $2))
-       ORDER BY o.created_at`,
+       ORDER BY o.created_at DESC`,
       [branchId, toBranchDate()],
     );
 
@@ -186,9 +186,9 @@ export class HardwareQueriesService {
       paid_at: iso(r.released_at),
       version: r.version,
     }));
-    // Awaiting: oldest first (serve in order). Paid: latest first.
+    // Both columns latest first (by when the sale was placed)
     const awaiting = mapped.filter((r) => r.column === 'AWAITING_PAYMENT');
-    const paid = mapped.filter((r) => r.column === 'PAID').sort((a, b) => (b.paid_at ?? '').localeCompare(a.paid_at ?? ''));
+    const paid = mapped.filter((r) => r.column === 'PAID');
     return {
       rows: [...awaiting, ...paid],
       counts: {

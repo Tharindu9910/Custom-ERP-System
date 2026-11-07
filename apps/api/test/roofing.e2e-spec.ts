@@ -658,3 +658,28 @@ describe('OQ order queue', () => {
     );
   });
 });
+
+describe('CQ cashier queue', () => {
+  const row = async (id: string) => (await cas().get('/cashier-queue')).data.find((x: any) => x.order_id === id);
+
+  it('CQ-01 roofing orders share the job card columns: In Workshop while on the Order Queue (paid or not), Finished – Balance Due when Ready, gone once paid', async () => {
+    const part = await roofingOrder(t);
+    expect(part.balance).toBeGreaterThan(0);
+    const p = await row(part.order_id);
+    expect([p.column, p.display_label, p.balance]).toEqual(['IN_WORKSHOP', 'Placed', part.balance]);
+
+    const full = await roofingOrder(t, { payFull: true });
+    const f = await row(full.order_id);
+    expect([f.column, f.balance]).toEqual(['IN_WORKSHOP', 0]);
+
+    const ready = await readyRoofingOrder(t);
+    expect(ready.balance).toBeGreaterThan(0);
+    const r = await row(ready.order_id);
+    expect([r.column, r.display_label, r.balance]).toEqual(['FINISHED_BALANCE_DUE', 'Ready', ready.balance]);
+
+    await payBalance(t, ready);
+    expect(await row(ready.order_id)).toBeUndefined();
+    const all = (await cas().get('/cashier-queue')).data;
+    expect(all.every((x: any) => ['AWAITING_PAYMENT', 'IN_WORKSHOP', 'FINISHED_BALANCE_DUE'].includes(x.column))).toBe(true);
+  });
+});

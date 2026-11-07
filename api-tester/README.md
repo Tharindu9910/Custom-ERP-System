@@ -1,6 +1,6 @@
 # Saniro ERP — API Tester
 
-Single-file, zero-build browser tool for testing the Saniro ERP API. It covers every controller route (105), grouped by what it does.
+Single-file, zero-build browser tool for testing the Saniro ERP API. It covers every controller route (107, including the events stream), grouped by what it does.
 
 ## Quick Start
 
